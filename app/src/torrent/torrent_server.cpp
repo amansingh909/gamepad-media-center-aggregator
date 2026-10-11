@@ -9,6 +9,7 @@
 #include <fcntl.h>
 #include <netinet/in.h>
 #include <poll.h>
+#include <sys/ioctl.h>
 #include <sys/socket.h>
 #include <sys/time.h>
 #include <unistd.h>
@@ -206,8 +207,18 @@ struct TorrentServer::Impl {
             if (::poll(&pfd, 1, 500) <= 0) continue;
             int fd = ::accept(listenFd, nullptr, nullptr);
             if (fd < 0) {
+                // the client went away between poll() and accept(): nothing to accept
+                if (errno == EAGAIN || errno == EWOULDBLOCK || errno == ECONNABORTED || errno == EINTR) continue;
                 log(std::string("accept: ") + std::strerror(errno));
                 std::this_thread::sleep_for(std::chrono::milliseconds(100));
+                continue;
+            }
+            // BSD (the PS4 kernel) gives the accepted socket the listening socket's
+            // non-blocking flag, Linux doesn't: sendAll() needs a blocking socket
+            int off = 0;
+            if (::ioctl(fd, FIONBIO, &off) != 0) {
+                log(std::string("blocking connection socket: ") + std::strerror(errno));
+                ::close(fd);
                 continue;
             }
             std::lock_guard<std::mutex> lock(connMutex);
@@ -256,6 +267,14 @@ bool TorrentServer::start(uint16_t port, bool lan, std::string& error) {
     addr.sin_addr.s_addr = htonl(lan ? INADDR_ANY : INADDR_LOOPBACK);
     if (::bind(fd, reinterpret_cast<sockaddr*>(&addr), sizeof addr) != 0 || ::listen(fd, 16) != 0) {
         error = "port " + std::to_string(port) + ": " + std::strerror(errno);
+        ::close(fd);
+        return false;
+    }
+    // non-blocking, so a client that resets between poll() and accept() can't leave
+    // accept() blocked (on BSD) and stop() waiting on the accept thread
+    int on = 1;
+    if (::ioctl(fd, FIONBIO, &on) != 0) {
+        error = std::string("non-blocking listening socket: ") + std::strerror(errno);
         ::close(fd);
         return false;
     }
