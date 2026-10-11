@@ -24,6 +24,7 @@
 #include <algorithm>
 #include <chrono>
 #include <condition_variable>
+#include <cstdio>
 #include <exception>
 #include <filesystem>
 #include <map>
@@ -118,6 +119,7 @@ struct TorrentEngine::Impl {
     std::map<std::string, Torrent> torrents;
     std::vector<std::pair<std::string, Clock::time_point>> pendingDirs;
     Clock::time_point idleSince = Clock::now();
+    Clock::time_point nextStats = Clock::time_point::max();  // the next stats lines, while a session exists
     bool quit = false;
     bool closing = false;  // expire() is destroying an idle session with the lock dropped
     int inside = 0;        // acquire() and waitFor() calls in progress
@@ -292,6 +294,7 @@ struct TorrentEngine::Impl {
         params.disk_io_constructor = lt::posix_disk_io_constructor;
         session = std::make_unique<lt::session>(std::move(params));
         idleSince = Clock::now();
+        nextStats = Clock::now() + std::chrono::seconds(30);
         log("session started");
     }
 
@@ -508,7 +511,28 @@ struct TorrentEngine::Impl {
         }
     }
 
-    // One round of the worker: alerts, then expiry.
+    // Every 30 s, how each torrent is doing: torrent.log is all a console run leaves
+    // behind (uploads during the grace period, bytes downloaded twice or thrown away).
+    void logStats() {
+        auto now = Clock::now();
+        if (!session || now < nextStats) return;
+        nextStats = now + std::chrono::seconds(30);
+        auto mb = [](int64_t bytes) {
+            char buf[32];
+            std::snprintf(buf, sizeof buf, "%.1f", double(bytes) / (1 << 20));
+            return std::string(buf);
+        };
+        for (auto& kv : torrents) {
+            // no query flags: these fields are always filled in
+            lt::torrent_status st = kv.second.handle.status(lt::status_flags_t{});
+            log(kv.first + ": peers " + std::to_string(st.num_peers) + ", down " +
+                std::to_string(st.download_payload_rate / 1024) + " KB/s, up " +
+                std::to_string(st.upload_payload_rate / 1024) + " KB/s, redundant " + mb(st.total_redundant_bytes) +
+                " MB, failed " + mb(st.total_failed_bytes) + " MB, readers " + std::to_string(kv.second.readers));
+        }
+    }
+
+    // One round of the worker: alerts, stats, expiry.
     void step(std::unique_lock<std::mutex>& lock) {
         lt::session* s = session.get();
         if (!s) {
@@ -526,6 +550,7 @@ struct TorrentEngine::Impl {
         // piece alert leaves its reader waiting for data that is on disk)
         for (lt::alert* a : alerts) guarded("engine", [&] { handle(a); });
         if (!alerts.empty()) changed.notify_all();
+        logStats();
         expire(lock);
     }
 
