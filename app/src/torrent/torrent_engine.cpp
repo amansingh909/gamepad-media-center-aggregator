@@ -24,6 +24,7 @@
 #include <algorithm>
 #include <chrono>
 #include <condition_variable>
+#include <exception>
 #include <filesystem>
 #include <map>
 #include <mutex>
@@ -155,6 +156,22 @@ struct TorrentEngine::Impl {
         Waiting& operator=(const Waiting&) = delete;
     };
 
+    // One reader reference on a torrent, taken by acquire(): it keeps the torrent in
+    // the map (and its address valid) while acquire() waits, and goes back on every
+    // way out of acquire() but success, exceptions included. On success the new reader
+    // owns it until release().
+    struct Reference {
+        Impl& impl;
+        Torrent& t;
+        bool kept = false;
+        Reference(Impl& i, Torrent& tor) : impl(i), t(tor) { ++t.readers; }
+        ~Reference() {
+            if (!kept) impl.dropReader(t);
+        }
+        Reference(const Reference&) = delete;
+        Reference& operator=(const Reference&) = delete;
+    };
+
     explicit Impl(EngineSettings s) : settings(std::move(s)), tempOk(isUsableTempDir(settings.tempDir)) {
         if (!tempOk) log("temp folder \"" + settings.tempDir + "\" is not an absolute path: torrents are off");
         sweep();
@@ -188,6 +205,29 @@ struct TorrentEngine::Impl {
 
     void log(const std::string& m) {
         if (settings.log) settings.log(m);
+    }
+
+    void logError(const char* what, const char* detail) noexcept {
+        try {
+            log(std::string(what) + ": " + detail);
+        } catch (...) {
+        }
+    }
+
+    // Runs `f` and logs what it throws instead of letting it out: an exception that
+    // escapes the worker thread, a UI-thread call or a destructor ends the app (a
+    // libtorrent system_error, a bad_alloc). Returns false if `f` threw.
+    template <class F>
+    bool guarded(const char* what, F&& f) noexcept {
+        try {
+            f();
+            return true;
+        } catch (const std::exception& e) {
+            logError(what, e.what());
+        } catch (...) {
+            logError(what, "unknown error");
+        }
+        return false;
     }
 
     // Deletes one of the engine's own save folders (<info hash>-<n>), never anything else.
@@ -319,7 +359,8 @@ struct TorrentEngine::Impl {
         if (t.readers <= 0) return;
         if (--t.readers > 0) return;
         t.removeAt = Clock::now() + std::chrono::seconds(settings.graceSecs);
-        t.handle.set_upload_limit(1);
+        // runs in Reference's destructor: log a failure, don't throw it
+        guarded("engine", [&] { t.handle.set_upload_limit(1); });
     }
 
     void onMetadata(Torrent& t) {
@@ -467,24 +508,41 @@ struct TorrentEngine::Impl {
         }
     }
 
+    // One round of the worker: alerts, then expiry.
+    void step(std::unique_lock<std::mutex>& lock) {
+        lt::session* s = session.get();
+        if (!s) {
+            changed.wait_for(lock, std::chrono::milliseconds(250));
+            expire(lock);
+            return;
+        }
+        // only this thread destroys the session, so `s` stays valid unlocked
+        lock.unlock();
+        s->wait_for_alert(lt::milliseconds(250));
+        std::vector<lt::alert*> alerts;
+        s->pop_alerts(&alerts);
+        lock.lock();
+        // one at a time: an alert that fails mustn't lose the ones after it (a lost
+        // piece alert leaves its reader waiting for data that is on disk)
+        for (lt::alert* a : alerts) guarded("engine", [&] { handle(a); });
+        if (!alerts.empty()) changed.notify_all();
+        expire(lock);
+    }
+
     void run() {
         std::unique_lock<std::mutex> lock(mutex);
+        int failures = 0;  // in a row
         while (!quit) {
-            lt::session* s = session.get();
-            if (!s) {
-                changed.wait_for(lock, std::chrono::milliseconds(250));
-                expire(lock);
+            if (guarded("engine", [&] { step(lock); })) {
+                failures = 0;
                 continue;
             }
-            // only this thread destroys the session, so `s` stays valid unlocked
-            lock.unlock();
-            s->wait_for_alert(lt::milliseconds(250));
-            std::vector<lt::alert*> alerts;
-            s->pop_alerts(&alerts);
-            lock.lock();
-            for (lt::alert* a : alerts) handle(a);
-            if (!alerts.empty()) changed.notify_all();
-            expire(lock);
+            // it may have thrown with the lock dropped
+            if (!lock.owns_lock()) lock.lock();
+            // a fault that keeps coming back must not spin: wait a little longer each
+            // time, up to 5 s, and stop waiting at once on shutdown
+            failures = std::min(failures + 1, 20);
+            changed.wait_for(lock, std::chrono::milliseconds(250 * failures), [this] { return quit; });
         }
     }
 };
@@ -506,49 +564,53 @@ Status TorrentEngine::acquire(const StreamRequest& req, FileInfo& file, ReaderId
         impl->log("add failed: " + error);
         return Status::BadRequest;
     }
-    // a reader reference keeps `t` in the map (and its address valid) while we wait
+    // declared after Inside: it gives the reference back while the lock is still held
+    Impl::Reference ref(*impl, *t);
     // lift dropReader()'s 1 B/s throttle: the session-wide cap governs while someone reads
-    if (t->readers++ == 0) t->handle.set_upload_limit(-1);
+    if (t->readers == 1) t->handle.set_upload_limit(-1);
     t->removeAt = Clock::time_point::max();
-    auto giveUp = [&](Status s) {
-        impl->dropReader(*t);
-        return s;
-    };
 
     auto deadline = Clock::now() + std::chrono::seconds(impl->settings.stallSecs);
     while (!t->metadata && t->error.empty() && !impl->quit) {
         if (impl->changed.wait_until(lock, deadline) == std::cv_status::timeout && !t->metadata)
-            return giveUp(Status::NoPeers);
+            return Status::NoPeers;
     }
-    if (impl->quit) return giveUp(Status::Stopped);
-    if (!t->error.empty()) return giveUp(Status::DiskError);
+    if (impl->quit) return Status::Stopped;
+    if (!t->error.empty()) return Status::DiskError;
 
     const lt::file_storage& files = t->info->files();
     std::vector<int64_t> sizes;
     for (int i = 0; i < files.num_files(); ++i) sizes.push_back(files.file_size(lt::file_index_t(i)));
     int index = pickFile(req.fileIndex, sizes);
-    if (index < 0) return giveUp(Status::NotFound);
+    if (index < 0) return Status::NotFound;
 
+    // everything that can throw before the reader exists, so a throw leaves nothing behind
     lt::file_index_t fi(index);
+    FileInfo found;
+    found.name = files.file_path(fi);
+    found.diskPath = files.file_path(fi, t->savePath);
+    found.size = files.file_size(fi);
     ReaderId id = impl->nextReader++;
     t->active.emplace(std::piecewise_construct, std::forward_as_tuple(id),
                       std::forward_as_tuple(files.file_offset(fi), files.file_size(fi)));
+    ref.kept = true;
     reader = id;
-    file.name = files.file_path(fi);
-    file.diskPath = files.file_path(fi, t->savePath);
-    file.size = files.file_size(fi);
+    file = std::move(found);
     return Status::Ok;
 }
 
 void TorrentEngine::release(const StreamRequest& req, ReaderId reader) {
-    std::lock_guard<std::mutex> lock(impl->mutex);
-    Torrent* t = impl->find(req.infoHash);
-    if (!t || !impl->findReader(*t, reader)) return;
-    t->active.erase(reader);
-    impl->dropReader(*t);
-    // the readers left get the torrent to themselves: the released window and its
-    // deadlines would otherwise stay until one of them refills
-    if (!t->active.empty()) impl->reprioritize(*t);
+    // the server calls this from a destructor, where a throw would end the app
+    impl->guarded("release", [&] {
+        std::lock_guard<std::mutex> lock(impl->mutex);
+        Torrent* t = impl->find(req.infoHash);
+        if (!t || !impl->findReader(*t, reader)) return;
+        t->active.erase(reader);
+        impl->dropReader(*t);
+        // the readers left get the torrent to themselves: the released window and its
+        // deadlines would otherwise stay until one of them refills
+        if (!t->active.empty()) impl->reprioritize(*t);
+    });
 }
 
 Status TorrentEngine::waitFor(const StreamRequest& req, ReaderId reader, int64_t begin, int64_t end) {
@@ -590,43 +652,52 @@ Status TorrentEngine::waitFor(const StreamRequest& req, ReaderId reader, int64_t
 }
 
 void TorrentEngine::prefetch(const StreamRequest& req) {
-    std::unique_lock<std::mutex> lock(impl->mutex);
-    if (impl->quit) return;
-    // runs on the UI thread: never wait for an idle session to finish closing
-    if (impl->closing) {
-        impl->log("prefetch skipped, session closing");
-        return;
-    }
-    bool existed = impl->find(req.infoHash) != nullptr;
-    std::string error;
-    Torrent* t = impl->ensure(req, lock, error);
-    if (!t) {
-        impl->log("prefetch failed: " + error);
-        return;
-    }
-    if (!existed) t->removeAt = Clock::now() + std::chrono::seconds(std::max(120, impl->settings.graceSecs));
+    // UI thread: log what fails, never throw
+    impl->guarded("prefetch", [&] {
+        std::unique_lock<std::mutex> lock(impl->mutex);
+        if (impl->quit) return;
+        // runs on the UI thread: never wait for an idle session to finish closing
+        if (impl->closing) {
+            impl->log("prefetch skipped, session closing");
+            return;
+        }
+        bool existed = impl->find(req.infoHash) != nullptr;
+        std::string error;
+        Torrent* t = impl->ensure(req, lock, error);
+        if (!t) {
+            impl->log("prefetch failed: " + error);
+            return;
+        }
+        if (!existed) t->removeAt = Clock::now() + std::chrono::seconds(std::max(120, impl->settings.graceSecs));
+    });
 }
 
 Stats TorrentEngine::stats(const std::string& infoHash) {
-    std::lock_guard<std::mutex> lock(impl->mutex);
     Stats s;
-    Torrent* t = impl->find(infoHash);
-    if (!t) return s;
-    lt::torrent_status st = t->handle.status();
-    s.peers = st.num_peers;
-    s.downloadBytesPerSec = st.download_payload_rate;
-    s.hasMetadata = t->metadata;
-    return s;
+    // UI thread: log what fails and report nothing, never throw
+    bool ok = impl->guarded("stats", [&] {
+        std::lock_guard<std::mutex> lock(impl->mutex);
+        Torrent* t = impl->find(infoHash);
+        if (!t) return;
+        lt::torrent_status st = t->handle.status();
+        s.peers = st.num_peers;
+        s.downloadBytesPerSec = st.download_payload_rate;
+        s.hasMetadata = t->metadata;
+    });
+    return ok ? s : Stats{};
 }
 
 void TorrentEngine::setUploadLimit(int bytesPerSec) {
-    std::lock_guard<std::mutex> lock(impl->mutex);
-    impl->settings.uploadLimit = bytesPerSec;
-    if (impl->session) {
-        lt::settings_pack sp;
-        sp.set_int(lt::settings_pack::upload_rate_limit, bytesPerSec);
-        impl->session->apply_settings(std::move(sp));
-    }
+    // UI thread: log what fails, never throw
+    impl->guarded("setUploadLimit", [&] {
+        std::lock_guard<std::mutex> lock(impl->mutex);
+        impl->settings.uploadLimit = bytesPerSec;
+        if (impl->session) {
+            lt::settings_pack sp;
+            sp.set_int(lt::settings_pack::upload_rate_limit, bytesPerSec);
+            impl->session->apply_settings(std::move(sp));
+        }
+    });
 }
 
 }  // namespace torrent
