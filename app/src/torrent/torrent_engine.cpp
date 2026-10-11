@@ -3,6 +3,7 @@
 #include <torrent/piece_plan.hpp>
 #include <torrent/pieces.hpp>
 #include <torrent/read_window.hpp>
+#include <torrent/temp_folder.hpp>
 
 #include <libtorrent/add_torrent_params.hpp>
 #include <libtorrent/alert_types.hpp>
@@ -109,6 +110,7 @@ using detail::Torrent;
 
 struct TorrentEngine::Impl {
     EngineSettings settings;
+    const bool tempOk;  // an absolute tempDir; without one the engine creates and deletes nothing
     std::mutex mutex;
     std::condition_variable changed;
     std::unique_ptr<lt::session> session;
@@ -153,7 +155,8 @@ struct TorrentEngine::Impl {
         Waiting& operator=(const Waiting&) = delete;
     };
 
-    explicit Impl(EngineSettings s) : settings(std::move(s)) {
+    explicit Impl(EngineSettings s) : settings(std::move(s)), tempOk(isUsableTempDir(settings.tempDir)) {
+        if (!tempOk) log("temp folder \"" + settings.tempDir + "\" is not an absolute path: torrents are off");
         sweep();
         worker = std::thread([this] { run(); });
     }
@@ -187,15 +190,33 @@ struct TorrentEngine::Impl {
         if (settings.log) settings.log(m);
     }
 
+    // Deletes one of the engine's own save folders (<info hash>-<n>), never anything else.
+    bool removeFolder(const fs::path& p) {
+        if (!isEngineFolderName(p.filename().string())) {
+            log("not deleting " + p.string() + ": not an engine folder");
+            return false;
+        }
+        std::error_code ec;
+        fs::remove_all(p, ec);
+        if (ec) log("deleting " + p.string() + ": " + ec.message());
+        return !ec;
+    }
+
+    // Deletes what a crash or an earlier run left in tempDir. Only the engine's own
+    // folders: anything else in there is left alone.
     void sweep() {
+        if (!tempOk) return;
         std::error_code ec;
         fs::create_directories(settings.tempDir, ec);
+        if (ec) log("creating " + settings.tempDir + ": " + ec.message());
         std::vector<fs::path> leftovers;
         for (auto it = fs::directory_iterator(settings.tempDir, ec); !ec && it != fs::directory_iterator();
              it.increment(ec))
-            leftovers.push_back(it->path());
-        for (const auto& p : leftovers) fs::remove_all(p, ec);
-        if (!leftovers.empty()) log("swept " + std::to_string(leftovers.size()) + " leftovers");
+            if (isEngineFolderName(it->path().filename().string())) leftovers.push_back(it->path());
+        if (ec) log("listing " + settings.tempDir + ": " + ec.message());
+        int removed = 0;
+        for (const auto& p : leftovers) removed += removeFolder(p) ? 1 : 0;
+        if (removed > 0) log("swept " + std::to_string(removed) + " leftovers");
     }
 
     void startSession() {
@@ -255,6 +276,10 @@ struct TorrentEngine::Impl {
         changed.wait(lock, [this] { return !closing || quit; });
         if (quit) {
             error = "engine stopped";
+            return nullptr;
+        }
+        if (!tempOk) {
+            error = "no usable temp folder";
             return nullptr;
         }
         if (Torrent* t = find(req.infoHash)) return t;
@@ -420,8 +445,7 @@ struct TorrentEngine::Impl {
         }
         for (auto it = pendingDirs.begin(); it != pendingDirs.end();) {
             if (now >= it->second) {
-                std::error_code ec;
-                fs::remove_all(it->first, ec);
+                removeFolder(it->first);
                 it = pendingDirs.erase(it);
             } else {
                 ++it;
