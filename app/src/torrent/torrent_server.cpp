@@ -20,12 +20,19 @@
 #include <chrono>
 #include <csignal>
 #include <cstring>
+#include <exception>
 #include <iterator>
 #include <list>
 #include <mutex>
 #include <system_error>
 #include <thread>
 #include <vector>
+
+#ifdef __PS4__
+#ifndef SO_NOSIGPIPE
+#define SO_NOSIGPIPE 0x0800  // FreeBSD value; OpenOrbis' headers omit it
+#endif
+#endif
 
 namespace torrent {
 
@@ -58,7 +65,7 @@ std::string messageFor(Status s) {
 
 bool sendAll(int fd, const char* data, size_t len) {
     while (len > 0) {
-        ssize_t n = ::send(fd, data, len, 0);  // SIGPIPE is ignored by the app
+        ssize_t n = ::send(fd, data, len, 0);  // SIGPIPE is ignored (and SO_NOSIGPIPE on PS4)
         if (n < 0 && errno == EINTR) continue;
         if (n <= 0) return false;
         data += n;
@@ -166,6 +173,10 @@ struct TorrentServer::Impl {
             log("cannot open " + file.diskPath + ": " + std::strerror(errno));
             return;
         }
+        struct CloseFile {
+            int fd;
+            ~CloseFile() { ::close(fd); }
+        } closeFile{fileFd};
         std::vector<char> buf(static_cast<size_t>(chunkSize));
         for (int64_t pos = range.first; pos <= range.last && !stopping;) {
             int64_t end = std::min(range.last + 1, pos + chunkSize);
@@ -183,7 +194,6 @@ struct TorrentServer::Impl {
             if (!sendAll(fd, buf.data(), size_t(n))) break;  // the client went away
             pos += n;
         }
-        ::close(fileFd);
     }
 
     // joins the connections that have finished; only the accept thread calls this
@@ -221,13 +231,28 @@ struct TorrentServer::Impl {
                 ::close(fd);
                 continue;
             }
+#ifdef __PS4__
+            // a second guard beside the ignored signal, which is unproven on the console
+            // (OpenOrbis' signal headers use Linux layouts on a FreeBSD kernel)
+            int noSigpipe = 1;
+            if (::setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &noSigpipe, sizeof noSigpipe) != 0)
+                log(std::string("SO_NOSIGPIPE: ") + std::strerror(errno));
+#endif
             std::lock_guard<std::mutex> lock(connMutex);
             conns.emplace_back();
             Conn& c = conns.back();
             c.fd = fd;
             try {
                 c.thread = std::thread([this, &c, fd] {
-                    serve(fd);
+                    // an exception escaping a thread ends the app; serve()'s guards still
+                    // release the reader and close the file while it unwinds
+                    try {
+                        serve(fd);
+                    } catch (const std::exception& e) {
+                        log(std::string("connection error: ") + e.what());
+                    } catch (...) {
+                        log("connection error");
+                    }
                     std::lock_guard<std::mutex> lock(connMutex);
                     ::close(fd);
                     c.done = true;
@@ -247,10 +272,8 @@ TorrentServer::TorrentServer(TorrentEngine& engine, std::function<void(const std
 TorrentServer::~TorrentServer() { stop(); }
 
 bool TorrentServer::start(uint16_t port, bool lan, std::string& error) {
-#ifndef _WIN32
     // a client hanging up mid-send must not kill the app
-    std::signal(SIGPIPE, SIG_IGN);
-#endif
+    if (std::signal(SIGPIPE, SIG_IGN) == SIG_ERR) impl->log(std::string("ignoring SIGPIPE: ") + std::strerror(errno));
     int fd = ::socket(AF_INET, SOCK_STREAM, 0);
     if (fd < 0) {
         error = std::string("socket: ") + std::strerror(errno);

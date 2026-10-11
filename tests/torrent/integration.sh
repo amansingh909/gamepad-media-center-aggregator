@@ -58,6 +58,23 @@ if [ "$c" = 206 ] && [ "$(size "$WORK/tail")" = 4096 ] &&
 c=$(fetch "$URL" 3000000000-3001048575 "$WORK/mid")
 [ "$c" = 206 ] && [ "$(size "$WORK/mid")" = 1048576 ] && pass "seek to the middle" || fail "seek to the middle: $c"
 
+# ground truth from outside the server: an ISO 9660 image has "CD001" at byte 32769
+c=$(fetch "$URL" 32768-32773 "$WORK/pvd")
+[ "$c" = 206 ] && [ "$(tail -c 5 "$WORK/pvd")" = CD001 ] && pass "ISO header at its offset" ||
+    fail "ISO header at its offset: $c"
+
+# 64-bit file offsets: A starts 100000 bytes below 4 GiB and B at 4 GiB, so the server's
+# 256 KiB chunks cross the boundary at different points. A truncated offset would make B
+# start with the file's first bytes.
+c1=$(fetch "$URL" 4294867296-4295491583 "$WORK/g1")
+c2=$(fetch "$URL" 4294967296-4295491583 "$WORK/g2")
+if [ "$c1" = 206 ] && [ "$c2" = 206 ] && [ "$(size "$WORK/g1")" = 624288 ] && [ "$(size "$WORK/g2")" = 524288 ] &&
+    cmp -s <(tail -c "$(size "$WORK/g2")" "$WORK/g1") "$WORK/g2"; then
+    pass "reads past 4 GiB line up"
+else
+    fail "reads past 4 GiB line up: $c1 $c2 $(size "$WORK/g1") $(size "$WORK/g2")"
+fi
+
 # a player reads the start while it probes the end
 fetch "$URL" 8388608-12582911 "$WORK/p1" > "$WORK/p1.code" &
 fetch "$URL" 6600000000-6601048575 "$WORK/p2" > "$WORK/p2.code" &
@@ -93,12 +110,17 @@ c=$(fetch "$BASE/$HASH/7?tr=$TR" "" "$WORK/x")
 c=$(fetch "$BASE/0000000000000000000000000000000000000001/0" "" "$WORK/x" $((STALL + 30)))
 [ "$c" = 504 ] && pass "dead torrent" || fail "dead torrent: $c"
 
+# a client that disconnects mid-transfer: the server keeps serving
+curl -s -o /dev/null --max-time 300 -r 0- "$URL" &
+sleep 10
+kill $! 2>/dev/null
+wait 2>/dev/null
+out=$(curl -s -I --max-time 30 "$URL")
+echo "$out" | grep -q "^HTTP/1.1 200" && pass "still serving after a client hung up mid-transfer" ||
+    fail "still serving after a client hung up mid-transfer: $out"
+
 if [ "$REMOTE" = 0 ]; then
-    # a client that disconnects mid-transfer: its reader goes, then the data
-    curl -s -o /dev/null --max-time 300 -r 0- "$URL" &
-    sleep 10
-    kill $! 2>/dev/null
-    wait 2>/dev/null
+    # its reader goes, then the data
     sleep $((GRACE + 12))
     left=$(ls -d "$TEMP/$HASH"* 2>/dev/null)
     [ -z "$left" ] && pass "data deleted after the last reader" || fail "data deleted: $left still there"
