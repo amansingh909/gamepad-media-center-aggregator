@@ -49,10 +49,10 @@ public:
         int64_t window = std::max(minWindow, int64_t(std::min(bytesPerSec * windowSecs, double(maxWindow))));
         int64_t deadline = std::max(minDeadline, int64_t(std::min(bytesPerSec * deadlineSecs, double(maxDeadline))));
         bool seek = position < windowStart || position > wantEnd;
-        if (seek) windowStart = position;
         bool low = wantEnd - position < window / 2;
         int64_t newEnd = (seek || low) ? std::min(fileSize, position + window) : wantEnd;
         bool refill = seek || newEnd != wantEnd;
+        if (refill) windowStart = position;  // [windowStart, wantEnd) is what the last refill prioritized
         wantEnd = newEnd;
         return {wantEnd, std::min(wantEnd, std::min(fileSize, position + deadline)), refill};
     }

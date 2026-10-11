@@ -55,6 +55,14 @@ int main() {
     CHECK(p.refill && p.wantEnd == 532 * MiB);
     p = w.update(100 * MiB);  // seek backward
     CHECK(p.refill && p.wantEnd == 132 * MiB);
+
+    // a jump back to a spot the window has already moved past is a seek too
+    ReadWindow back(1000 * MiB);
+    back.update(0);
+    p = back.update(20 * MiB);  // refill: the window now starts at 20 MiB
+    CHECK(p.refill && p.wantEnd == 52 * MiB);
+    p = back.update(5 * MiB);
+    CHECK(p.refill && p.wantEnd == 37 * MiB);
     p = w.update(990 * MiB);  // near the end: clamped to the file
     CHECK(p.refill && p.wantEnd == 1000 * MiB && p.deadlineEnd == 994 * MiB);
     p = w.update(995 * MiB);  // nothing left to add
