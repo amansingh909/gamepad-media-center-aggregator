@@ -10,6 +10,7 @@
 #include <libtorrent/session.hpp>
 #include <libtorrent/session_params.hpp>
 #include <libtorrent/settings_pack.hpp>
+#include <libtorrent/torrent_flags.hpp>
 #include <libtorrent/torrent_handle.hpp>
 #include <libtorrent/torrent_info.hpp>
 #include <libtorrent/torrent_status.hpp>
@@ -180,9 +181,14 @@ struct TorrentEngine::Impl {
 #endif
         lt::settings_pack sp;
         sp.set_str(lt::settings_pack::listen_interfaces, "0.0.0.0:6881");
+        // block_progress: a torrent with big pieces that downloads slowly can go a minute
+        // without finishing a piece while still moving; a written block is progress too
         sp.set_int(lt::settings_pack::alert_mask, lt::alert_category::status | lt::alert_category::error |
                                                      lt::alert_category::storage |
-                                                     lt::alert_category::piece_progress);
+                                                     lt::alert_category::piece_progress |
+                                                     lt::alert_category::block_progress);
+        // room for one alert per 16 KiB block between two pops of the queue
+        sp.set_int(lt::settings_pack::alert_queue_size, 10000);
         sp.set_bool(lt::settings_pack::enable_dht, true);
         sp.set_bool(lt::settings_pack::enable_lsd, false);
         sp.set_bool(lt::settings_pack::enable_upnp, false);
@@ -244,6 +250,10 @@ struct TorrentEngine::Impl {
         // at dont_download, so it has nothing to upload, and libtorrent's per-torrent
         // limit also throttles handshakes and metadata requests (prefetch would never
         // get the metadata)
+        // not auto-managed: libtorrent's queue would pause torrents past active_downloads
+        // (3) or active_seeds (5), so a few dead or prefetched sources could hold the one
+        // being watched paused until acquire() gives up
+        atp.flags &= ~(lt::torrent_flags::auto_managed | lt::torrent_flags::paused);
         t.handle = session->add_torrent(std::move(atp), ec);
         if (ec) {
             error = ec.message();
@@ -280,7 +290,10 @@ struct TorrentEngine::Impl {
     }
 
     void handle(lt::alert* a) {
-        if (auto* m = lt::alert_cast<lt::metadata_received_alert>(a)) {
+        if (auto* b = lt::alert_cast<lt::block_finished_alert>(a)) {
+            // progress only: a piece is readable once piece_finished_alert says so
+            if (Torrent* t = byHandle(b->handle)) t->lastProgress = Clock::now();
+        } else if (auto* m = lt::alert_cast<lt::metadata_received_alert>(a)) {
             if (Torrent* t = byHandle(m->handle)) onMetadata(*t);
         } else if (auto* p = lt::alert_cast<lt::piece_finished_alert>(a)) {
             if (Torrent* t = byHandle(p->handle)) {
@@ -437,7 +450,6 @@ Status TorrentEngine::acquire(const StreamRequest& req, FileInfo& file, ReaderId
     // lift dropReader()'s 1 B/s throttle: the session-wide cap governs while someone reads
     if (t->readers++ == 0) t->handle.set_upload_limit(-1);
     t->removeAt = Clock::time_point::max();
-    t->lastProgress = Clock::now();
     auto giveUp = [&](Status s) {
         impl->dropReader(*t);
         return s;
