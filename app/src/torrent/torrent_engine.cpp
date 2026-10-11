@@ -6,6 +6,7 @@
 #include <libtorrent/add_torrent_params.hpp>
 #include <libtorrent/alert_types.hpp>
 #include <libtorrent/magnet_uri.hpp>
+#include <libtorrent/posix_disk_io.hpp>
 #include <libtorrent/session.hpp>
 #include <libtorrent/session_params.hpp>
 #include <libtorrent/settings_pack.hpp>
@@ -73,6 +74,7 @@ struct Reader {
     int64_t fileOffset = 0, fileSize = 0;
     ReadWindow window;
     int64_t position = 0;               // where the last waitFor() began
+    int64_t windowStart = 0;            // position at this reader's last refill
     ReadWindow::Plan plan{0, 0, false};  // what the window wanted then
 
     Reader(int64_t offset, int64_t size) : fileOffset(offset), fileSize(size), window(size) {}
@@ -189,7 +191,16 @@ struct TorrentEngine::Impl {
         // a streaming torrent looks finished whenever its window is full; keep the seeds
         sp.set_bool(lt::settings_pack::close_redundant_connections, false);
         sp.set_int(lt::settings_pack::upload_rate_limit, settings.uploadLimit);
-        session = std::make_unique<lt::session>(lt::session_params(std::move(sp)));
+        // closing the session waits this long for trackers to acknowledge "stopped"
+        sp.set_int(lt::settings_pack::stop_tracker_timeout, 1);
+        lt::session_params params(std::move(sp));
+        // The server relies on this: once waitFor() returns Ok, pread() of the file sees
+        // the verified bytes. The POSIX backend writes each block to the file before
+        // completing it and hashes a piece by reading it back from the file, so a piece
+        // that passed is on disk. The default mmap backend can hash queued blocks from
+        // memory before they reach the file. It is also the PS4 build's backend.
+        params.disk_io_constructor = lt::posix_disk_io_constructor;
+        session = std::make_unique<lt::session>(std::move(params));
         idleSince = Clock::now();
         log("session started");
     }
@@ -229,8 +240,10 @@ struct TorrentEngine::Impl {
         // its own folder: the previous copy of this torrent may still be being deleted
         t.savePath = settings.tempDir + "/" + req.infoHash + "-" + std::to_string(++addCount);
         atp.save_path = t.savePath;
-        // nothing to share until a reader comes (acquire lifts it)
-        atp.upload_limit = 1;
+        // no per-torrent upload limit here: a new or prefetched torrent has every piece
+        // at dont_download, so it has nothing to upload, and libtorrent's per-torrent
+        // limit also throttles handshakes and metadata requests (prefetch would never
+        // get the metadata)
         t.handle = session->add_torrent(std::move(atp), ec);
         if (ec) {
             error = ec.message();
@@ -241,7 +254,9 @@ struct TorrentEngine::Impl {
     }
 
     // One place to let go of a reader reference: the last one starts the grace period
-    // and stops uploading.
+    // and stops uploading. The torrent now holds pieces it could share; 1 B/s also
+    // holds back our own requests (the limit covers every byte sent to its peers),
+    // which is fine with nobody reading. acquire() lifts it.
     void dropReader(Torrent& t) {
         if (t.readers <= 0) return;
         if (--t.readers > 0) return;
@@ -306,14 +321,17 @@ struct TorrentEngine::Impl {
         r.plan = plan;
         const int n = int(t.have.size());
         if (plan.refill) {
+            r.windowStart = position;
             std::vector<lt::download_priority_t> prio(size_t(n), lt::dont_download);
             auto mark = [&](PieceSpan s) {
                 for (int p = std::max(0, s.first); p <= s.last && p < n; ++p) prio[size_t(p)] = lt::top_priority;
             };
             for (const auto& kv : t.active) {
                 const Reader& o = kv.second;
-                if (o.plan.wantEnd > o.position)
-                    mark(piecesFor(o.fileOffset, o.position, o.plan.wantEnd, t.pieceLength));
+                // [windowStart, wantEnd), not [position, wantEnd): a jump back inside the
+                // reader's window doesn't refill it, so those pieces must stay wanted
+                if (o.plan.wantEnd > o.windowStart)
+                    mark(piecesFor(o.fileOffset, o.windowStart, o.plan.wantEnd, t.pieceLength));
                 // MP4 files often keep their index at the end, and players read it first
                 mark(piecesFor(o.fileOffset, std::max<int64_t>(0, o.fileSize - (2 << 20)), o.fileSize,
                                t.pieceLength));
@@ -416,7 +434,8 @@ Status TorrentEngine::acquire(const StreamRequest& req, FileInfo& file, ReaderId
         return Status::BadRequest;
     }
     // a reader reference keeps `t` in the map (and its address valid) while we wait
-    if (t->readers++ == 0) t->handle.set_upload_limit(-1);  // the session-wide cap governs
+    // lift dropReader()'s 1 B/s throttle: the session-wide cap governs while someone reads
+    if (t->readers++ == 0) t->handle.set_upload_limit(-1);
     t->removeAt = Clock::time_point::max();
     t->lastProgress = Clock::now();
     auto giveUp = [&](Status s) {
