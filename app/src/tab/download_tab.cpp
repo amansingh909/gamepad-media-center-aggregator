@@ -1,4 +1,5 @@
 #include "tab/download_tab.hpp"
+#include "api/media/forbidden.hpp"
 #include "tab/remote_view.hpp"
 #include "view/recycling_grid.hpp"
 #include "view/svg_image.hpp"
@@ -299,7 +300,8 @@ public:
             }
             break;
         case DownloadStatus::Failed:
-            this->status->setText("main/download/failed"_i18n);
+            this->status->setText(media::isForbidden(item.errorMessage) ? "main/download/forbidden"_i18n
+                                                                        : "main/download/failed"_i18n);
             this->status->setTextColor(theme.getColor("color/danger"));
             break;
         }

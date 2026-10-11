@@ -10,6 +10,7 @@
 #include "activity/player_view.hpp"
 #include "api/plex.hpp"
 #include "api/backend.hpp"
+#include "api/media/forbidden.hpp"
 #include "api/media/resolution.hpp"
 #include "utils/dialog.hpp"
 #include "utils/misc.hpp"
@@ -55,7 +56,8 @@ PlayerView::PlayerView(const plex::Item& item, const int64_t seekMs, int version
     // dialog (Vita hardware decode can reject a transcoded stream, a server
     // can refuse the raw part)
     view->registerError([this](...) {
-        return this->tryDirectPlayFallback() || this->tryPlainUrlFallback() || this->tryTranscodeFallback();
+        return this->tryDirectPlayFallback() || this->tryPlainUrlFallback() || this->explainRefusal() ||
+               this->tryTranscodeFallback();
     });
 
     // Repeat::One: reload from 0 rather than mpv loop-file, which would restart
@@ -468,6 +470,17 @@ bool PlayerView::tryPlainUrlFallback() {
     mpv.reset();
     this->startPlayback(pos, /*forceDirect=*/true);
     return true;  // handled: no error dialog
+}
+
+bool PlayerView::explainRefusal() {
+    if (AppConfig::instance().backend().type() != media::BackendType::Plex) return false;
+    std::string reason = MPVCore::instance().getError();
+    if (!media::isForbidden(reason)) return false;
+    brls::Logger::error("PlayerView: playback refused by the server ({})", reason);
+    auto dialog = new brls::Dialog(fmt::format("{}\n({})", "main/player/plex_forbidden"_i18n, reason));
+    dialog->addButton("hints/back"_i18n, []() { VideoView::close(true); });
+    dialog->open();
+    return true;  // handled: no generic error dialog
 }
 
 bool PlayerView::tryTranscodeFallback() {
