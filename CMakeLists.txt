@@ -113,6 +113,8 @@ elseif (PLATFORM_PS4)
     if (PS4_LINK_SCRIPT_FLAG EQUAL -1)
         message(FATAL_ERROR "The PS4 linker flags don't reference ${OPENORBIS}/link.x")
     endif ()
+    # Linux clock ids -> FreeBSD ones, see the file (linked with --wrap below)
+    list(APPEND MAIN_SRC ${CMAKE_SOURCE_DIR}/app/platform/ps4/clock_ids.c)
 elseif (PLATFORM_PSV)
     configure_file("${CMAKE_SOURCE_DIR}/app/platform/vita/template.xml.in" "${CMAKE_BINARY_DIR}/template.xml")
     # In-app self-update (issue #14): app/src/utils/vita_install.cpp unpacks the
@@ -260,6 +262,9 @@ set_target_properties(${PROJECT_NAME} PROPERTIES CXX_STANDARD 17)
 target_include_directories(${PROJECT_NAME} PRIVATE app/include ${APP_PLATFORM_INCLUDE})
 target_compile_options(${PROJECT_NAME} PRIVATE -ffunction-sections -fdata-sections -Wunused-variable ${APP_PLATFORM_OPTION})
 target_link_libraries(${PROJECT_NAME} PRIVATE borealis lunasvg ${APP_PLATFORM_LIB})
+if (PLATFORM_PS4)
+    target_link_options(${PROJECT_NAME} PRIVATE "LINKER:--wrap=clock_gettime")
+endif ()
 target_compile_definitions(${PROJECT_NAME} PRIVATE
     APP_VERSION=${VERSION_MAJOR}.${VERSION_MINOR}.${VERSION_ALTER}
     APP_BUILD=${VERSION_BUILD}
