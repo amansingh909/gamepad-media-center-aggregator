@@ -162,15 +162,16 @@ int main(int argc, char* argv[]) {
     // Testing only: serve torrents to other machines so tests/torrent/integration.sh
     // can drive a console build. Plan 2 starts the engine on demand instead.
     static std::FILE* torrentLog = std::fopen((conf.configDir() + "/torrent.log").c_str(), "w");
-    static torrent::TorrentEngine torrentEngine(torrent::EngineSettings{conf.configDir() + "/torrents", 1 << 20, 30, 60,
-        300, [](const std::string& msg) {
-            brls::Logger::info("torrent: {}", msg);
-            if (torrentLog) {
-                std::fprintf(torrentLog, "%s\n", msg.c_str());
-                std::fflush(torrentLog);
-            }
-        }});
-    static torrent::TorrentServer torrentServer(torrentEngine);
+    static auto torrentLogLine = [](const std::string& msg) {
+        brls::Logger::info("torrent: {}", msg);
+        if (torrentLog) {
+            std::fprintf(torrentLog, "%s\n", msg.c_str());
+            std::fflush(torrentLog);
+        }
+    };
+    static torrent::TorrentEngine torrentEngine(
+        torrent::EngineSettings{conf.configDir() + "/torrents", 1 << 20, 30, 60, 300, torrentLogLine});
+    static torrent::TorrentServer torrentServer(torrentEngine, torrentLogLine);
     std::string torrentError;
     if (!torrentServer.start(11470, true, torrentError)) brls::Logger::error("torrent server: {}", torrentError);
 #endif

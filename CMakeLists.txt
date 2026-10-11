@@ -109,7 +109,7 @@ if (USE_TORRENT)
         # Asio, so every file that includes them needs the same flags. Every file that
         # includes libtorrent or Asio headers must therefore live in app/src/torrent/ to
         # get them (torrent_engine.hpp keeps libtorrent out of its interface for that reason).
-        file(GLOB TORRENT_SRC "${PROJECT_SOURCE_DIR}/app/src/torrent/*.cpp")
+        file(GLOB_RECURSE TORRENT_SRC "${PROJECT_SOURCE_DIR}/app/src/torrent/*.cpp")
         set_source_files_properties(${TORRENT_SRC} PROPERTIES COMPILE_OPTIONS
             "-include;${OPENORBIS}/usr/include/libtorrent/ps4_compat.h;-DBOOST_ASIO_DISABLE_KQUEUE;-DBOOST_ASIO_DISABLE_EPOLL;-DBOOST_ASIO_DISABLE_EVENTFD")
     endif ()
