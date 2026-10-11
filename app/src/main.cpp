@@ -41,6 +41,10 @@
 #include <SDL2/SDL_main.h>
 #endif
 
+#ifdef __PS4__
+#include <csignal>
+#endif
+
 using namespace brls::literals;  // for _i18n
 
 #if defined(__SWITCH__) && defined(BUILTIN_NSP)
@@ -88,6 +92,14 @@ static void proposeForwarderInstall() {
 int main(int argc, char* argv[]) {
 #ifdef __SWITCH__
     if (argc > 0 && argv[0]) AppVersion::nro_path = argv[0];
+#endif
+#ifdef __PS4__
+    // A send on a socket the server already closed raises SIGPIPE, whose default
+    // action kills the app with nothing logged. curl runs with CURLOPT_NOSIGNAL so it
+    // leaves SIGPIPE alone, and on PS4 neither MSG_NOSIGNAL (musl's Linux 0x4000,
+    // FreeBSD's MSG_NBIO) nor SO_NOSIGPIPE takes effect. Ignore it: the send fails
+    // with EPIPE instead.
+    std::signal(SIGPIPE, SIG_IGN);
 #endif
     std::vector<std::string> items;
     for (int i = 1; i < argc; i++) {
