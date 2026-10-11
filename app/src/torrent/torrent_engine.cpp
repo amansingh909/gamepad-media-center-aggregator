@@ -2,6 +2,7 @@
 
 #include <torrent/piece_plan.hpp>
 #include <torrent/pieces.hpp>
+#include <torrent/posix_tree.hpp>
 #include <torrent/read_window.hpp>
 #include <torrent/temp_folder.hpp>
 
@@ -233,15 +234,17 @@ struct TorrentEngine::Impl {
     }
 
     // Deletes one of the engine's own save folders (<info hash>-<n>), never anything else.
-    bool removeFolder(const fs::path& p) {
-        if (!isEngineFolderName(p.filename().string())) {
-            log("not deleting " + p.string() + ": not an engine folder");
+    // POSIX calls only: std::filesystem::remove_all fails with ENOSYS on the PS4.
+    bool removeFolder(const std::string& path) {
+        const size_t slash = path.find_last_of('/');
+        if (!isEngineFolderName(slash == std::string::npos ? path : path.substr(slash + 1))) {
+            log("not deleting " + path + ": not an engine folder");
             return false;
         }
-        std::error_code ec;
-        fs::remove_all(p, ec);
-        if (ec) log("deleting " + p.string() + ": " + ec.message());
-        return !ec;
+        std::string error;
+        const bool ok = removeTree(path, error);
+        if (!ok) log("deleting " + path + ": " + error);
+        return ok;
     }
 
     // Deletes what a crash or an earlier run left in tempDir. Only the engine's own
@@ -251,13 +254,12 @@ struct TorrentEngine::Impl {
         std::error_code ec;
         fs::create_directories(settings.tempDir, ec);
         if (ec) log("creating " + settings.tempDir + ": " + ec.message());
-        std::vector<fs::path> leftovers;
-        for (auto it = fs::directory_iterator(settings.tempDir, ec); !ec && it != fs::directory_iterator();
-             it.increment(ec))
-            if (isEngineFolderName(it->path().filename().string())) leftovers.push_back(it->path());
-        if (ec) log("listing " + settings.tempDir + ": " + ec.message());
+        std::vector<std::string> names;
+        std::string error;
+        if (!listFolder(settings.tempDir, names, error)) log("listing " + error);
         int removed = 0;
-        for (const auto& p : leftovers) removed += removeFolder(p) ? 1 : 0;
+        for (const auto& name : names)
+            if (isEngineFolderName(name) && removeFolder(settings.tempDir + "/" + name)) ++removed;
         if (removed > 0) log("swept " + std::to_string(removed) + " leftovers");
     }
 
