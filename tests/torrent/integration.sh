@@ -1,9 +1,12 @@
 #!/usr/bin/env bash
 # Drives a running torrent server with curl. Start the harness first, e.g.:
 #   build-torrent/torrent_serve --temp /tmp/torrent-serve --grace 5 --stall 20
-#   tests/torrent/integration.sh --grace 5 --stall 20
+#   tests/torrent/integration.sh --grace 5 --stall 20 --logs-cmd 'docker logs torrent-serve 2>&1'
 # A console debug build (TORRENT_DEBUG_LAN), from this machine:
-#   tests/torrent/integration.sh --remote http://<console ip>:11470 --stall 60
+#   tests/torrent/integration.sh --remote http://<console ip>:11470 --stall 60 \
+#     --logs-cmd 'curl -s ftp://192.168.1.88:2121/data/GMCA-diag-F/torrent.log'
+# --logs-cmd CMD: a shell command that prints the server's log, for the checks that read
+# it (they are skipped without it).
 set -uo pipefail
 
 BASE=http://127.0.0.1:11470
@@ -11,12 +14,14 @@ TEMP=/tmp/torrent-serve
 REMOTE=0
 GRACE=30
 STALL=60
+LOGS_CMD=
 while [ $# -gt 0 ]; do
     case "$1" in
         --remote) REMOTE=1; BASE=$2; shift ;;
         --temp) TEMP=$2; shift ;;
         --grace) GRACE=$2; shift ;;
         --stall) STALL=$2; shift ;;
+        --logs-cmd) LOGS_CMD=$2; shift ;;
         *) echo "unknown option $1"; exit 2 ;;
     esac
     shift
@@ -109,6 +114,25 @@ c=$(fetch "$BASE/$HASH/7?tr=$TR" "" "$WORK/x")
 [ "$c" = 404 ] && pass "missing file index" || fail "missing file index: $c"
 c=$(fetch "$BASE/0000000000000000000000000000000000000001/0" "" "$WORK/x" $((STALL + 30)))
 [ "$c" = 504 ] && pass "dead torrent" || fail "dead torrent: $c"
+
+# a client that hangs up while its connection waits for data (here, metadata that never
+# comes): the server notices and lets its reader go instead of waiting out the stall timer
+if [ -n "$LOGS_CMD" ]; then
+    DEAD=0000000000000000000000000000000000000002
+    curl -s -o /dev/null --max-time $((STALL + 30)) "$BASE/$DEAD/0" &
+    pid=$!
+    sleep 2
+    kill $pid 2>/dev/null
+    wait $pid 2>/dev/null
+    sleep 3
+    # the whole log first: with pipefail, grep -q closing the pipe early could fail the check
+    log=$(eval "$LOGS_CMD")
+    grep -qF "$DEAD: client went away while waiting" <<< "$log" &&
+        pass "a client that leaves while waiting is let go" ||
+        fail "a client that leaves while waiting is let go: no \"$DEAD: client went away while waiting\" in the log"
+else
+    echo "skip a client that leaves while waiting (no --logs-cmd)"
+fi
 
 # a client that disconnects mid-transfer: the server keeps serving
 curl -s -o /dev/null --max-time 300 -r 0- "$URL" &

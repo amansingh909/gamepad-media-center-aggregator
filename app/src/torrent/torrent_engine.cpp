@@ -578,7 +578,8 @@ TorrentEngine::~TorrentEngine() = default;
 
 void TorrentEngine::shutdown() { impl->stop(); }
 
-Status TorrentEngine::acquire(const StreamRequest& req, FileInfo& file, ReaderId& reader) {
+Status TorrentEngine::acquire(const StreamRequest& req, FileInfo& file, ReaderId& reader,
+                              const std::function<bool()>& abandoned) {
     std::unique_lock<std::mutex> lock(impl->mutex);
     Impl::Inside inside(*impl);
     if (impl->quit) return Status::Stopped;
@@ -597,8 +598,11 @@ Status TorrentEngine::acquire(const StreamRequest& req, FileInfo& file, ReaderId
 
     auto deadline = Clock::now() + std::chrono::seconds(impl->settings.stallSecs);
     while (!t->metadata && t->error.empty() && !impl->quit) {
-        if (impl->changed.wait_until(lock, deadline) == std::cv_status::timeout && !t->metadata)
-            return Status::NoPeers;
+        if (abandoned && abandoned()) return Status::Stopped;
+        auto now = Clock::now();
+        if (now >= deadline) return Status::NoPeers;
+        // wake at least once a second to ask `abandoned` again
+        impl->changed.wait_until(lock, std::min(deadline, now + std::chrono::seconds(1)));
     }
     if (impl->quit) return Status::Stopped;
     if (!t->error.empty()) return Status::DiskError;
@@ -638,7 +642,8 @@ void TorrentEngine::release(const StreamRequest& req, ReaderId reader) {
     });
 }
 
-Status TorrentEngine::waitFor(const StreamRequest& req, ReaderId reader, int64_t begin, int64_t end) {
+Status TorrentEngine::waitFor(const StreamRequest& req, ReaderId reader, int64_t begin, int64_t end,
+                              const std::function<bool()>& abandoned) {
     std::unique_lock<std::mutex> lock(impl->mutex);
     Impl::Inside inside(*impl);
     if (impl->quit) return Status::Stopped;
@@ -671,6 +676,9 @@ Status TorrentEngine::waitFor(const StreamRequest& req, ReaderId reader, int64_t
             }
         }
         if (ready) return Status::Ok;
+        // a client that went away doesn't keep its reader (and its window) waiting: with
+        // another reader making progress, the stall timer alone would never let it go
+        if (abandoned && abandoned()) return Status::Stopped;
         if (Clock::now() - std::max(t->lastProgress, waitStart) > stall) return Status::NoPeers;
         impl->changed.wait_for(lock, std::chrono::seconds(1));
     }

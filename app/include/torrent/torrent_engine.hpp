@@ -60,12 +60,21 @@ public:
 
     /// Adds the torrent if needed, waits for its metadata and picks the file. On Ok
     /// the caller holds `reader` until release(req, reader).
-    Status acquire(const StreamRequest& req, FileInfo& file, ReaderId& reader);
+    ///
+    /// `abandoned`, if set, is asked at least once a second while the call waits; when
+    /// it returns true (the caller's client went away), the call gives up with Stopped.
+    /// It runs with the engine's lock held: it must not block, and must not call into
+    /// the engine.
+    Status acquire(const StreamRequest& req, FileInfo& file, ReaderId& reader,
+                   const std::function<bool()>& abandoned = {});
     void release(const StreamRequest& req, ReaderId reader);
 
     /// Blocks until bytes [begin, end) of the reader's file are downloaded and
-    /// verified, steering that reader's download window to `begin`.
-    Status waitFor(const StreamRequest& req, ReaderId reader, int64_t begin, int64_t end);
+    /// verified, steering that reader's download window to `begin`. `abandoned` as
+    /// for acquire(): asked at least once a second while the data isn't there yet, run
+    /// with the engine's lock held, so it must not block or call into the engine.
+    Status waitFor(const StreamRequest& req, ReaderId reader, int64_t begin, int64_t end,
+                   const std::function<bool()>& abandoned = {});
 
     /// Starts fetching metadata and peers without downloading pieces; dropped after
     /// two minutes unless a reader acquires it.

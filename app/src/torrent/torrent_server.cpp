@@ -21,6 +21,7 @@
 #include <csignal>
 #include <cstring>
 #include <exception>
+#include <functional>
 #include <iterator>
 #include <list>
 #include <mutex>
@@ -86,6 +87,21 @@ bool readHead(int fd, std::string& head) {
     return true;
 }
 
+// True when the client has hung up (or its connection broke) while its connection
+// waits for data. The engine asks this with its lock held, so it never blocks: poll()
+// with no timeout, and recv() (the socket is blocking) only when poll() reported POLLIN.
+// No MSG_DONTWAIT or POLLRDHUP: on the PS4, musl's MSG_DONTWAIT is FreeBSD's
+// MSG_WAITALL and POLLRDHUP doesn't exist. MSG_PEEK, POLLIN, POLLERR and POLLHUP have
+// the same values on both.
+bool clientLeft(int fd) {
+    pollfd p{fd, POLLIN, 0};
+    if (::poll(&p, 1, 0) <= 0) return false;
+    if (p.revents & (POLLHUP | POLLERR)) return true;
+    if (!(p.revents & POLLIN)) return false;
+    char c;
+    return ::recv(fd, &c, 1, MSG_PEEK) == 0;
+}
+
 void sendError(int fd, int code, const std::string& text, const std::string& extraHeaders = "") {
     std::string body = text + "\n";
     std::string r = statusLine(code) + "\r\nContent-Type: text/plain\r\nContent-Length: " +
@@ -134,11 +150,23 @@ struct TorrentServer::Impl {
         StreamRequest stream;
         if (!parseStreamPath(req.target, stream)) return sendError(fd, 400, "expected /<info hash>/<file index>");
 
+        // asked by the engine while this connection waits for data; `gone` then says
+        // why a wait ended with Stopped
+        bool gone = false;
+        std::function<bool()> abandoned = [fd, &gone] {
+            if (!gone) gone = clientLeft(fd);
+            return gone;
+        };
+        auto fail = [&](Status s) {
+            if (gone) log(stream.infoHash + ": client went away while waiting");
+            else sendStatus(fd, stream, s);
+        };
+
         // one connection is one reader
         FileInfo file;
         ReaderId reader = 0;
-        Status st = engine.acquire(stream, file, reader);
-        if (st != Status::Ok) return sendStatus(fd, stream, st);
+        Status st = engine.acquire(stream, file, reader, abandoned);
+        if (st != Status::Ok) return fail(st);
         struct Release {
             TorrentEngine& engine;
             const StreamRequest& stream;
@@ -155,8 +183,8 @@ struct TorrentServer::Impl {
 
         // wait for the first bytes before answering, so a dead torrent gets a real error
         if (!headOnly && length > 0) {
-            st = engine.waitFor(stream, reader, range.first, std::min(range.last + 1, range.first + chunkSize));
-            if (st != Status::Ok) return sendStatus(fd, stream, st);
+            st = engine.waitFor(stream, reader, range.first, std::min(range.last + 1, range.first + chunkSize), abandoned);
+            if (st != Status::Ok) return fail(st);
         }
 
         std::string h = statusLine(kind == RangeKind::Partial ? 206 : 200) +
@@ -180,10 +208,11 @@ struct TorrentServer::Impl {
         std::vector<char> buf(static_cast<size_t>(chunkSize));
         for (int64_t pos = range.first; pos <= range.last && !stopping;) {
             int64_t end = std::min(range.last + 1, pos + chunkSize);
-            st = engine.waitFor(stream, reader, pos, end);
+            st = engine.waitFor(stream, reader, pos, end, abandoned);
             if (st != Status::Ok) {
                 // torrent.log is the only place the console tells us why a stream stopped
-                log("stream ended at " + std::to_string(pos) + ": " + statusName(st));
+                if (gone) log(stream.infoHash + ": client went away while waiting");
+                else log("stream ended at " + std::to_string(pos) + ": " + statusName(st));
                 break;
             }
             ssize_t n = ::pread(fileFd, buf.data(), size_t(end - pos), off_t(pos));
