@@ -98,6 +98,21 @@ elseif (PLATFORM_PS4)
     list(APPEND MAIN_SRC ${CMAKE_SOURCE_DIR}/app/platform/ps4/cxa_guard.c)
     # Show backtrace when app crash
     list(APPEND MAIN_SRC ${BOREALIS_LIBRARY}/lib/platforms/ps4/crashlog.c)
+    # OpenOrbis' link.x collects `.data` but not `.data.*`, and -fdata-sections puts
+    # each initialized global in its own .data.<name> section. create-fself only
+    # loads `.data`, so the rest read as 0 on the console (ThreadPool::max_thread_num,
+    # stdio's FILEs, libunwind's cache, ...). Link with a copy that merges them.
+    file(READ ${OPENORBIS}/link.x PS4_LINK_SCRIPT)
+    string(REGEX REPLACE "\\*\\(\\.data\\)" "*(.data .data.*)" PS4_LINK_SCRIPT_FIXED "${PS4_LINK_SCRIPT}")
+    if (PS4_LINK_SCRIPT_FIXED STREQUAL PS4_LINK_SCRIPT)
+        message(FATAL_ERROR "Could not patch ${OPENORBIS}/link.x to merge .data.* sections")
+    endif ()
+    file(WRITE ${CMAKE_BINARY_DIR}/link.x "${PS4_LINK_SCRIPT_FIXED}")
+    string(REPLACE "${OPENORBIS}/link.x" "${CMAKE_BINARY_DIR}/link.x" CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS}")
+    string(FIND "${CMAKE_EXE_LINKER_FLAGS}" "${CMAKE_BINARY_DIR}/link.x" PS4_LINK_SCRIPT_FLAG)
+    if (PS4_LINK_SCRIPT_FLAG EQUAL -1)
+        message(FATAL_ERROR "The PS4 linker flags don't reference ${OPENORBIS}/link.x")
+    endif ()
 elseif (PLATFORM_PSV)
     configure_file("${CMAKE_SOURCE_DIR}/app/platform/vita/template.xml.in" "${CMAKE_BINARY_DIR}/template.xml")
     # In-app self-update (issue #14): app/src/utils/vita_install.cpp unpacks the
