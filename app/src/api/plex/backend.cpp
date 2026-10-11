@@ -441,7 +441,9 @@ media::PlaybackSource PlexBackend::resolvePlayback(
     int64_t transcode = media::jint(mc, "transcodeDecisionCode");
     int64_t mde = media::jint(mc, "mdeDecisionCode");
     if (general >= 2000 || mde >= 2000) {
-        throw std::runtime_error(fmt::format("{} ({})", "main/player/error"_i18n, general));
+        std::string text = media::jstr(mc, "generalDecisionText");
+        if (text.empty()) throw std::runtime_error(fmt::format("{} ({})", "main/player/error"_i18n, general));
+        throw std::runtime_error(fmt::format("{} ({}: {})", "main/player/error"_i18n, general, text));
     }
     if (transcode == 1000) {
         // the server refuses to transcode: direct play

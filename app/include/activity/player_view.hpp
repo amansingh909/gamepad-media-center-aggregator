@@ -62,6 +62,9 @@ private:
     /// On a Plex direct-play error, retry once on the bare part URL, silently:
     /// a server may refuse ?download=1 to a user without download rights.
     bool tryPlainUrlFallback();
+    /// On a Plex HTTP 403, explain the server's remote-playback rule instead of
+    /// falling back to a transcode that the same rule refuses.
+    bool explainRefusal();
     bool playIndex(int index);
     /// Resolves external subtitle sidecars for the current item through the
     /// backend (Stremio addons), lazily and only when the played item changes.
