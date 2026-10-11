@@ -25,6 +25,13 @@ if (MPV_SW_RENDER)
     list(APPEND APP_PLATFORM_OPTION -DMPV_SW_RENDER)
 endif ()
 
+if (PLATFORM_PS4)
+    option(USE_TORRENT "Torrent streaming engine (libtorrent)" ON)
+else ()
+    option(USE_TORRENT "Torrent streaming engine (libtorrent)" OFF)
+endif ()
+option(TORRENT_DEBUG_LAN "Testing only: start the torrent server at launch on every interface" OFF)
+
 if (NOT CMAKE_BUILD_TYPE)
     set(CMAKE_BUILD_TYPE "Release" CACHE STRING "Choose the type of build, options are: Debug Release RelWithDebInfo MinSizeRel." FORCE)
 elseif (CMAKE_BUILD_TYPE STREQUAL Debug)
@@ -90,6 +97,25 @@ endif ()
 
 # setting src and include
 file(GLOB_RECURSE MAIN_SRC "${PROJECT_SOURCE_DIR}/app/src/*.cpp")
+if (USE_TORRENT)
+    find_package(LibtorrentRasterbar CONFIG REQUIRED)
+    list(APPEND APP_PLATFORM_LIB LibtorrentRasterbar::torrent-rasterbar)
+    list(APPEND APP_PLATFORM_OPTION -DUSE_TORRENT)
+    if (TORRENT_DEBUG_LAN)
+        list(APPEND APP_PLATFORM_OPTION -DTORRENT_DEBUG_LAN)
+    endif ()
+    if (PLATFORM_PS4)
+        # libtorrent was built with these (scripts/ps4/libtorrent); its headers inline
+        # Asio, so every file that includes them needs the same flags. Every file that
+        # includes libtorrent or Asio headers must therefore live in app/src/torrent/ to
+        # get them (torrent_engine.hpp keeps libtorrent out of its interface for that reason).
+        file(GLOB TORRENT_SRC "${PROJECT_SOURCE_DIR}/app/src/torrent/*.cpp")
+        set_source_files_properties(${TORRENT_SRC} PROPERTIES COMPILE_OPTIONS
+            "-include;${OPENORBIS}/usr/include/libtorrent/ps4_compat.h;-DBOOST_ASIO_DISABLE_KQUEUE;-DBOOST_ASIO_DISABLE_EPOLL;-DBOOST_ASIO_DISABLE_EVENTFD")
+    endif ()
+else ()
+    list(FILTER MAIN_SRC EXCLUDE REGEX "/app/src/torrent/")
+endif ()
 if (PLATFORM_SWITCH)
     # System service initialization functions required for libnx
     list(APPEND MAIN_SRC ${BOREALIS_LIBRARY}/lib/platforms/switch/switch_wrapper.c)
@@ -260,6 +286,10 @@ target_compile_options(${PROJECT_NAME} PRIVATE -ffunction-sections -fdata-sectio
 target_link_libraries(${PROJECT_NAME} PRIVATE borealis lunasvg ${APP_PLATFORM_LIB})
 if (PLATFORM_PS4)
     target_link_options(${PROJECT_NAME} PRIVATE "LINKER:--wrap=clock_gettime")
+    if (USE_TORRENT)
+        # Asio's condition variables ask for CLOCK_MONOTONIC too (app/platform/ps4/clock_ids.c)
+        target_link_options(${PROJECT_NAME} PRIVATE "LINKER:--wrap=pthread_condattr_setclock")
+    endif ()
 endif ()
 target_compile_definitions(${PROJECT_NAME} PRIVATE
     APP_VERSION=${VERSION_MAJOR}.${VERSION_MINOR}.${VERSION_ALTER}

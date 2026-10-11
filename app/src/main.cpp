@@ -45,6 +45,12 @@
 #include <csignal>
 #endif
 
+#if defined(USE_TORRENT) && defined(TORRENT_DEBUG_LAN)
+#include <cstdio>
+#include <torrent/torrent_engine.hpp>
+#include <torrent/torrent_server.hpp>
+#endif
+
 using namespace brls::literals;  // for _i18n
 
 #if defined(__SWITCH__) && defined(BUILTIN_NSP)
@@ -152,6 +158,22 @@ int main(int argc, char* argv[]) {
     ImageCache::init();
     DownloadManager::instance().init();
     OfflineLibrary::instance().init();
+#if defined(USE_TORRENT) && defined(TORRENT_DEBUG_LAN)
+    // Testing only: serve torrents to other machines so tests/torrent/integration.sh
+    // can drive a console build. Plan 2 starts the engine on demand instead.
+    static std::FILE* torrentLog = std::fopen((conf.configDir() + "/torrent.log").c_str(), "w");
+    static torrent::TorrentEngine torrentEngine(torrent::EngineSettings{conf.configDir() + "/torrents", 1 << 20, 30, 60,
+        300, [](const std::string& msg) {
+            brls::Logger::info("torrent: {}", msg);
+            if (torrentLog) {
+                std::fprintf(torrentLog, "%s\n", msg.c_str());
+                std::fflush(torrentLog);
+            }
+        }});
+    static torrent::TorrentServer torrentServer(torrentEngine);
+    std::string torrentError;
+    if (!torrentServer.start(11470, true, torrentError)) brls::Logger::error("torrent server: {}", torrentError);
+#endif
 
     // Return directly to the desktop when closing the application (only for NX)
     brls::Application::getPlatform()->exitToHomeMode(true);

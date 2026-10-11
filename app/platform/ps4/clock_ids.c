@@ -52,3 +52,16 @@ int __wrap_clock_gettime(clockid_t id, struct timespec* ts) {
     }
     return __real_clock_gettime(bsd, ts);
 }
+
+#ifdef USE_TORRENT
+#include <pthread.h>
+
+/* Asio (libtorrent) sets CLOCK_MONOTONIC on its condition variables; same ids. */
+int __real_pthread_condattr_setclock(pthread_condattr_t* attr, clockid_t id);
+
+int __wrap_pthread_condattr_setclock(pthread_condattr_t* attr, clockid_t id) {
+    clockid_t const bsd = bsd_clock(id);
+    if (bsd < 0) return EINVAL;
+    return __real_pthread_condattr_setclock(attr, bsd);
+}
+#endif
