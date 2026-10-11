@@ -1,5 +1,6 @@
 #include <torrent/torrent_engine.hpp>
 
+#include <torrent/piece_plan.hpp>
 #include <torrent/pieces.hpp>
 #include <torrent/read_window.hpp>
 
@@ -35,6 +36,10 @@ namespace torrent {
 namespace lt = libtorrent;
 namespace fs = std::filesystem;
 using Clock = std::chrono::steady_clock;
+
+static_assert(static_cast<std::uint8_t>(lt::dont_download) == pieceSkip &&
+                  static_cast<std::uint8_t>(lt::top_priority) == pieceTop,
+              "piece_plan.hpp's priorities are libtorrent's");
 
 namespace {
 
@@ -77,6 +82,7 @@ struct Reader {
     int64_t position = 0;               // where the last waitFor() began
     int64_t windowStart = 0;            // position at this reader's last refill
     ReadWindow::Plan plan{0, 0, false};  // what the window wanted then
+    bool waiting = false;               // inside waitFor(): only then does it get deadlines
 
     Reader(int64_t offset, int64_t size) : fileOffset(offset), fileSize(size), window(size) {}
 };
@@ -91,7 +97,7 @@ struct Torrent {
     Clock::time_point removeAt = Clock::time_point::max();
     Clock::time_point lastProgress = Clock::now();
     std::vector<bool> have;
-    std::vector<bool> deadlined;  // got a deadline since the last refill
+    std::vector<bool> deadlined;  // got a deadline since the last reprioritize()
     int pieceLength = 1;
     std::map<ReaderId, Reader> active;
 };
@@ -128,6 +134,23 @@ struct TorrentEngine::Impl {
         }
         Inside(const Inside&) = delete;
         Inside& operator=(const Inside&) = delete;
+    };
+
+    // Marks a reader as waiting for data for as long as a waitFor() call lasts. Declare
+    // it after Inside, so it ends while the lock is still held. It looks the reader up
+    // again at the end: the reader, or its torrent, may be gone by then.
+    struct Waiting {
+        Impl& impl;
+        const std::string& hash;
+        ReaderId id;
+        Waiting(Impl& i, const std::string& h, ReaderId r) : impl(i), hash(h), id(r) { set(true); }
+        ~Waiting() { set(false); }
+        void set(bool on) {
+            if (Torrent* t = impl.find(hash))
+                if (Reader* r = impl.findReader(*t, id)) r->waiting = on;
+        }
+        Waiting(const Waiting&) = delete;
+        Waiting& operator=(const Waiting&) = delete;
     };
 
     explicit Impl(EngineSettings s) : settings(std::move(s)) {
@@ -325,47 +348,60 @@ struct TorrentEngine::Impl {
         }
     }
 
-    // Moves reader `r` to `position`. Priorities change only when some reader's window
-    // refills (in one batch, as the spike learned), and then cover every reader's
-    // window plus its file's tail. Deadlines are topped up on every call.
-    void applyWindow(Torrent& t, Reader& r, int64_t position) {
-        ReadWindow::Plan plan = r.window.update(position);
-        r.position = position;
-        r.plan = plan;
-        const int n = int(t.have.size());
-        if (plan.refill) {
-            r.windowStart = position;
-            std::vector<lt::download_priority_t> prio(size_t(n), lt::dont_download);
-            auto mark = [&](PieceSpan s) {
-                for (int p = std::max(0, s.first); p <= s.last && p < n; ++p) prio[size_t(p)] = lt::top_priority;
-            };
-            for (const auto& kv : t.active) {
-                const Reader& o = kv.second;
-                // [windowStart, wantEnd), not [position, wantEnd): a jump back inside the
-                // reader's window doesn't refill it, so those pieces must stay wanted
-                if (o.plan.wantEnd > o.windowStart)
-                    mark(piecesFor(o.fileOffset, o.windowStart, o.plan.wantEnd, t.pieceLength));
-                // MP4 files often keep their index at the end, and players read it first
-                mark(piecesFor(o.fileOffset, std::max<int64_t>(0, o.fileSize - (2 << 20)), o.fileSize,
-                               t.pieceLength));
-            }
-            // clear first: libtorrent sets every piece whose deadline it clears to low
-            // priority, which would override the priorities below
-            t.handle.clear_piece_deadlines();
-            t.handle.prioritize_pieces(prio);
-            std::fill(t.deadlined.begin(), t.deadlined.end(), false);
-        }
+    PiecePlan plan(const Torrent& t) {
+        std::vector<PlanReader> readers;
         for (const auto& kv : t.active) {
-            const Reader& o = kv.second;
-            if (o.plan.deadlineEnd <= o.position) continue;
-            PieceSpan urgent = piecesFor(o.fileOffset, o.position, o.plan.deadlineEnd, t.pieceLength);
-            double rate = std::max(o.window.rate(), double(1 << 20));
-            for (int p = std::max(0, urgent.first); p <= urgent.last && p < n; ++p) {
-                if (t.have[size_t(p)] || t.deadlined[size_t(p)]) continue;
-                int64_t ahead = std::max<int64_t>(0, int64_t(p) * t.pieceLength - o.fileOffset - o.position);
-                t.handle.set_piece_deadline(lt::piece_index_t(p), int(double(ahead) / rate * 1000));
-                t.deadlined[size_t(p)] = true;
-            }
+            const Reader& r = kv.second;
+            PlanReader p;
+            p.fileOffset = r.fileOffset;
+            p.fileSize = r.fileSize;
+            p.windowStart = r.windowStart;
+            p.wantEnd = r.plan.wantEnd;
+            p.position = r.position;
+            p.deadlineEnd = r.plan.deadlineEnd;
+            p.rate = r.window.rate();
+            p.waiting = r.waiting;
+            readers.push_back(p);
+        }
+        return planPieces(readers, int(t.have.size()), t.pieceLength, t.have);
+    }
+
+    void addDeadlines(Torrent& t, const std::vector<PieceDeadline>& deadlines) {
+        for (const PieceDeadline& d : deadlines) {
+            if (t.deadlined[size_t(d.piece)]) continue;
+            t.handle.set_piece_deadline(lt::piece_index_t(d.piece), d.ms);
+            t.deadlined[size_t(d.piece)] = true;
+        }
+    }
+
+    // Priorities and deadlines from scratch, for the readers open now: when a reader's
+    // window refills and when a reader leaves, so a seek or a closed connection takes
+    // the old position's pieces and deadlines with it.
+    void reprioritize(Torrent& t) {
+        PiecePlan p = plan(t);
+        std::vector<lt::download_priority_t> prio;
+        prio.reserve(p.priorities.size());
+        for (uint8_t v : p.priorities) prio.push_back(lt::download_priority_t(v));
+        // clear first: libtorrent sets every piece whose deadline it clears to low
+        // priority, which would override the priorities below
+        t.handle.clear_piece_deadlines();
+        t.handle.prioritize_pieces(prio);
+        std::fill(t.deadlined.begin(), t.deadlined.end(), false);
+        addDeadlines(t, p.deadlines);
+    }
+
+    // Moves reader `r` to `position`. Priorities change only when some reader's window
+    // refills (in one batch, as the spike learned) or a reader leaves; in between, the
+    // waiting readers' deadlines are topped up as they move.
+    void applyWindow(Torrent& t, Reader& r, int64_t position) {
+        ReadWindow::Plan next = r.window.update(position);
+        r.position = position;
+        r.plan = next;
+        if (next.refill) {
+            r.windowStart = position;
+            reprioritize(t);
+        } else {
+            addDeadlines(t, plan(t).deadlines);
         }
     }
 
@@ -486,6 +522,9 @@ void TorrentEngine::release(const StreamRequest& req, ReaderId reader) {
     if (!t || !impl->findReader(*t, reader)) return;
     t->active.erase(reader);
     impl->dropReader(*t);
+    // the readers left get the torrent to themselves: the released window and its
+    // deadlines would otherwise stay until one of them refills
+    if (!t->active.empty()) impl->reprioritize(*t);
 }
 
 Status TorrentEngine::waitFor(const StreamRequest& req, ReaderId reader, int64_t begin, int64_t end) {
@@ -497,6 +536,7 @@ Status TorrentEngine::waitFor(const StreamRequest& req, ReaderId reader, int64_t
     if (!r) return Status::Stopped;
     if (begin >= end) return Status::Ok;
     if (begin < 0 || end > r->fileSize) return Status::BadRequest;
+    Impl::Waiting waiting(*impl, req.infoHash, reader);
     r->window.noteRead(end - begin, secondsNow());
     impl->applyWindow(*t, *r, begin);
     PieceSpan span = piecesFor(r->fileOffset, begin, end, t->pieceLength);
