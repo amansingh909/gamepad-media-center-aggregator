@@ -21,6 +21,7 @@
 #include "api/stremio/backend.hpp"
 #include "api/stremio/types.hpp"
 #include "api/stremio/auth.hpp"
+#include "api/stremio/library_item.hpp"
 #include "api/stremio/resume.hpp"
 #include "api/media/langs.hpp"
 #include "utils/config.hpp"
@@ -88,24 +89,6 @@ media::Item itemFromLibrary(const nlohmann::json& j) {
     return it;
 }
 
-/// A datastore libraryItem as the Continue Watching rules (resume.hpp) read it.
-LibraryEntry libraryEntry(const nlohmann::json& j) {
-    LibraryEntry e;
-    e.id = jstr(j, "_id");
-    e.type = jstr(j, "type");
-    e.name = jstr(j, "name");
-    e.poster = jstr(j, "poster");
-    auto st = j.find("state");
-    if (st != j.end() && st->is_object()) {
-        e.state.timeOffsetMs = jint(*st, "timeOffset");
-        e.state.durationMs = jint(*st, "duration");
-        e.state.flaggedWatched = jint(*st, "flaggedWatched") > 0;
-        e.state.videoId = jstr(*st, "videoId");
-        e.state.lastWatched = jstr(*st, "lastWatched");
-    }
-    return e;
-}
-
 /// A Continue Watching card's item: the movie, or the episode the show was left at, with its
 /// position, length and when it was last watched (epoch seconds). The episode's own title isn't
 /// in the library: the Home row asks the show for it (resume_source.cpp).
@@ -138,24 +121,27 @@ media::Item resumeItem(const LibraryEntry& e) {
 }
 
 /// Find-or-create the libraryItem for `ratingKey` (by its base movie/show id),
-/// apply `mutate` to its state, and PUT it back. A new entry is built from /meta
-/// (name/poster) and defaults to removed+temp (progress only, not in library).
-/// Synchronous — call inside a brls::async body. No-op without an account.
+/// apply `mutate` to its state, and PUT it back (unless `mutate` returns false: nothing
+/// changed). A new entry is built from /meta (name/poster) and defaults to removed+temp
+/// (progress only, not in library). Synchronous: call inside a brls::async body. No-op
+/// without an account.
 void upsertLibrary(
-    AddonEngine& engine, const std::string& ratingKey, const std::function<void(nlohmann::json&)>& mutate) {
+    AddonEngine& engine, const std::string& ratingKey, const std::function<bool(nlohmann::json&)>& mutate) {
     std::string key = accountKey();
     if (key.empty()) return;
     ParsedId pid = parseId(ratingKey);
     std::string baseId = pid.baseId;
     std::string libType = (pid.stremioType == "movie") ? "movie" : "series";
 
-    nlohmann::json items = stremio::datastoreGet(key);
+    // this one item, not the whole library
+    nlohmann::json items = stremio::datastoreGet(key, {baseId});
     nlohmann::json found;
     for (auto& it : items)
         if (jstr(it, "_id") == baseId) {
             found = it;
             break;
         }
+    normalizeLibraryItem(found);  // an older GMCA's state.videoId -> state.video_id
 
     std::string now = stremio::nowIso();
     if (found.is_null()) {
@@ -177,16 +163,33 @@ void upsertLibrary(
             {"_id", baseId}, {"name", name}, {"type", libType}, {"poster", poster}, {"posterShape", "poster"},
             {"removed", true}, {"temp", true}, {"_ctime", now}, {"_mtime", now},
             {"state", {{"lastWatched", now}, {"timeWatched", 0}, {"timeOffset", 0}, {"overallTimeWatched", 0},
-                          {"timesWatched", 0}, {"flaggedWatched", 0}, {"duration", 0}, {"videoId", nullptr},
+                          {"timesWatched", 0}, {"flaggedWatched", 0}, {"duration", 0}, {"video_id", nullptr},
                           {"watched", nullptr}, {"noNotif", false}}},
             {"behaviorHints", nlohmann::json::object()},
         };
     }
     if (!found.contains("state") || !found["state"].is_object()) found["state"] = nlohmann::json::object();
-    mutate(found["state"]);
+    if (!mutate(found["state"])) return;
     found["state"]["lastWatched"] = now;
     found["_mtime"] = now;
     stremio::datastorePut(key, found);
+}
+
+/// A series' episodes (sorted by season then episode) from the first addon that has its meta;
+/// empty when none answers. Synchronous: call inside a brls::async body.
+std::vector<media::Item> seriesEpisodes(AddonEngine& engine, const std::string& showId) {
+    engine.ensureLoaded();
+    for (auto& a : engine.addonsFor("meta", "series", showId)) {
+        try {
+            nlohmann::json j = getSync(engine.resourceUrl(a, "meta", "series", showId));
+            auto meta = j.find("meta");
+            if (meta == j.end() || !meta->is_object()) continue;
+            return parseEpisodes(*meta, parseMeta(*meta));
+        } catch (const std::exception& ex) {
+            brls::Logger::warning("stremio series episodes: {}", ex.what());
+        }
+    }
+    return {};
 }
 
 // ---- catalog routing + localized labels ----------------------------------------
@@ -711,7 +714,7 @@ void StremioBackend::getItemDetail(
             const std::string key = accountKey();
             if (full && playable && !key.empty()) {
                 try {
-                    for (auto& li : stremio::datastoreGet(key)) {
+                    for (auto& li : stremio::datastoreGet(key, {metaId})) {
                         if (jstr(li, "_id") != metaId) continue;
                         const LibraryEntry e = libraryEntry(li);
                         out.viewOffset = resumePositionMs(e.state, isEpisode ? parseId(ratingKey).stremioId : "");
@@ -892,7 +895,7 @@ void StremioBackend::getNextUp(
                         for (auto& e : eps) refs.push_back({e.parentIndex, e.index});
                         LibraryState state;
                         try {
-                            for (auto& li : stremio::datastoreGet(key))
+                            for (auto& li : stremio::datastoreGet(key, {baseId}))
                                 if (jstr(li, "_id") == baseId) {
                                     state = libraryEntry(li).state;
                                     break;
@@ -1043,24 +1046,25 @@ void StremioBackend::markWatched(const std::string& id) {
     std::string rk = id;
     brls::async([this, rk]() {
         try {
-            // one episode watched, not the whole show: that episode, played to its end, keeps
-            // the show in Continue Watching, whose card then leads to the next one
             ParsedId pid = parseId(rk);
-            const bool episode = pid.stremioType == "series" && pid.episode >= 0;
-            const std::string videoId = pid.stremioId;
-            upsertLibrary(engine, rk, [episode, videoId](nlohmann::json& st) {
-                if (episode) {
-                    int64_t dur = jint(st, "duration");
-                    if (dur <= 0) {
-                        dur = 1;
-                        st["duration"] = dur;
-                    }
-                    st["videoId"] = videoId;
-                    st["timeOffset"] = dur;
-                    return;
-                }
+            if (pid.stremioType == "series" && pid.episode >= 0) {
+                // one episode, not the whole show, as Stremio's clients do: the show moves on to
+                // the next episode and stays in Continue Watching with it, leaves the row after
+                // its last one, and an episode before the saved one changes nothing
+                const std::vector<media::Item> eps = seriesEpisodes(engine, pid.baseId);
+                std::vector<EpisodeRef> refs;
+                for (auto& e : eps) refs.push_back({e.parentIndex, e.index});
+                const int64_t season = pid.season, episode = pid.episode;
+                upsertLibrary(engine, rk, [&eps, &refs, season, episode](nlohmann::json& st) {
+                    const EpisodeWatched w = episodeWatched(refs, libraryState(st), season, episode);
+                    return applyEpisodeWatched(st, w, w.next >= 0 ? eps[size_t(w.next)].guid : "");
+                });
+                return;
+            }
+            upsertLibrary(engine, rk, [](nlohmann::json& st) {
                 st["flaggedWatched"] = 1;
                 st["timeOffset"] = 0;  // watched -> clear resume position
+                return true;
             });
         } catch (const std::exception& ex) {
             brls::Logger::warning("stremio markWatched: {}", ex.what());
@@ -1073,7 +1077,10 @@ void StremioBackend::markUnwatched(const std::string& id) {
     std::string rk = id;
     brls::async([this, rk]() {
         try {
-            upsertLibrary(engine, rk, [](nlohmann::json& st) { st["flaggedWatched"] = 0; });
+            upsertLibrary(engine, rk, [](nlohmann::json& st) {
+                st["flaggedWatched"] = 0;
+                return true;
+            });
         } catch (const std::exception& ex) {
             brls::Logger::warning("stremio markUnwatched: {}", ex.what());
         }
@@ -1086,7 +1093,10 @@ void StremioBackend::clearProgress(const std::string& id) {
     brls::async([this, rk]() {
         try {
             // Stremio's own "remove from Continue Watching": the position goes, the item stays
-            upsertLibrary(engine, rk, [](nlohmann::json& st) { st["timeOffset"] = 0; });
+            upsertLibrary(engine, rk, [](nlohmann::json& st) {
+                st["timeOffset"] = 0;
+                return true;
+            });
         } catch (const std::exception& ex) {
             brls::Logger::warning("stremio clearProgress: {}", ex.what());
         }
@@ -1163,9 +1173,9 @@ std::string StremioBackend::subtitleMenuHint() const {
 void StremioBackend::reportProgress(
     const std::string& id, media::PlayState state, int64_t posMs, int64_t durMs, const std::string&) {
     if (accountKey().empty()) return;
-    // Persist on pause/stop only — the player calls this every 10 s while playing,
-    // far too chatty for a datastoreGet+Put round-trip per tick. While playing, once every 5
-    // minutes instead: a PS-button close never reports a stop.
+    // Saved on pause and stop, and while playing once every 5 minutes (a PS-button close never
+    // reports a stop): the player reports every 10 s while playing, far too often for a
+    // datastoreGet+Put round trip each time.
     if (posMs <= 0) return;
     if (state == media::PlayState::Playing) {
         const auto now = std::chrono::steady_clock::now();
@@ -1180,9 +1190,8 @@ void StremioBackend::reportProgress(
             ParsedId pid = parseId(rk);
             std::string videoId = (pid.stremioType == "series" && pid.episode >= 0) ? pid.stremioId : "";
             upsertLibrary(engine, rk, [pos, dur, videoId](nlohmann::json& st) {
-                st["timeOffset"] = pos;
-                if (dur > 0) st["duration"] = dur;
-                if (!videoId.empty()) st["videoId"] = videoId;
+                applyProgress(st, videoId, pos, dur);  // another episode: no old length
+                return true;
             });
         } catch (const std::exception& ex) {
             brls::Logger::warning("stremio reportProgress: {}", ex.what());
@@ -1248,7 +1257,7 @@ void StremioBackend::getWatchlistState(const media::Item& item, media::Then<bool
     std::string baseId = parseId(item.ratingKey).baseId;
     brls::async([key, baseId, then, error]() {
         try {
-            nlohmann::json items = stremio::datastoreGet(key);
+            nlohmann::json items = stremio::datastoreGet(key, {baseId});
             bool in = false;
             for (auto& it : items)
                 if (jstr(it, "_id") == baseId && !jbool(it, "removed")) {
@@ -1280,13 +1289,14 @@ void StremioBackend::setWatchlisted(
     brls::async([key, baseId, libType, title, poster, dur, addCopy, then, error]() {
         try {
             // Reuse an existing entry (preserve its playback state); else build one.
-            nlohmann::json items = stremio::datastoreGet(key);
+            nlohmann::json items = stremio::datastoreGet(key, {baseId});
             nlohmann::json found;
             for (auto& it : items)
                 if (jstr(it, "_id") == baseId) {
                     found = it;
                     break;
                 }
+            normalizeLibraryItem(found);  // an older GMCA's state.videoId -> state.video_id
             std::string now = stremio::nowIso();
             if (found.is_null()) {
                 found = {
@@ -1295,7 +1305,7 @@ void StremioBackend::setWatchlisted(
                     {"_mtime", now},
                     {"state", {{"lastWatched", nullptr}, {"timeWatched", 0}, {"timeOffset", 0},
                                   {"overallTimeWatched", 0}, {"timesWatched", 0}, {"flaggedWatched", 0},
-                                  {"duration", dur}, {"videoId", nullptr}, {"watched", nullptr},
+                                  {"duration", dur}, {"video_id", nullptr}, {"watched", nullptr},
                                   {"noNotif", false}}},
                     {"behaviorHints", nlohmann::json::object()},
                 };

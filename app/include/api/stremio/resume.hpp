@@ -20,16 +20,18 @@ struct LibraryState {
     int64_t timeOffsetMs = 0;
     int64_t durationMs = 0;
     bool flaggedWatched = false;
-    std::string videoId;      // a series: the episode last played ("tt0903747:2:5")
+    std::string videoId;      // a series: the episode last played ("tt0903747:2:5"), `video_id`
     std::string lastWatched;  // ISO 8601, UTC ("2026-10-10T08:30:25.123Z")
 };
 
 /// One libraryItem as Continue Watching needs it.
 struct LibraryEntry {
     std::string id;    // "tt0903747"
-    std::string type;  // "movie" | "series"
+    std::string type;  // "movie" | "series" | "other"...
     std::string name;
     std::string poster;
+    bool removed = false;  // not (or no longer) in the library list
+    bool temp = false;     // watched without being added
     LibraryState state;
 };
 
@@ -84,16 +86,17 @@ inline int64_t isoToEpochSeconds(const std::string& iso) {
     return days * 86400 + h * 3600 + mi * 60 + s;
 }
 
-/// The items Continue Watching lists, most recently watched first, at most `count`: those with
-/// a saved position, except movies watched to the end. A series stays with a finished episode
-/// (its card leads to the next one), and so does one an older client flagged watched as a
-/// whole. Indexes into `items`.
+/// The items Continue Watching lists, most recently watched first, at most `count`: stremio-core's
+/// rule (not "other", not taken out of the library on purpose, a saved position), except movies
+/// watched to the end. A movie flagged watched but not finished stays (Stremio's clients flag at
+/// 70%). A series stays with a finished episode (its card leads to the next one), and so does
+/// one an older client flagged watched as a whole. Indexes into `items`.
 inline std::vector<size_t> continueWatching(const std::vector<LibraryEntry>& items, size_t count) {
     std::vector<size_t> out;
     for (size_t i = 0; i < items.size(); ++i) {
         const LibraryState& s = items[i].state;
-        if (s.timeOffsetMs <= 0) continue;
-        if (items[i].type == "movie" && (s.flaggedWatched || isFinished(s.timeOffsetMs, s.durationMs))) continue;
+        if (items[i].type == "other" || (items[i].removed && !items[i].temp) || s.timeOffsetMs <= 0) continue;
+        if (items[i].type == "movie" && isFinished(s.timeOffsetMs, s.durationMs)) continue;
         out.push_back(i);
     }
     std::stable_sort(out.begin(), out.end(),
@@ -103,10 +106,11 @@ inline std::vector<size_t> continueWatching(const std::vector<LibraryEntry>& ite
 }
 
 /// Where a movie (`episodeVideoId` "") or the episode `episodeVideoId` resumes: the saved
-/// position, or 0 when there is none, it is another episode's, or it was watched to the end.
+/// position, or 0 when there is none, it is another episode's, or it was watched to the end. A
+/// position under a second is the start (stremio-core saves 1 ms for the next episode).
 inline int64_t resumePositionMs(const LibraryState& s, const std::string& episodeVideoId) {
-    if (s.timeOffsetMs <= 0 || isFinished(s.timeOffsetMs, s.durationMs)) return 0;
-    if (episodeVideoId.empty()) return s.flaggedWatched ? 0 : s.timeOffsetMs;
+    if (s.timeOffsetMs < 1000 || isFinished(s.timeOffsetMs, s.durationMs)) return 0;
+    if (episodeVideoId.empty()) return s.timeOffsetMs;
     return s.videoId == episodeVideoId ? s.timeOffsetMs : 0;
 }
 
@@ -172,6 +176,29 @@ inline int showNextUp(const std::vector<EpisodeRef>& eps, const LibraryState& s,
     if (next >= 0) return next;
     again = true;
     return first;
+}
+
+/// What "Mark as watched" on one episode does to its show's saved state, as stremio-core does:
+/// Advance to the next episode (its advance_to_video: position 1 ms, length unknown), so the
+/// show stays in Continue Watching with that one; Clear the position when it was the last one or
+/// the show's episodes aren't known (its mark_as_watched), so the show leaves the row; Keep the
+/// state when the episode comes before the saved one, so marking an old episode never loses a
+/// later one in progress.
+struct EpisodeWatched {
+    enum Kind { Keep, Advance, Clear };
+    Kind kind;
+    int next;  // Advance: the next episode's index in the show's episodes; else -1
+};
+
+inline EpisodeWatched episodeWatched(
+    const std::vector<EpisodeRef>& eps, const LibraryState& s, int64_t season, int64_t episode) {
+    int64_t savedSeason = 0, savedEpisode = 0;
+    if (parseEpisodeId(s.videoId, savedSeason, savedEpisode) &&
+        (season < savedSeason || (season == savedSeason && episode < savedEpisode)))
+        return {EpisodeWatched::Keep, -1};
+    const int next = nextEpisodeIndex(eps, season, episode);
+    if (next >= 0) return {EpisodeWatched::Advance, next};
+    return {EpisodeWatched::Clear, -1};
 }
 
 }  // namespace stremio

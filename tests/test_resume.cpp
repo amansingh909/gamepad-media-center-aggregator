@@ -59,7 +59,14 @@ int main() {
     CHECK(!parseEpisodeId("tt0903747:x:5", season, episode));
     CHECK(!parseEpisodeId("", season, episode));
 
-    // which items, in what order: newest first; finished movies out; series stay
+    // which items, in what order: newest first; finished movies out; series stay; a movie flagged
+    // watched but not finished stays (Stremio flags at 70%); stremio-core's rule otherwise: no
+    // "other", nothing taken out of the library on purpose (removed and not temp)
+    LibraryEntry dropped = entry("dropped", "series", 10, 44, "2026-10-11T23:30:00Z", "tt4:1:1");
+    dropped.removed = true;
+    LibraryEntry watchedOnly = entry("watchedOnly", "movie", 30, 90, "2026-10-11T23:40:00Z");
+    watchedOnly.removed = true;  // watched without adding it to the library
+    watchedOnly.temp = true;
     std::vector<LibraryEntry> lib = {
         entry("movieHalf", "movie", 40, 90, "2026-10-11T10:00:00Z"),
         entry("showNow", "series", 10, 44, "2026-10-11T20:00:00Z", "tt1:1:2"),
@@ -69,11 +76,14 @@ int main() {
         entry("showLegacy", "series", 20, 44, "2026-10-09T08:00:00Z", "tt3:1:1", true),
         entry("neverPlayed", "movie", 0, 90, "2026-10-11T23:00:00Z"),
         entry("noState", "series", 0, 0, ""),
+        dropped,
+        watchedOnly,
+        entry("channel", "other", 10, 0, "2026-10-11T23:50:00Z"),
     };
     std::vector<size_t> rows = continueWatching(lib, 20);
     std::string order;
     for (size_t i : rows) order += (order.empty() ? "" : " ") + lib[i].id;
-    CHECK_EQ(order, "showNow movieHalf showDoneEp showLegacy");
+    CHECK_EQ(order, "watchedOnly movieFlagged showNow movieHalf showDoneEp showLegacy");
     CHECK(continueWatching(lib, 2).size() == 2);
     CHECK(continueWatching({}, 20).empty());
 
@@ -82,8 +92,8 @@ int main() {
     s.timeOffsetMs = 40 * 60000;
     s.durationMs = 90 * 60000;
     CHECK(resumePositionMs(s, "") == 40 * 60000);
-    s.flaggedWatched = true;
-    CHECK(resumePositionMs(s, "") == 0);
+    s.flaggedWatched = true;  // flagged watched, not finished: a rewatch resumes too
+    CHECK(resumePositionMs(s, "") == 40 * 60000);
     s.flaggedWatched = false;
     s.timeOffsetMs = 85 * 60000;  // watched to the end: from the start
     CHECK(resumePositionMs(s, "") == 0);
@@ -98,6 +108,10 @@ int main() {
     s.durationMs = 0;  // no length known: the position as saved
     CHECK(resumePositionMs(s, "tt1:1:2") == 10 * 60000);
     CHECK(resumePositionMs(LibraryState{}, "") == 0);
+    LibraryState advanced;  // stremio-core's advance_to_video: the next episode at 1 ms
+    advanced.timeOffsetMs = 1;
+    advanced.videoId = "tt1:1:3";
+    CHECK(resumePositionMs(advanced, "tt1:1:3") == 0);  // under a second: from the start
 
     // time left
     Phrase left = timeLeft(30 * 60000, 94 * 60000);
@@ -146,6 +160,30 @@ int main() {
     show.videoId = "tt1:9:9";
     CHECK(showNextUp(eps, show, again) == 1 && !again);  // an episode the show no longer lists
     CHECK(showNextUp({}, show, again) == -1);
+    show.durationMs = 0;  // advanced to the next episode: that one, not again
+    show.timeOffsetMs = 1;
+    show.videoId = "tt1:2:1";
+    CHECK(showNextUp(eps, show, again) == 3 && !again);
+
+    // "Mark as watched" on an episode, as stremio-core does
+    LibraryState saved;  // S1E2 in progress
+    saved.timeOffsetMs = 10 * 60000;
+    saved.durationMs = 44 * 60000;
+    saved.videoId = "tt1:1:2";
+    EpisodeWatched w = episodeWatched(eps, saved, 1, 2);
+    CHECK(w.kind == EpisodeWatched::Advance && w.next == 3);  // the next one, into the next season
+    w = episodeWatched(eps, LibraryState{}, 1, 1);
+    CHECK(w.kind == EpisodeWatched::Advance && w.next == 2);  // nothing saved yet: advances too
+    w = episodeWatched(eps, saved, 2, 1);
+    CHECK(w.kind == EpisodeWatched::Clear && w.next == -1);  // the last one: the show leaves the row
+    w = episodeWatched(eps, saved, 1, 1);
+    CHECK(w.kind == EpisodeWatched::Keep);  // before the saved one: S1E2 stays where it was
+    w = episodeWatched(eps, saved, 0, 1);
+    CHECK(w.kind == EpisodeWatched::Keep);  // a special sorts first: kept too
+    w = episodeWatched(eps, saved, 5, 5);
+    CHECK(w.kind == EpisodeWatched::Clear);  // an episode the show doesn't list
+    w = episodeWatched({}, saved, 2, 1);
+    CHECK(w.kind == EpisodeWatched::Clear);  // the show's episodes unknown
 
     if (failures == 0) printf("test_resume: all passed\n");
     return failures ? 1 : 0;
