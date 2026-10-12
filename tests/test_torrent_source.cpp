@@ -65,6 +65,24 @@ int main() {
     CHECK_EQ(localStreamUrl(H.substr(1) + "z", 0, {}, ""), "");
     CHECK_EQ(localStreamUrl("", 0, {}, ""), "");
 
+    // a URL the server would refuse is no URL: the row stays grey
+    CHECK_EQ(localStreamUrl(H, 999999, {}, ""), base + H + "/999999");
+    CHECK_EQ(localStreamUrl(H, 1000000, {}, ""), "");
+    CHECK_EQ(localStreamUrl(H, 2147483647, {}, ""), "");
+    // an absurd file name only loses its hint; the URL still parses
+    url = localStreamUrl(H, 0, {}, std::string(100000, 'a') + ".mkv");
+    CHECK_EQ(url, base + H + "/0");
+    CHECK(parseLocalStreamUrl(url, r));
+    // an over-long tracker is dropped, the others stay
+    std::vector<std::string> trs = {"tracker:udp://a.example:1337/announce", "tracker:udp://" + std::string(5000, 'x') + ".example/announce"};
+    url = localStreamUrl(H, 0, trs, "");
+    CHECK(parseLocalStreamUrl(url, r) && r.trackers.size() == 1 && r.trackers[0] == "udp://a.example:1337/announce");
+    // however much an addon sends, the head stays far below the server's 16 KiB cap
+    std::vector<std::string> flood;
+    for (int i = 0; i < 40; ++i) flood.push_back("tracker:udp://" + std::string(190, '&') + std::to_string(i));
+    url = localStreamUrl(H, 0, flood, std::string(300, '&'));
+    CHECK(parseLocalStreamUrl(url, r) && url.size() < 12000);
+
     // other URLs aren't local streams
     CHECK(!parseLocalStreamUrl("https://download.blender.org/durian/movies/Sintel.2010.1080p.mkv", r));
     CHECK(!parseLocalStreamUrl("http://127.0.0.1:11471/" + H + "/0", r));

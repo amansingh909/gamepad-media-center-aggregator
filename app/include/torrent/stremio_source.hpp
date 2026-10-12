@@ -23,34 +23,27 @@ constexpr int playerNetworkTimeoutSecs = 120;
 /// More trackers than this in one stream is an addon bug, not more peers.
 constexpr size_t maxTrackers = 16;
 
+/// A tracker URL or file name hint longer than this (raw bytes) is left out, so a local URL
+/// stays far below the server's 16 KiB request head however much an addon sends.
+constexpr size_t maxTrackerLength = 200;
+constexpr size_t maxFilenameLength = 200;
+
+/// The largest file index the server's URL parser accepts (6 digits).
+constexpr int maxFileIndex = 999999;
+
 /// The tracker URLs among Stremio's `sources` ("tracker:<url>", "dht:<info hash>"), without
-/// duplicates, at most maxTrackers.
+/// duplicates and without over-long ones, at most maxTrackers.
 inline std::vector<std::string> trackersFromSources(const std::vector<std::string>& sources) {
     const std::string prefix = "tracker:";
     std::vector<std::string> out;
     for (const auto& s : sources) {
         if (s.compare(0, prefix.size(), prefix) != 0) continue;
         std::string url = s.substr(prefix.size());
-        if (url.empty() || std::find(out.begin(), out.end(), url) != out.end()) continue;
+        if (url.empty() || url.size() > maxTrackerLength || std::find(out.begin(), out.end(), url) != out.end()) continue;
         out.push_back(url);
         if (out.size() == maxTrackers) break;
     }
     return out;
-}
-
-/// The local server's URL for a Stremio torrent stream, or "" when `infoHash` isn't 40 hex
-/// characters. The hash goes in lowercase (the engine names its folders by it), the file's
-/// name as the f= hint.
-inline std::string localStreamUrl(const std::string& infoHash, int fileIdx, const std::vector<std::string>& sources,
-                                  const std::string& filename) {
-    StreamRequest r;
-    r.infoHash = infoHash;
-    for (char& c : r.infoHash) c = char(std::tolower(static_cast<unsigned char>(c)));
-    if (!isInfoHash(r.infoHash)) return "";
-    r.fileIndex = fileIdx < 0 ? -1 : fileIdx;
-    r.trackers = trackersFromSources(sources);
-    if (!filename.empty()) r.fileHints.push_back(filename);
-    return std::string(localStreamBase) + streamPath(r);
 }
 
 /// The request inside a local stream URL; false for any other URL.
@@ -58,6 +51,26 @@ inline bool parseLocalStreamUrl(const std::string& url, StreamRequest& out) {
     const std::string base = localStreamBase;
     if (url.compare(0, base.size(), base) != 0) return false;
     return parseStreamPath(url.substr(base.size()), out);
+}
+
+/// The local server's URL for a Stremio torrent stream, or "" when `infoHash` isn't 40 hex
+/// characters or `fileIdx` is past what the server accepts, or when the URL wouldn't parse
+/// back (the row then stays grey). An over-long file name only loses its hint. The hash goes in lowercase (the engine names its folders by it), the file's
+/// name as the f= hint.
+inline std::string localStreamUrl(const std::string& infoHash, int fileIdx, const std::vector<std::string>& sources,
+                                  const std::string& filename) {
+    StreamRequest r;
+    r.infoHash = infoHash;
+    for (char& c : r.infoHash) c = char(std::tolower(static_cast<unsigned char>(c)));
+    if (!isInfoHash(r.infoHash)) return "";
+    if (fileIdx > maxFileIndex) return "";
+    r.fileIndex = fileIdx < 0 ? -1 : fileIdx;
+    r.trackers = trackersFromSources(sources);
+    if (!filename.empty() && filename.size() <= maxFilenameLength) r.fileHints.push_back(filename);
+    std::string url = std::string(localStreamBase) + streamPath(r);
+    StreamRequest back;
+    if (!parseLocalStreamUrl(url, back)) return "";
+    return url;
 }
 
 /// The extension the downloader gives a local stream's file: its name hint's ("mkv" for

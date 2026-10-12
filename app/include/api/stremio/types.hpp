@@ -35,6 +35,7 @@
 #include <nlohmann/json.hpp>
 #include <algorithm>
 #include <cctype>
+#include <cstdint>
 #include <set>
 #include <string>
 #include <vector>
@@ -502,7 +503,11 @@ inline std::vector<StreamOption> parseStreams(const nlohmann::json& j) {
         so.ytId = jstr(s, "ytId");
         so.externalUrl = jstr(s, "externalUrl");
         so.infoHash = jstr(s, "infoHash");
-        so.fileIdx = (int)jint(s, "fileIdx", -1);
+        {
+            // out of range saturates (the torrent row then stays grey), never wraps into a valid index
+            int64_t idx = jint(s, "fileIdx", -1);
+            so.fileIdx = idx > INT32_MAX ? INT32_MAX : idx < -1 ? -1 : (int)idx;
+        }
 #ifdef USE_TORRENT
         so.sources = stringArray(s, "sources");
 #endif
