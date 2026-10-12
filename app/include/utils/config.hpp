@@ -133,6 +133,7 @@ public:
         HTTP_PROXY,
         TORRENT_STREAMING,     // torrent streaming on/off (USE_TORRENT builds); on by default
         TORRENT_UPLOAD_LIMIT,  // torrent upload limit, bytes per second; 1 MB/s by default
+        TORRENT_PORT_MAPPING,  // allow incoming connections (UPnP, NAT-PMP); off by default
 
         /// Library sorts/filters, persisted locally (json object
         /// {itemId: "sortBy,sortOrder,filter"} — /DisplayPreferences does not

@@ -459,6 +459,12 @@ void SettingTab::onCreate() {
             AppConfig::instance().setItem(AppConfig::TORRENT_UPLOAD_LIMIT, int64_t(bytesPerSec));
             if (auto* service = torrent::TorrentService::current()) service->setUploadLimit(bytesPerSec);
         });
+    // UPnP and NAT-PMP: the router forwards peers to this device; off by default
+    btnTorrentIncoming->init("main/torrent/setting/incoming"_i18n, conf.getItem(AppConfig::TORRENT_PORT_MAPPING, false),
+        [](bool value) {
+            AppConfig::instance().setItem(AppConfig::TORRENT_PORT_MAPPING, value);
+            if (auto* service = torrent::TorrentService::current()) service->setPortMapping(value);
+        });
 #endif
 
     btnSync->init("main/setting/others/sync"_i18n, AppConfig::SYNC, [](bool value) {

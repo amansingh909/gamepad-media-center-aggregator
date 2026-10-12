@@ -55,6 +55,8 @@ struct EngineSettings {
     /// Where the session's DHT state is kept between runs (absolute; "" keeps none). Outside
     /// tempDir: the sweep empties that folder.
     std::string stateFile;
+    /// UPnP and NAT-PMP: ask the router to forward the listen port, so peers can connect in.
+    bool portMapping = false;
     /// Added to every torrent: Stremio addons often send a bare info hash (Torrentio sends no
     /// trackers at all), and the DHT alone found no peer in 90 s for a seeded torrent that a
     /// few trackers served at once. Well-known public trackers, UDP or plain HTTP only (the
@@ -130,6 +132,9 @@ public:
     /// warm for the next one. Off: it closes after idleSecs with no torrents, as before. Blocks
     /// while a session starts: the app calls it from TorrentService's worker.
     void keepSessionOpen(bool on);
+
+    /// UPnP and NAT-PMP on or off, for the running session and the next ones.
+    void setPortMapping(bool on);
 
     /// Wakes every waiter with Stopped and refuses new work, for good. Call before
     /// tearing down anything that still calls into the engine.

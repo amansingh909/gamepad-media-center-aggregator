@@ -120,6 +120,7 @@ std::unordered_map<AppConfig::Item, AppConfig::Option> AppConfig::settingMap = {
     {HTTP_PROXY, {"http_proxy"}},
     {TORRENT_STREAMING, {"torrent_streaming"}},
     {TORRENT_UPLOAD_LIMIT, {"torrent_upload_limit"}},
+    {TORRENT_PORT_MAPPING, {"torrent_port_mapping"}},
 
     {LIBRARY_SORT, {"library_sort"}},
     {SIDEBAR_LAYOUT, {"sidebar_layout"}},

@@ -322,13 +322,16 @@ struct TorrentEngine::Impl {
         sp.set_int(lt::settings_pack::alert_mask, lt::alert_category::status | lt::alert_category::error |
                                                      lt::alert_category::storage |
                                                      lt::alert_category::piece_progress |
-                                                     lt::alert_category::block_progress);
+                                                     lt::alert_category::block_progress |
+                                                     lt::alert_category::port_mapping);
         // room for one alert per 16 KiB block between two pops of the queue
         sp.set_int(lt::settings_pack::alert_queue_size, 10000);
         sp.set_bool(lt::settings_pack::enable_dht, true);
         sp.set_bool(lt::settings_pack::enable_lsd, false);
-        sp.set_bool(lt::settings_pack::enable_upnp, false);
-        sp.set_bool(lt::settings_pack::enable_natpmp, false);
+        // "Allow incoming connections" (off by default): the router forwards the listen port
+        sp.set_bool(lt::settings_pack::enable_upnp, settings.portMapping);
+        sp.set_bool(lt::settings_pack::enable_natpmp, settings.portMapping);
+        if (settings.portMapping) log("incoming connections on (UPnP, NAT-PMP)");
         sp.set_int(lt::settings_pack::connections_limit, 100);
         // a streaming torrent looks finished whenever its window is full; keep the seeds
         sp.set_bool(lt::settings_pack::close_redundant_connections, false);
@@ -550,6 +553,9 @@ struct TorrentEngine::Impl {
             if (Torrent* t = byHandle(fe->handle)) onError(*t, fe->error, fe->message(), "file error");
         } else if (auto* te = lt::alert_cast<lt::torrent_error_alert>(a)) {
             if (Torrent* t = byHandle(te->handle)) onError(*t, te->error, te->message(), "torrent error");
+        } else if (lt::alert_cast<lt::portmap_alert>(a) || lt::alert_cast<lt::portmap_error_alert>(a)) {
+            // whether the router took the mapping: the console run reads it here
+            log("port mapping: " + a->message());
         } else if (lt::alert_cast<lt::alerts_dropped_alert>(a)) {
             // a lost metadata or piece alert would leave readers waiting for data that
             // is already there: ask libtorrent instead
@@ -976,6 +982,22 @@ void TorrentEngine::keepSessionOpen(bool on) {
         // a session closing for idleness still holds the port: let it go first
         impl->changed.wait(lock, [this] { return !impl->closing || impl->quit; });
         if (!impl->quit && !impl->session) impl->startSession();
+    });
+}
+
+void TorrentEngine::setPortMapping(bool on) {
+    // log what fails, never throw
+    impl->guarded("setPortMapping", [&] {
+        std::lock_guard<std::mutex> lock(impl->mutex);
+        if (impl->settings.portMapping == on) return;
+        impl->settings.portMapping = on;
+        impl->log(on ? "incoming connections on (UPnP, NAT-PMP)" : "incoming connections off");
+        if (impl->session) {
+            lt::settings_pack sp;
+            sp.set_bool(lt::settings_pack::enable_upnp, on);
+            sp.set_bool(lt::settings_pack::enable_natpmp, on);
+            impl->session->apply_settings(std::move(sp));
+        }
     });
 }
 

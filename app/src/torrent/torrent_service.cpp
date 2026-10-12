@@ -29,6 +29,7 @@ EngineSettings engineSettings(const ServiceSettings& s) {
     e.tempDir = s.tempDir;
     e.uploadLimit = s.uploadLimit;
     e.stateFile = s.stateFile;
+    e.portMapping = s.portMapping;
     e.log = s.log;
     return e;
 }
@@ -84,6 +85,7 @@ struct TorrentService::Impl {
     std::deque<StreamRequest> prefetches;
     int uploadLimit = -1;  // a limit to apply, -1 for none
     int keepOpen = -1;     // keep the engine's session open (1) or let it idle (0), -1 for no change
+    int portMapping = -1;  // UPnP and NAT-PMP on (1) or off (0), -1 for no change
     std::string watched;
     Stats latest;
     bool quit = false;
@@ -113,7 +115,10 @@ struct TorrentService::Impl {
         std::unique_lock<std::mutex> lock(mutex);
         while (!quit) {
             wake.wait_for(lock, std::chrono::milliseconds(500),
-                          [this] { return quit || !prefetches.empty() || uploadLimit >= 0 || keepOpen >= 0; });
+                          [this] {
+                              return quit || !prefetches.empty() || uploadLimit >= 0 || keepOpen >= 0 ||
+                                     portMapping >= 0;
+                          });
             if (quit) break;
             std::deque<StreamRequest> todo;
             todo.swap(prefetches);
@@ -121,11 +126,14 @@ struct TorrentService::Impl {
             uploadLimit = -1;
             const int keep = keepOpen;
             keepOpen = -1;
+            const int mapping = portMapping;
+            portMapping = -1;
             const std::string hash = watched;
             lock.unlock();
             // these log their own failures and never throw; a session starting takes a moment,
             // which is why it starts here and not on the caller's thread
             if (keep >= 0) engine.keepSessionOpen(keep == 1);
+            if (mapping >= 0) engine.setPortMapping(mapping == 1);
             if (limit >= 0) {
                 engine.setUploadLimit(limit);
                 log("upload limit " + std::to_string(limit / 1024) + " KB/s");
@@ -302,6 +310,14 @@ void TorrentService::setUploadLimit(int bytesPerSec) {
     {
         std::lock_guard<std::mutex> lock(impl->mutex);
         impl->uploadLimit = bytesPerSec;
+    }
+    impl->wake.notify_one();
+}
+
+void TorrentService::setPortMapping(bool on) {
+    {
+        std::lock_guard<std::mutex> lock(impl->mutex);
+        impl->portMapping = on ? 1 : 0;
     }
     impl->wake.notify_one();
 }

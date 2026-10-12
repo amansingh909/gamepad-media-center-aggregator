@@ -325,6 +325,13 @@ static void serviceChecks() {
     // the session starts with the service, on its worker, and stays open while streaming is on
     std::this_thread::sleep_for(std::chrono::milliseconds(1500));
     CHECK(countLogged("keeping the session open") == kept + 1);
+    // "Allow incoming connections": applied by the worker, at once, to the running session
+    service.setPortMapping(true);
+    std::this_thread::sleep_for(std::chrono::milliseconds(1000));
+    CHECK(logged("incoming connections on (UPnP, NAT-PMP)"));
+    service.setPortMapping(false);
+    std::this_thread::sleep_for(std::chrono::milliseconds(1000));
+    CHECK(logged("incoming connections off"));
 
     // the Settings switch: off refuses streams and prefetches, on serves again
     service.setEnabled(false);

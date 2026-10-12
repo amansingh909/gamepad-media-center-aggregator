@@ -115,6 +115,7 @@ static std::unique_ptr<torrent::TorrentService> startTorrents(AppConfig& conf) {
     settings.enabled = conf.getItem(AppConfig::TORRENT_STREAMING, true);
     settings.uploadLimit =
         torrent::uploadLimitValue(conf.getItem(AppConfig::TORRENT_UPLOAD_LIMIT, int64_t(torrent::defaultUploadLimit)));
+    settings.portMapping = conf.getItem(AppConfig::TORRENT_PORT_MAPPING, false);
     settings.log = [](const std::string& msg) {
         brls::Logger::info("torrent: {}", msg);
         if (!torrentLog) return;

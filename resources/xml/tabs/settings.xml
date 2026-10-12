@@ -134,6 +134,8 @@
                     id="setting/torrent/streaming" />
                 <brls:SelectorCell
                     id="setting/torrent/upload_limit" />
+                <brls:BooleanCell
+                    id="setting/torrent/incoming" />
             </brls:Box>
 
             <brls:Header

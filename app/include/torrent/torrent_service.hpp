@@ -41,6 +41,7 @@ struct ServiceSettings {
     bool enabled = true;        // the Settings switch
     int uploadLimit = 1 << 20;  // bytes per second, while someone reads
     std::string stateFile;      // absolute; the engine's DHT state between runs ({config}/torrent-dht.dat)
+    bool portMapping = false;   // Settings, Torrents, "Allow incoming connections (UPnP)"
     /// Called from several threads at once, sometimes with the engine's lock held: it must
     /// not block on another thread or call into the service or the engine.
     std::function<void(const std::string&)> log;
@@ -103,6 +104,8 @@ public:
     void setEnabled(bool on);
     /// Applied by the worker. Any thread.
     void setUploadLimit(int bytesPerSec);
+    /// UPnP and NAT-PMP on or off, applied by the worker. Any thread.
+    void setPortMapping(bool on);
 
     /// Fetches the torrent's metadata and peers in the background; returns at once.
     void prefetch(const StreamRequest& req);
