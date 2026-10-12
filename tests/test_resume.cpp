@@ -182,13 +182,14 @@ int main() {
     CHECK(w.kind == EpisodeWatched::Keep);  // a special sorts first: kept too
     w = episodeWatched(eps, saved, 5, 5);
     CHECK(w.kind == EpisodeWatched::Clear);  // an episode the show doesn't list
-    LibraryState done = saved;  // the player already saved S1E2 as watched to its end
+    std::vector<EpisodeRef> season1 = {{1, 1}, {1, 2}, {1, 3}, {2, 1}};
+    LibraryState done = saved;  // S1E2 watched to its end: its card leads to S1E3
     done.timeOffsetMs = 44 * 60000;
-    w = episodeWatched(eps, done, 1, 2);
-    CHECK(w.kind == EpisodeWatched::Keep);  // a mark landing after that save never undoes it
-    done.videoId = "tt1:2:1";
-    w = episodeWatched(eps, done, 2, 1);
-    CHECK(w.kind == EpisodeWatched::Keep);  // the last one, finished: stays in the row
+    w = episodeWatched(season1, done, 1, 3);
+    CHECK(w.kind == EpisodeWatched::Advance && w.next == 3);  // S1E3 marked from that card: S2E1
+    done.videoId = "tt1:2:1";  // the last one, watched to its end (a LastDone card)
+    w = episodeWatched(season1, done, 2, 1);
+    CHECK(w.kind == EpisodeWatched::Clear);  // marked played: the show leaves the row
     w = episodeWatched({}, saved, 2, 1);
     CHECK(w.kind == EpisodeWatched::Keep && w.next == -1);  // the show's episodes unknown: no change
     w = episodeWatched({}, LibraryState{}, 1, 1);
