@@ -12,6 +12,7 @@
 #include <libtorrent/posix_disk_io.hpp>
 #include <libtorrent/session.hpp>
 #include <libtorrent/session_params.hpp>
+#include <libtorrent/session_stats.hpp>
 #include <libtorrent/settings_pack.hpp>
 #include <libtorrent/torrent_flags.hpp>
 #include <libtorrent/torrent_handle.hpp>
@@ -124,6 +125,8 @@ struct TorrentEngine::Impl {
     bool quit = false;
     bool closing = false;  // expire() is destroying an idle session with the lock dropped
     bool keepOpen = false;  // keepSessionOpen(true): the session doesn't close for idleness
+    // libtorrent's disk counters at the last 30 s line: write, hash and read time (us), blocks written
+    int64_t lastWriteUs = 0, lastHashUs = 0, lastReadUs = 0, lastBlocksWritten = 0;
     Clock::time_point nextStateSave = Clock::time_point::max();  // the next DHT state save, while a session exists
 #ifdef __PS4__
     NetworkWatch network;  // the console's network as libtorrent was last told it
@@ -556,6 +559,8 @@ struct TorrentEngine::Impl {
         } else if (lt::alert_cast<lt::portmap_alert>(a) || lt::alert_cast<lt::portmap_error_alert>(a)) {
             // whether the router took the mapping: the console run reads it here
             log("port mapping: " + a->message());
+        } else if (auto* ss = lt::alert_cast<lt::session_stats_alert>(a)) {
+            logDisk(ss->counters());
         } else if (lt::alert_cast<lt::alerts_dropped_alert>(a)) {
             // a lost metadata or piece alert would leave readers waiting for data that
             // is already there: ask libtorrent instead
@@ -691,7 +696,54 @@ struct TorrentEngine::Impl {
                 std::to_string(st.download_payload_rate / 1024) + " KB/s, up " +
                 std::to_string(st.upload_payload_rate / 1024) + " KB/s, redundant " + mb(st.total_redundant_bytes) +
                 " MB, failed " + mb(st.total_failed_bytes) + " MB, readers " + std::to_string(kv.second.readers));
+            if (kv.second.readers > 0 && kv.second.metadata) logReaders(kv.first, kv.second, mb);
         }
+        // the disk's share, from libtorrent's own counters: session_stats_alert, then logDisk()
+        bool reading = false;
+        for (auto& kv : torrents) reading = reading || kv.second.readers > 0;
+        if (reading) session->post_session_stats();
+    }
+
+    // For a torrent being read: where each reader is, how much it has in a row ahead of it,
+    // whether it waits for data; the pieces with deadlines and those downloading. A reader that
+    // waits with little ahead while many pieces download points at the network; one with plenty
+    // ahead while the player stalls points at mpv.
+    template <class Mb>
+    void logReaders(const std::string& hash, Torrent& t, const Mb& mb) {
+        // the blocks arrays aren't read here: only the queue's length
+        std::vector<lt::partial_piece_info> queue;
+        t.handle.get_download_queue(queue);
+        int deadlines = 0;
+        for (bool d : t.deadlined) deadlines += d ? 1 : 0;
+        for (const auto& kv : t.active) {
+            const Reader& r = kv.second;
+            const int64_t ahead = bytesAhead(r.fileOffset, r.position, r.fileSize, t.pieceLength, t.have);
+            log(hash + ": reader at " + mb(r.position) + " MB, " + mb(ahead) + " MB ahead" +
+                (r.waiting ? ", waiting" : "") + "; deadlines " + std::to_string(deadlines) + ", downloading " +
+                std::to_string(queue.size()) + " pieces");
+        }
+    }
+
+    // libtorrent's POSIX disk backend writes and hashes on its network thread, opening the file
+    // for every 16 KiB block: the time it spends there, no peer is served. The last 30 s of it.
+    void logDisk(lt::span<std::int64_t const> c) {
+        static_assert(sizeof(std::int64_t) == sizeof(int64_t), "counters are 64-bit");
+        auto at = [&c](const char* name) -> int64_t {
+            const int i = lt::find_metric_idx(name);
+            return i >= 0 && i < int(c.size()) ? c[i] : 0;
+        };
+        const int64_t writeUs = at("disk.disk_write_time"), hashUs = at("disk.disk_hash_time");
+        const int64_t readUs = at("disk.disk_read_time"), blocks = at("disk.num_blocks_written");
+        const int64_t dw = writeUs - lastWriteUs, dh = hashUs - lastHashUs, dr = readUs - lastReadUs;
+        const int64_t db = blocks - lastBlocksWritten;
+        lastWriteUs = writeUs;
+        lastHashUs = hashUs;
+        lastReadUs = readUs;
+        lastBlocksWritten = blocks;
+        char each[32];
+        std::snprintf(each, sizeof each, "%.2f", db > 0 ? double(dw) / double(db) / 1000.0 : 0.0);
+        log("disk: wrote " + std::to_string(db) + " blocks in " + std::to_string(dw / 1000) + " ms (" + each +
+            " ms each), hashing " + std::to_string(dh / 1000) + " ms, reading " + std::to_string(dr / 1000) + " ms");
     }
 
     // One round of the worker: alerts, stats, expiry.
@@ -936,8 +988,8 @@ int64_t TorrentEngine::bytesReady(const StreamRequest& req, ReaderId reader, int
         for (int p = span.first; p <= span.last && whole; ++p) whole = size_t(p) < t->have.size() && t->have[size_t(p)];
         std::vector<PartialPiece> partial;
         if (!whole) {
-            // the blocks arrays belong to the session until its next get_download_queue(),
-            // which only this call makes, under the engine's lock
+            // the blocks arrays belong to the session until its next get_download_queue(); this
+            // call reads them under the engine's lock, and logReaders() doesn't read them at all
             std::vector<lt::partial_piece_info> queue;
             t->handle.get_download_queue(queue);
             for (const lt::partial_piece_info& q : queue) {

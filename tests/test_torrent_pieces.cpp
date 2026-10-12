@@ -135,6 +135,16 @@ int main() {
         CHECK(bytesIn(2, shortTotal - 6, shortTotal - 2, P, shortTotal, none, {{3, {false, false, true}}}) == 4);
     }
 
+    // what a reader can read before it waits: verified pieces in a row from its position
+    {
+        const std::vector<bool> have = {true, true, false, true};
+        CHECK(torrent::bytesAhead(0, 50, 400, 100, have) == 150);   // pieces 0 and 1
+        CHECK(torrent::bytesAhead(0, 250, 400, 100, have) == 0);    // piece 2 is missing
+        CHECK(torrent::bytesAhead(0, 300, 400, 100, have) == 100);  // the last piece, to the file's end
+        CHECK(torrent::bytesAhead(30, 0, 300, 100, have) == 170);   // a file starting inside piece 0
+        CHECK(torrent::bytesAhead(0, 400, 400, 100, have) == 0);    // at the end
+        CHECK(torrent::bytesAhead(0, 50, 400, 100, {}) == 0);       // no metadata yet
+    }
     if (failures == 0) printf("test_torrent_pieces: all passed\n");
     return failures ? 1 : 0;
 }

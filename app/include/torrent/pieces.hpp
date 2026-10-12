@@ -59,6 +59,19 @@ inline int64_t bytesIn(int64_t fileOffset, int64_t begin, int64_t end, int piece
     return in;
 }
 
+/// Bytes of a file (starting `fileOffset` bytes into the torrent, `fileSize` long) that are in
+/// without a gap from `position` on: the verified pieces in a row from the one holding
+/// `position`, clipped to the file. What a reader at `position` can read before it waits.
+inline int64_t bytesAhead(int64_t fileOffset, int64_t position, int64_t fileSize, int pieceLength,
+                          const std::vector<bool>& have) {
+    if (pieceLength <= 0 || position < 0 || position >= fileSize) return 0;
+    const int64_t start = fileOffset + position, end = fileOffset + fileSize;
+    int64_t reach = start;
+    for (int64_t p = start / pieceLength; reach < end && size_t(p) < have.size() && have[size_t(p)]; ++p)
+        reach = std::min(end, (p + 1) * int64_t(pieceLength));
+    return reach - start;
+}
+
 /// Stremio's rule: an index picks that file, -1 picks the largest (the first one on
 /// ties). Returns -1 when the request can't be served.
 inline int pickFile(int requested, const std::vector<int64_t>& sizes) {
