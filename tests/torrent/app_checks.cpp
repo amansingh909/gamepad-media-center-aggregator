@@ -11,6 +11,7 @@
 #include <torrent/stream_url.hpp>
 #include <torrent/torrent_engine.hpp>
 #include <torrent/torrent_server.hpp>
+#include <torrent/torrent_service.hpp>
 
 #include <arpa/inet.h>
 #include <netinet/in.h>
@@ -147,10 +148,136 @@ static void engineChecks() {
     CHECK(!waiting.hasMetadata && waiting.error == torrent::Status::Ok);
 }
 
-int main() {
+// What a warm-up's `done` was called with.
+struct Calls {
+    std::mutex m;
+    int n = 0;
+    torrent::Status lastStatus = torrent::Status::Ok;
+    std::function<void(torrent::Status)> recorder() {
+        return [this](torrent::Status s) {
+            std::lock_guard<std::mutex> lock(m);
+            ++n;
+            lastStatus = s;
+        };
+    }
+    int count() {
+        std::lock_guard<std::mutex> lock(m);
+        return n;
+    }
+    torrent::Status last() {
+        std::lock_guard<std::mutex> lock(m);
+        return lastStatus;
+    }
+};
+
+static torrent::ServiceSettings serviceSettings(const std::string& dir, uint16_t port) {
+    torrent::ServiceSettings s;
+    s.tempDir = dir;
+    s.port = port;
+    s.log = logLine;
+    return s;
+}
+
+static void serviceChecks() {
+    std::printf("service\n");
+    using Clock = std::chrono::steady_clock;
+
+    // a port someone else holds: no server, and the reason for the grey rows
+    {
+        int blocker = socket(AF_INET, SOCK_STREAM, 0);
+        sockaddr_in a{};
+        a.sin_family = AF_INET;
+        a.sin_port = htons(11482);
+        a.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+        CHECK(bind(blocker, reinterpret_cast<sockaddr*>(&a), sizeof a) == 0 && listen(blocker, 1) == 0);
+        torrent::TorrentService busy(serviceSettings("/tmp/app-checks/busy", 11482));
+        CHECK(!busy.start());
+        CHECK(busy.availability() == torrent::Availability::NotStarted);
+        CHECK(busy.startError().find("11482") != std::string::npos);
+        close(blocker);
+    }
+
+    torrent::TorrentService service(serviceSettings("/tmp/app-checks/service", 11483));
+    CHECK(service.availability() == torrent::Availability::NotStarted);
+    CHECK(service.start());
+    CHECK(service.availability() == torrent::Availability::Ready);
+
+    // the Settings switch: off refuses streams and prefetches, on serves again
+    service.setEnabled(false);
+    CHECK(service.availability() == torrent::Availability::Off);
+    CHECK(startsWith(httpRequest(11483, "GET", "/" + dead(6) + "/0"), "HTTP/1.1 503"));
+    service.prefetch(request(dead(6)));
+    service.setEnabled(true);
+    CHECK(service.availability() == torrent::Availability::Ready);
+
+    // prefetch returns at once: the worker makes the engine call
+    Clock::time_point t0 = Clock::now();
+    service.prefetch(request(dead(7)));
+    CHECK(Clock::now() - t0 < std::chrono::milliseconds(20));
+    service.watch(dead(7));
+    std::this_thread::sleep_for(std::chrono::milliseconds(1500));
+    CHECK(service.snapshot().known);
+    service.watch(dead(6));
+    std::this_thread::sleep_for(std::chrono::milliseconds(1500));
+    CHECK(!service.snapshot().known);  // the prefetch made while off never reached the engine
+    service.watch("");
+
+    // a cancelled warm-up says Stopped, once, within about a second
+    Calls cancelled;
+    auto w = service.warmUp(request(dead(8)), torrent::startBufferBytes, cancelled.recorder());
+    std::this_thread::sleep_for(std::chrono::seconds(2));
+    CHECK(cancelled.count() == 0);  // still waiting for metadata that never comes
+    CHECK(w->target() == 0 && w->buffered() == 0);
+    w->cancel();
+    std::this_thread::sleep_for(std::chrono::milliseconds(1500));
+    CHECK(cancelled.count() == 1 && cancelled.last() == torrent::Status::Stopped);
+    w->cancel();
+
+    // stop() ends a waiting warm-up, and later ones are refused at once
+    Calls pending;
+    auto w2 = service.warmUp(request(dead(9)), torrent::startBufferBytes, pending.recorder());
+    std::this_thread::sleep_for(std::chrono::seconds(1));
+    t0 = Clock::now();
+    service.stop();
+    CHECK(Clock::now() - t0 < std::chrono::seconds(10));
+    CHECK(pending.count() == 1 && pending.last() == torrent::Status::Stopped);
+    CHECK(service.availability() == torrent::Availability::Stopped);
+    Calls late;
+    service.warmUp(request(dead(10)), torrent::startBufferBytes, late.recorder());
+    CHECK(late.count() == 1 && late.last() == torrent::Status::Stopped);
+    service.stop();
+}
+
+// Sintel (Blender Foundation, CC BY), WebTorrent's sample torrent: file 5 is Sintel.mp4,
+// 129241752 bytes. No tracker in the request: the engine's default trackers find peers.
+static void onlineChecks() {
+    std::printf("online\n");
+    const std::string sintel = "08ada5a7a6183aae1e09d831df6748d566095a10";
+    torrent::TorrentService service(serviceSettings("/tmp/app-checks/online", 11484));
+    CHECK(service.start());
+    service.watch(sintel);
+    Calls calls;
+    auto w = service.warmUp(request(sintel, 5), torrent::startBufferBytes, calls.recorder());
+    for (int i = 0; i < 120 && calls.count() == 0; ++i) std::this_thread::sleep_for(std::chrono::seconds(1));
+    CHECK(calls.count() == 1 && calls.last() == torrent::Status::Ok);
+    CHECK(w->target() == torrent::startBufferBytes && w->buffered() == torrent::startBufferBytes);
+    std::this_thread::sleep_for(std::chrono::seconds(1));
+    torrent::Stats s = service.snapshot();
+    CHECK(s.known && s.hasMetadata && s.peers > 0 && s.error == torrent::Status::Ok);
+    // while the warm-up holds its reader, the server answers for the same file
+    std::string head = httpRequest(11484, "HEAD", "/" + sintel + "/5");
+    CHECK(startsWith(head, "HTTP/1.1 200") && head.find("Content-Length: 129241752") != std::string::npos);
+    w->finish();
+    service.stop();
+}
+
+int main(int argc, char** argv) {
+    const bool online = argc > 1 && std::string(argv[1]) == "--online";
     std::signal(SIGPIPE, SIG_IGN);
     serverChecks();
     engineChecks();
+    serviceChecks();
+    if (online) onlineChecks();
     if (failures == 0) std::printf("app_checks: all passed\n");
     return failures ? 1 : 0;
 }
