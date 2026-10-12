@@ -31,6 +31,8 @@ public:
     bool isLoading() const { return this->shown; }
     /// What B does (the player closes).
     void setCancelAction(std::function<void()> action) { this->cancelAction = std::move(action); }
+    /// While it shows, the d-pad goes nowhere: the player under it stays out of reach.
+    brls::View* getNextFocus(brls::FocusDirection direction, brls::View* currentView) override;
 
 private:
     void update();

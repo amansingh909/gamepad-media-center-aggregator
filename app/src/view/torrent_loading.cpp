@@ -63,6 +63,11 @@ void TorrentLoadingView::stopLoading() {
     this->setVisibility(brls::Visibility::GONE);
 }
 
+brls::View* TorrentLoadingView::getNextFocus(brls::FocusDirection direction, brls::View* currentView) {
+    if (this->shown) return this;  // borealis then just shakes the (hidden) highlight
+    return brls::Box::getNextFocus(direction, currentView);
+}
+
 void TorrentLoadingView::update() {
     const double secs = std::chrono::duration<double>(std::chrono::steady_clock::now() - this->shownAt).count();
     const float alpha = torrent::pulseAlpha(secs);

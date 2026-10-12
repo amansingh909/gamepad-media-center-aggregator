@@ -254,6 +254,12 @@ bool PlayerView::playIndex(int index) {
 }
 
 void PlayerView::playMedia(const int64_t seekMs) {
+#ifdef USE_TORRENT
+    // Every (re)load starts here (an episode switch, a track change, a replay): a warm-up
+    // still running is for what played before, so it ends now, before `item` or `stream`
+    // can change under its answer (its generation moves on, it's cancelled or released).
+    this->endTorrentLoading();
+#endif
     // Capture/automation guard: in GMCA_NAV_PIPE mode a stray "Play" from the
     // screenshot harness must never actually start playback — doing so pushes a
     // watch-progress report to the server and pollutes Continue Watching. Bail
@@ -663,7 +669,9 @@ bool PlayerView::warmUpTorrent(const int64_t seekMs, bool forceDirect, int64_t f
             });
         });
     this->torrentLoading->startLoading(this->item, this->warmup);
-    brls::Application::giveFocus(this->torrentLoading);
+    // not from a dialog or an activity over the player: onChildFocusGained() takes the
+    // focus over once it comes back to the player
+    if (this->focusInPlayer()) brls::Application::giveFocus(this->torrentLoading);
     // the subtitle fetch runs while the torrent buffers
     this->resolveExternalSubtitles();
     return true;
@@ -678,9 +686,24 @@ void PlayerView::endTorrentLoading() {
     }
     this->warmupReady = false;
     if (this->torrentLoading && this->torrentLoading->isLoading()) {
+        // only take the focus back from the loading screen itself, never from a dialog
+        // or an activity over the player
+        const bool focused = brls::Application::getCurrentFocus() == this->torrentLoading;
         this->torrentLoading->stopLoading();
-        brls::Application::giveFocus(this->view);
+        if (focused) brls::Application::giveFocus(this->view);
     }
+}
+
+void PlayerView::onChildFocusGained(brls::View* directChild, brls::View* focusedView) {
+    brls::Box::onChildFocusGained(directChild, focusedView);
+    if (this->torrentLoading && this->torrentLoading->isLoading() && directChild != this->torrentLoading)
+        brls::Application::giveFocus(this->torrentLoading);
+}
+
+bool PlayerView::focusInPlayer() {
+    for (brls::View* v = brls::Application::getCurrentFocus(); v; v = v->hasParent() ? v->getParent() : nullptr)
+        if (v == this) return true;
+    return false;
 }
 
 bool PlayerView::explainTorrentError() {

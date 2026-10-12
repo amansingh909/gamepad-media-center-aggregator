@@ -35,6 +35,9 @@ public:
 #ifdef USE_TORRENT
     /// The torrent loading screen has the focus while it shows (B cancels).
     brls::View* getDefaultFocus() override;
+    /// And gets it back whenever the focus lands on the player under it (a dialog or an
+    /// activity over the player closing hands the focus back to what had it before).
+    void onChildFocusGained(brls::View* directChild, brls::View* focusedView) override;
 #endif
 
 #ifdef ANDROID
@@ -157,6 +160,8 @@ private:
     void endTorrentLoading();
     /// mpv failed on a torrent source: says why in the engine's words, and closes.
     bool explainTorrentError();
+    /// The focus is on this player, not on a dialog or an activity over it.
+    bool focusInPlayer();
 
     TorrentLoadingView* torrentLoading = nullptr;
     std::shared_ptr<torrent::Warmup> warmup;  // the start being buffered, or held until mpv has data
