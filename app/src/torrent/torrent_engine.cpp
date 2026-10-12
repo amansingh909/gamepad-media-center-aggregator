@@ -404,14 +404,23 @@ struct TorrentEngine::Impl {
             const std::string tmp = settings.stateFile + ".part";
             std::FILE* f = std::fopen(tmp.c_str(), "wb");
             if (!f) {
-                log("saving the DHT state: cannot write " + tmp);
+                log("saving the DHT state: cannot write " + tmp + ": " + std::strerror(errno));
                 return;
             }
+            // errno of the step that failed (a full disk shows at the write or only at the close)
             const bool written = std::fwrite(buf.data(), 1, buf.size(), f) == buf.size();
+            const int writeErr = written ? 0 : errno;
             const bool closed = std::fclose(f) == 0;
-            if (!written || !closed || std::rename(tmp.c_str(), settings.stateFile.c_str()) != 0) {
+            const int closeErr = closed ? 0 : errno;
+            if (!written || !closed) {
                 std::remove(tmp.c_str());
-                log("saving the DHT state: write failed");
+                log(std::string("saving the DHT state: write failed: ") + std::strerror(written ? closeErr : writeErr));
+                return;
+            }
+            if (std::rename(tmp.c_str(), settings.stateFile.c_str()) != 0) {
+                const int renameErr = errno;
+                std::remove(tmp.c_str());
+                log(std::string("saving the DHT state: rename failed: ") + std::strerror(renameErr));
                 return;
             }
             log("saved the DHT state: " + std::to_string(p.dht_state.nodes.size() + p.dht_state.nodes6.size()) +
@@ -1038,7 +1047,14 @@ void TorrentEngine::keepSessionOpen(bool on) {
         if (!on) return;
         // a session closing for idleness still holds the port: let it go first
         impl->changed.wait(lock, [this] { return !impl->closing || impl->quit; });
-        if (!impl->quit && !impl->session) impl->startSession();
+        if (impl->quit || impl->session) return;
+        try {
+            impl->startSession();
+        } catch (...) {
+            // no session to keep: the next keepSessionOpen(true) tries again (guarded logs why)
+            impl->keepOpen = false;
+            throw;
+        }
     });
 }
 
