@@ -22,8 +22,9 @@ static inline void check_error(int status) {
 // capped so a long session cannot fill the disk, and every line goes through redactLogLine
 // (stream and addon URLs can carry keys; it also cuts a line at 200 bytes). Written on the UI
 // thread, so flushed at most once a second (mpv's verbose level writes dozens of lines a
-// second), at once for a warning, an error or a stats block, and when mpv goes (clean()): a
-// crash or a PS-button close can lose the lines written in the same second as the last flush.
+// second), at once for a warning, an error or a stats block, when a file ends (END_FILE, and
+// half a second later), in reset() and when mpv goes (clean()). During playback a crash or a
+// PS-button close can lose the lines written in the same second as the last flush.
 static std::FILE* mpvDiagFile() {
     static std::FILE* f = std::fopen((AppConfig::instance().configDir() + "/mpv.log").c_str(), "w");
     return f;
@@ -744,6 +745,13 @@ void MPVCore::eventMainLoop() {
         case MPV_EVENT_END_FILE: {
             // event 7: 文件播放结束
             this->video_stopped = true;
+#ifdef MPV_DIAG_LOG
+            // the file ended (played out, stopped or failed) and mpv goes quiet: write what the log
+            // has, and again a moment later for the lines mpv queues after END_FILE, so a
+            // PS-button close that comes next keeps the end of the file
+            mpvDiagFlush();
+            brls::delay(500, []() { mpvDiagFlush(); });
+#endif
             auto node = (mpv_event_end_file *)event->data;
             if (node->reason == MPV_END_FILE_REASON_ERROR) {
                 this->last_error = node->error;
@@ -851,6 +859,9 @@ void MPVCore::eventMainLoop() {
 
 void MPVCore::reset() {
     brls::Logger::debug("MPVCore::reset");
+#ifdef MPV_DIAG_LOG
+    mpvDiagFlush();  // what the last file left in the log, before the next one starts
+#endif
     mpvCoreEvent.fire(MpvEventEnum::RESET);
     this->stop();
     this->video_stopped = true;
