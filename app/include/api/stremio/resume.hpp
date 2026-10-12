@@ -114,6 +114,14 @@ inline int64_t resumePositionMs(const LibraryState& s, const std::string& episod
     return s.videoId == episodeVideoId ? s.timeOffsetMs : 0;
 }
 
+/// Where a title's own page plays it again after the player stopped at `lastMs` of `lengthMs`
+/// (mpv's: it keeps its last position after a file played to its end): from there, or from the
+/// start once it was watched to its end, the rule resumePositionMs applies to the library's
+/// position. A length that isn't known keeps the position.
+inline int64_t replayPositionMs(int64_t lastMs, int64_t lengthMs) {
+    return isFinished(lastMs, lengthMs) ? 0 : lastMs;
+}
+
 /// "32 min left" or "1 h 4 min left", rounded up to the minute; whole hours in minutes ("60 min
 /// left", never "1 h 0 min left"). Key "" when the length isn't known.
 inline Phrase timeLeft(int64_t offsetMs, int64_t durationMs) {

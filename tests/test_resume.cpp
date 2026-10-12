@@ -113,6 +113,14 @@ int main() {
     advanced.videoId = "tt1:1:3";
     CHECK(resumePositionMs(advanced, "tt1:1:3") == 0);  // under a second: from the start
 
+    // a title's own page plays it again after the player closed, from mpv's last position and length
+    CHECK(replayPositionMs(94 * 60000, 94 * 60000) == 0);           // played to its end: from the start
+    CHECK(replayPositionMs(888000, 888000) == 0);                   // a short film played to its end too
+    CHECK(replayPositionMs(90 * 60000, 94 * 60000) == 0);           // stopped in the credits: the library's rule
+    CHECK(replayPositionMs(30 * 60000, 94 * 60000) == 30 * 60000);  // stopped mid-way: from there
+    CHECK(replayPositionMs(30 * 60000, 0) == 30 * 60000);           // no length known: from there
+    CHECK(replayPositionMs(0, 94 * 60000) == 0);
+
     // time left
     Phrase left = timeLeft(30 * 60000, 94 * 60000);
     CHECK_EQ(left.key, "main/resume/hours_left");

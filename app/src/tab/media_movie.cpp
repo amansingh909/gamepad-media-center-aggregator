@@ -19,6 +19,7 @@
 #include "utils/offline_library.hpp"
 #include "utils/network_state.hpp"
 #include "tab/remote_view.hpp"
+#include "api/stremio/resume.hpp"
 #include "api/stremio/source_order.hpp"
 #include <fmt/ranges.h>
 #ifdef USE_TORRENT
@@ -298,7 +299,11 @@ void MediaMovie::updateWatchlistButton() {
 }
 
 void MediaMovie::doRequest() {
-    int64_t seconds = MPVCore::instance().playback_time;
+    // the player closed: the next play from this page starts where it stopped, or from the start
+    // once the title was watched to its end (mpv keeps its last position, the file's length,
+    // after a file played to its end; Stremio would hand it to the stream as start=)
+    const MPVCore& mpv = MPVCore::instance();
+    int64_t seconds = stremio::replayPositionMs(int64_t(mpv.playback_time) * 1000, mpv.duration * 1000) / 1000;
     this->viewOffsetMs = seconds * 1000;
     this->btnPlay->setText(seconds > 0 ? misc::sec2Time(seconds) : "main/media/play"_i18n);
 }
