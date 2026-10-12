@@ -89,6 +89,8 @@ private:
     media::Item movieItem;  // resolved detail (sources/title) — backs source playback
     bool hasPlayableSource = false;
     brls::View* firstSourceRow = nullptr;  // default focus target (Stremio release list)
+    bool showAllSources = false;           // "+N more" was pressed: every playable row shows
+    brls::View* expandFocus = nullptr;     // the first row "+N more" had hidden, after it was pressed
     media::Item listItem;  // item backing the personal-list (watchlist/favorite) button
     bool localContext = false;  // opened from the offline downloads area
     bool watchlisted = false;

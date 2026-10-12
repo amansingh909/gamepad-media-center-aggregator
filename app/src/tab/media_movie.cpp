@@ -403,6 +403,11 @@ void MediaMovie::showFindingStreams() {
 }
 
 void MediaMovie::buildSources(const media::Item& item) {
+#ifdef USE_TORRENT
+    // the rows go: a pending prefetch must not fire for a row that no longer exists
+    this->prefetchTimer.stop();
+#endif
+    this->expandFocus = nullptr;
     this->sourcesBox->clearViews();
     this->sourcesBox->setVisibility(brls::Visibility::GONE);
     this->noticeBox->clearViews();
@@ -499,11 +504,12 @@ void MediaMovie::buildSources(const media::Item& item) {
     // Playable rows first (ordered best-first by the backend). A = play this
     // release, X = download it. Capped so the list never buries the synopsis.
     const int MAX_PLAYABLE_ROWS = 12;
+    const int rowCap = this->showAllSources ? playable : MAX_PLAYABLE_ROWS;
     int shown = 0;
     for (size_t i = 0; i < item.media.size(); i++) {
         const media::Media& m = item.media[i];
         if (!m.playable()) continue;
-        if (shown >= MAX_PLAYABLE_ROWS) break;
+        if (shown >= rowCap) break;
         std::vector<brls::View*> cells;
         // quality chip
         cells.push_back(sourcePill(m.videoResolution.empty() ? "SD" : m.videoResolution, pillBg, textCol));
@@ -541,6 +547,7 @@ void MediaMovie::buildSources(const media::Item& item) {
         cells.push_back(dl);
 
         SourceRow* row = makeRow(cells);
+        if (shown == MAX_PLAYABLE_ROWS) this->expandFocus = row;  // the first one "+N more" hid
         int idx = (int)i;
 #ifdef USE_TORRENT
         if (torrentRow) {
@@ -562,9 +569,21 @@ void MediaMovie::buildSources(const media::Item& item) {
         shown++;
     }
     if (playable > shown) {
-        auto* l = sourceLabel(fmt::format(fmt::runtime("main/stremio/source/more"_i18n), playable - shown), 13, greyCol);
-        l->setMarginBottom(6);
-        this->sourcesBox->addView(l);
+        // a row of its own in the D-pad chain: A shows every source in place
+        SourceRow* more = makeRow({sourceLabel(
+            fmt::format(fmt::runtime("main/stremio/source/more"_i18n), playable - shown), 14, greyCol, true)});
+        more->registerClickAction([this](brls::View*) {
+            // on the next frame: the rebuild destroys this row
+            ASYNC_RETAIN
+            brls::sync([ASYNC_TOKEN]() {
+                ASYNC_RELEASE
+                this->showAllSources = true;
+                this->buildSources(this->movieItem);
+                if (this->expandFocus) brls::Application::giveFocus(this->expandFocus);
+            });
+            return true;
+        });
+        more->updateActionHint(brls::BUTTON_A, "main/sources/show_all"_i18n);
     }
 
     // Non-playable groups: one explanatory, selectable summary row each (A = why).
