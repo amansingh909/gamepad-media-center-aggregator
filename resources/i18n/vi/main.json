@@ -524,7 +524,8 @@
   },
   "audio_lang": {
     "header": "Ngôn ngữ âm thanh",
-    "auto": "Tự động (ngôn ngữ ứng dụng)"
+    "auto": "Tự động (ngôn ngữ ứng dụng)",
+    "file": "Mặc định của tệp"
   },
   "resume": {
     "min_left": "Còn {} phút",

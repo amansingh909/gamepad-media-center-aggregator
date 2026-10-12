@@ -524,7 +524,8 @@
   },
   "audio_lang": {
     "header": "Ses dili",
-    "auto": "Otomatik (uygulama dili)"
+    "auto": "Otomatik (uygulama dili)",
+    "file": "Dosya varsayılanı"
   },
   "resume": {
     "min_left": "{} dk kaldı",

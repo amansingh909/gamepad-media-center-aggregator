@@ -37,4 +37,11 @@ std::string subtitleLangDisplay(const std::string& raw);
 /// Ordered catalog of common subtitle languages for the preference picker.
 const std::vector<LangOption>& subtitleLangCatalog();
 
+/// mpv's `alang` for the audio language setting: "auto" follows the app language
+/// (`appLocale`, such as "en-US" or "zh-Hans"), "file" sets none (the file's default track),
+/// anything else is a 2-letter code of the catalog. The 2-letter code and the catalog's
+/// 3-letter ones, as files tag their tracks either way ("fr,fre,fra"); "" for "file" and for
+/// a language the catalog doesn't have.
+std::string audioLangList(const std::string& setting, const std::string& appLocale);
+
 }  // namespace media

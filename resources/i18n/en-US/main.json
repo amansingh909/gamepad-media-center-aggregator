@@ -523,7 +523,8 @@
   },
   "audio_lang": {
     "header": "Audio language",
-    "auto": "Automatic (app language)"
+    "auto": "Automatic (app language)",
+    "file": "File default"
   },
   "resume": {
     "min_left": "{} min left",

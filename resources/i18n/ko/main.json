@@ -524,7 +524,8 @@
   },
   "audio_lang": {
     "header": "오디오 언어",
-    "auto": "자동 (앱 언어)"
+    "auto": "자동 (앱 언어)",
+    "file": "파일 기본값"
   },
   "resume": {
     "min_left": "{}분 남음",

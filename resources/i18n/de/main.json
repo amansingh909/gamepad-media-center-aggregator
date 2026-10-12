@@ -524,7 +524,8 @@
   },
   "audio_lang": {
     "header": "Audiosprache",
-    "auto": "Automatisch (App-Sprache)"
+    "auto": "Automatisch (App-Sprache)",
+    "file": "Standard der Datei"
   },
   "resume": {
     "min_left": "Noch {} Min.",

@@ -524,7 +524,8 @@
   },
   "audio_lang": {
     "header": "Idioma del audio",
-    "auto": "Automático (idioma de la app)"
+    "auto": "Automático (idioma de la app)",
+    "file": "Predeterminado del archivo"
   },
   "resume": {
     "min_left": "Quedan {} min",

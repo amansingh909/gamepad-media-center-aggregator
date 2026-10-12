@@ -524,7 +524,8 @@
   },
   "audio_lang": {
     "header": "Jazyk zvuku",
-    "auto": "Automaticky (jazyk aplikace)"
+    "auto": "Automaticky (jazyk aplikace)",
+    "file": "Výchozí podle souboru"
   },
   "resume": {
     "min_left": "Zbývá {} min",

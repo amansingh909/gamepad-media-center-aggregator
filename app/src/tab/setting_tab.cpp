@@ -178,6 +178,25 @@ void SettingTab::onCreate() {
             AppConfig::instance().setItem(AppConfig::PLAYER_SUBTITLE_LANG, subLangValues[selected]);
         });
 
+    // Preferred audio language (mpv alang): "auto" follows the app language, "file" sets none
+    // (the file's default track), otherwise a 2-letter code; mpv picks that track whenever the
+    // file has one, from the next file on.
+    std::vector<std::string> audioLangValues = {"auto", "file"};
+    std::vector<std::string> audioLangLabels = {"main/audio_lang/auto"_i18n, "main/audio_lang/file"_i18n};
+    for (auto& l : media::subtitleLangCatalog()) {
+        audioLangValues.push_back(l.code);
+        audioLangLabels.push_back(l.display);
+    }
+    auto audioLangIt = std::find(audioLangValues.begin(), audioLangValues.end(), MPVCore::AUDIO_LANG);
+    int audioLangIndex = audioLangIt != audioLangValues.end() ? (int)(audioLangIt - audioLangValues.begin()) : 0;
+    selectorAudioLang->init("main/audio_lang/header"_i18n, audioLangLabels, audioLangIndex,
+        [audioLangValues](int selected) {
+            MPVCore::AUDIO_LANG = audioLangValues[selected];
+            AppConfig::instance().setItem(AppConfig::PLAYER_AUDIO_LANG, MPVCore::AUDIO_LANG);
+            const std::string alang = media::audioLangList(MPVCore::AUDIO_LANG, brls::Application::getLocale());
+            MPVCore::instance().command("set", "alang", alang.c_str());
+        });
+
     btnDirectPlay->init("main/setting/playback/force_directplay"_i18n, MPVCore::FORCE_DIRECTPLAY, [&conf](bool value) {
         if (MPVCore::FORCE_DIRECTPLAY == value) return;
         MPVCore::FORCE_DIRECTPLAY = value;

@@ -524,7 +524,8 @@
   },
   "audio_lang": {
     "header": "Idioma do áudio",
-    "auto": "Automático (idioma do app)"
+    "auto": "Automático (idioma do app)",
+    "file": "Padrão do arquivo"
   },
   "resume": {
     "min_left": "Faltam {} min",

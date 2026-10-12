@@ -524,7 +524,8 @@
   },
   "audio_lang": {
     "header": "音频语言",
-    "auto": "自动（应用语言）"
+    "auto": "自动（应用语言）",
+    "file": "文件默认"
   },
   "resume": {
     "min_left": "剩余 {} 分钟",

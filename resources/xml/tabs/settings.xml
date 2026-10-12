@@ -46,6 +46,8 @@
                 <brls:BooleanCell
                     id="setting/video/subs_fallback" />
                 <brls:SelectorCell
+                    id="setting/playback/audio_lang" />
+                <brls:SelectorCell
                     id="setting/playback/subtitle_lang" />
             </brls:Box>
 

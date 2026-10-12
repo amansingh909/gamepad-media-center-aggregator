@@ -7,6 +7,7 @@
 #include "utils/misc.hpp"
 #include "utils/log_redact.hpp"
 #include "api/http.hpp"
+#include "api/media/langs.hpp"
 #include <cstring>
 #include <fmt/ranges.h>
 
@@ -148,6 +149,13 @@ void MPVCore::init() {
     mpv_set_option_string(mpv, "video-timing-offset", "0");  // 60fps
     mpv_set_option_string(mpv, "reset-on-next-file", "speed,pause");
     mpv_set_option_string(mpv, "subs-fallback", SUBS_FALLBACK ? "yes" : "no");
+    // the audio track in the language of Settings, Playback, Audio language, whenever the
+    // file has one (the file's default otherwise)
+    {
+        const std::string alang = media::audioLangList(AUDIO_LANG, brls::Application::getLocale());
+        mpv_set_option_string(mpv, "alang", alang.c_str());
+        brls::Logger::info("MPV audio language: {}", alang.empty() ? "file default" : alang);
+    }
     mpv_set_option_string(mpv, "vo", MPVCore::VO.c_str());
 #if defined(__PS4__) || defined(__PSV__) || defined(TRIMUI)
     mpv_set_option_string(mpv, "audio-channels", "stereo");
