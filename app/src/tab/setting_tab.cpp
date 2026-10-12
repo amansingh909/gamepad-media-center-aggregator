@@ -34,6 +34,10 @@
 #ifdef __linux__
 #include <borealis/platforms/desktop/steam_deck.hpp>
 #endif
+#ifdef USE_TORRENT
+#include <torrent/torrent_service.hpp>
+#include <torrent/upload_limits.hpp>
+#endif
 
 using namespace brls::literals;  // for _i18n
 
@@ -437,6 +441,25 @@ void SettingTab::onCreate() {
         AppConfig::instance().setItem(AppConfig::HTTP_PROXY, value);
     });
     inputProxy->setVisibility(HTTP::PROXY_STATUS ? brls::Visibility::VISIBLE : brls::Visibility::GONE);
+
+#ifdef USE_TORRENT
+    // Torrents: streaming on/off and the upload limit, applied at once. Off doesn't stop the
+    // server (that can't be undone): it refuses new streams, downloads and prefetches.
+    torrentHeader->setVisibility(brls::Visibility::VISIBLE);
+    torrentBox->setVisibility(brls::Visibility::VISIBLE);
+    btnTorrentStreaming->init("main/torrent/setting/streaming"_i18n, conf.getItem(AppConfig::TORRENT_STREAMING, true),
+        [](bool value) {
+            AppConfig::instance().setItem(AppConfig::TORRENT_STREAMING, value);
+            if (auto* service = torrent::TorrentService::current()) service->setEnabled(value);
+        });
+    selectorTorrentUpload->init("main/torrent/setting/upload_limit"_i18n, torrent::uploadLimitLabels(),
+        torrent::uploadLimitIndex(conf.getItem(AppConfig::TORRENT_UPLOAD_LIMIT, int64_t(torrent::defaultUploadLimit))),
+        [](int selected) {
+            const int bytesPerSec = torrent::uploadLimitOptions[selected].bytesPerSec;
+            AppConfig::instance().setItem(AppConfig::TORRENT_UPLOAD_LIMIT, int64_t(bytesPerSec));
+            if (auto* service = torrent::TorrentService::current()) service->setUploadLimit(bytesPerSec);
+        });
+#endif
 
     btnSync->init("main/setting/others/sync"_i18n, AppConfig::SYNC, [](bool value) {
         AppConfig::SYNC = value;

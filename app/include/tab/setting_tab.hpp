@@ -70,4 +70,8 @@ private:
     BRLS_BIND(brls::RadioCell, btnChangelog, "setting/changelog");
     BRLS_BIND(DisclosureCell, btnAbout, "setting/about");
     BRLS_BIND(DisclosureCell, btnLibraries, "setting/libraries");
+    BRLS_BIND(brls::Header, torrentHeader, "setting/torrent/header");
+    BRLS_BIND(brls::Box, torrentBox, "setting/torrent/box");
+    BRLS_BIND(brls::BooleanCell, btnTorrentStreaming, "setting/torrent/streaming");
+    BRLS_BIND(brls::SelectorCell, selectorTorrentUpload, "setting/torrent/upload_limit");
 };

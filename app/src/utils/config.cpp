@@ -118,6 +118,8 @@ std::unordered_map<AppConfig::Item, AppConfig::Option> AppConfig::settingMap = {
         {"request_timeout", {"3000", "5000", "10000", "20000", "30000"}, {3000, 5000, 10000, 20000, 30000}}},
     {HTTP_PROXY_STATUS, {"http_proxy_status"}},
     {HTTP_PROXY, {"http_proxy"}},
+    {TORRENT_STREAMING, {"torrent_streaming"}},
+    {TORRENT_UPLOAD_LIMIT, {"torrent_upload_limit"}},
 
     {LIBRARY_SORT, {"library_sort"}},
     {SIDEBAR_LAYOUT, {"sidebar_layout"}},

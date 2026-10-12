@@ -50,6 +50,7 @@
 #include <ctime>
 #include <memory>
 #include <torrent/torrent_service.hpp>
+#include <torrent/upload_limits.hpp>
 #endif
 
 using namespace brls::literals;  // for _i18n
@@ -108,6 +109,10 @@ static std::unique_ptr<torrent::TorrentService> startTorrents(AppConfig& conf) {
 #ifdef TORRENT_DEBUG_LAN
     settings.lan = true;  // testing builds: tests/torrent/integration.sh --remote drives the console
 #endif
+    // Settings, Torrents
+    settings.enabled = conf.getItem(AppConfig::TORRENT_STREAMING, true);
+    settings.uploadLimit =
+        torrent::uploadLimitValue(conf.getItem(AppConfig::TORRENT_UPLOAD_LIMIT, int64_t(torrent::defaultUploadLimit)));
     settings.log = [](const std::string& msg) {
         brls::Logger::info("torrent: {}", msg);
         if (!torrentLog) return;

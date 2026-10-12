@@ -120,7 +120,10 @@ struct TorrentService::Impl {
             const std::string hash = watched;
             lock.unlock();
             // these log their own failures and never throw
-            if (limit >= 0) engine.setUploadLimit(limit);
+            if (limit >= 0) {
+                engine.setUploadLimit(limit);
+                log("upload limit " + std::to_string(limit / 1024) + " KB/s");
+            }
             for (const auto& r : todo) engine.prefetch(r);
             Stats s = hash.empty() ? Stats{} : engine.stats(hash);
             publishProgress();
