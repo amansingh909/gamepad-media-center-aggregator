@@ -355,6 +355,8 @@ struct TorrentEngine::Impl {
         session = std::make_unique<lt::session>(std::move(params));
         idleSince = Clock::now();
         nextStats = Clock::now() + std::chrono::seconds(30);
+        // a new session counts from 0 again: the baselines of the old one would give negative deltas
+        lastWriteUs = lastHashUs = lastReadUs = lastBlocksWritten = 0;
         nextStateSave = Clock::now() + std::chrono::minutes(2);  // once the DHT has nodes
 #ifdef __PS4__
         nextNetworkCheck = Clock::now() + std::chrono::seconds(30);
@@ -708,6 +710,8 @@ struct TorrentEngine::Impl {
     // whether it waits for data; the pieces with deadlines and those downloading. A reader that
     // waits with little ahead while many pieces download points at the network; one with plenty
     // ahead while the player stalls points at mpv.
+    // "at" is where the reader's last request began; "deadlines" counts the torrent's pieces given a
+    // deadline since the last reprioritize, not this reader's alone.
     template <class Mb>
     void logReaders(const std::string& hash, Torrent& t, const Mb& mb) {
         // the blocks arrays aren't read here: only the queue's length
