@@ -56,13 +56,28 @@ void DownloadManager::init() {
     }
     this->loadIndex();
 
-    std::lock_guard<std::mutex> lock(this->mutex);
-    for (auto& item : this->items) {
-        if (item.status == DownloadStatus::Downloading) {
-            item.status = DownloadStatus::Queued;
+    // A remove that was still waiting for its transfer to end when the app closed left its
+    // "removed" marker in the saved index: the download is gone, not to be queued again.
+    std::vector<std::string> gone;
+    {
+        std::lock_guard<std::mutex> lock(this->mutex);
+        for (auto it = this->items.begin(); it != this->items.end();) {
+            if (it->errorMessage == "removed") {
+                gone.push_back(it->itemId);
+                it = this->items.erase(it);
+                continue;
+            }
+            if (it->status == DownloadStatus::Downloading) {
+                it->status = DownloadStatus::Queued;
+            }
+            ++it;
         }
+        this->saveIndex();
     }
-    this->saveIndex();
+    if (!gone.empty()) {
+        for (const auto& id : gone) removeDownloadDir(dir, id);
+        OfflineLibrary::instance().prune();
+    }
 }
 
 void DownloadManager::loadIndex() {
@@ -417,14 +432,14 @@ void DownloadManager::doDownload(DownloadItem& item) {
     ThreadPool::instance().submit([this, itemId, thumb, partKey, url, itemDir, cancel](HTTP&) {
         // before the transfer: a cancel at startup, or no folder. A remove that came meanwhile
         // left the "removed" marker, which must win here too.
-        auto resetQueue = [this, itemId](const std::string& error, bool cancelled) {
-            brls::sync([this, itemId, error, cancelled]() {
+        auto resetQueue = [this, itemId](const std::string& error) {
+            brls::sync([this, itemId, error]() {
                 bool removed = false;
                 {
                     std::lock_guard<std::mutex> lock(this->mutex);
                     for (auto it = this->items.begin(); it != this->items.end(); ++it) {
                         if (it->itemId != itemId) continue;
-                        if (nextAfterTransfer(it->errorMessage == "removed", DownloadEnd{cancelled, false}) ==
+                        if (nextAfterTransfer(it->errorMessage == "removed", DownloadEnd{false, false}) ==
                             DownloadNext::Remove) {
                             this->items.erase(it);
                             removed = true;
@@ -451,14 +466,14 @@ void DownloadManager::doDownload(DownloadItem& item) {
             if (!fs::exists(itemDir)) fs::create_directories(itemDir);
         } catch (const std::exception& e) {
             brls::Logger::error("Failed to create download dir: {}", e.what());
-            resetQueue(e.what(), false);
+            resetQueue(e.what());
             return;
         }
 
         HTTP::Header header = AppConfig::instance().backend().authHeaders();
 
         if (cancel->load()) {
-            resetQueue("Cancelled", true);
+            resetQueue("Cancelled");
             return;
         }
         // Extension of the original file, read from Part.key (Plex:
