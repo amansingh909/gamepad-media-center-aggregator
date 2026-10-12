@@ -71,6 +71,21 @@ int main() {
     CHECK(!parseTenBit("720p x264 AAC"));
     CHECK(!parseTenBit(""));
 
+    // codec and 10-bit read name + title + the torrent file's name (streamToMedia joins them)
+    {
+        const std::string text = std::string("Addon") + " " + "Show 1080p" + " " + "Show.S01E01.1080p.x265.10bit.mkv";
+        CHECK(parseCodecLabel(text) == "HEVC");
+        CHECK(parseTenBit(text));
+        CHECK(heavyOnPs4(parseCodecLabel(text), parseTenBit(text), "1080p", false));
+        CHECK(compareSources([&] { SourceKey k = tor(4, 50, GB); k.heavy = heavyOnPs4(parseCodecLabel(text), parseTenBit(text), "1080p", false); return k; }(),
+                             tor(4, 5, GB), true) > 0);
+        const std::string light = "Addon Show 1080p Show.S01E01.1080p.x264.mkv";
+        CHECK(parseCodecLabel(light) == "H.264");
+        CHECK(!heavyOnPs4(parseCodecLabel(light), parseTenBit(light), "1080p", false));
+        CHECK(parseCodecLabel("Addon Show 1080p ").empty());
+        CHECK(parseCodecLabel("x264 AV1") == "AV1");
+    }
+
     // sizes as parseSizeLabel() writes them, binary multiples
     CHECK(parseSizeBytes("8.4 GB") == 9019431321LL);
     CHECK(parseSizeBytes("700 MB") == 734003200LL);

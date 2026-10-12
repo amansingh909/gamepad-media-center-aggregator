@@ -76,6 +76,22 @@ inline int64_t parseSizeBytes(const std::string& label) {
     return whole * mult + frac * mult / scale;
 }
 
+/// Normalized video codec ("HEVC"/"AV1"/"H.264"/"XviD") from name+title; empty
+/// if none. H.264 is tested before XviD: "MPEG-4 AVC" names hit "avc" first.
+inline std::string parseCodecLabel(const std::string& text) {
+    std::string t = text;
+    for (auto& c : t) c = (char)std::tolower((unsigned char)c);
+    if (t.find("x265") != std::string::npos || t.find("h265") != std::string::npos ||
+        t.find("h.265") != std::string::npos || t.find("hevc") != std::string::npos)
+        return "HEVC";
+    if (t.find("av1") != std::string::npos) return "AV1";
+    if (t.find("x264") != std::string::npos || t.find("h264") != std::string::npos ||
+        t.find("h.264") != std::string::npos || t.find("avc") != std::string::npos)
+        return "H.264";
+    if (t.find("xvid") != std::string::npos || t.find("divx") != std::string::npos) return "XviD";
+    return "";
+}
+
 /// HEVC, AV1 and 10-bit video decode in software on a PS4, at the CPU's limit, and are often
 /// not drawn (a blue screen with sound): they go after the light sources there. With
 /// `lightHevcPlays` (ps4LightHevcPlays), 8-bit HEVC at 720p or less counts as light.

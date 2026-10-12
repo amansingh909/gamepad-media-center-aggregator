@@ -627,22 +627,6 @@ inline std::string parseSizeLabel(const std::string& text) {
     return num + " " + unit;
 }
 
-/// Normalized video codec ("HEVC"/"AV1"/"H.264"/"XviD") from name+title; empty
-/// if none. H.264 is tested before XviD: "MPEG-4 AVC" names hit "avc" first.
-inline std::string parseCodecLabel(const std::string& text) {
-    std::string t = text;
-    for (auto& c : t) c = (char)std::tolower((unsigned char)c);
-    if (t.find("x265") != std::string::npos || t.find("h265") != std::string::npos ||
-        t.find("h.265") != std::string::npos || t.find("hevc") != std::string::npos)
-        return "HEVC";
-    if (t.find("av1") != std::string::npos) return "AV1";
-    if (t.find("x264") != std::string::npos || t.find("h264") != std::string::npos ||
-        t.find("h.264") != std::string::npos || t.find("avc") != std::string::npos)
-        return "H.264";
-    if (t.find("xvid") != std::string::npos || t.find("divx") != std::string::npos) return "XviD";
-    return "";
-}
-
 /// Normalized audio codec from name+title; empty if none. Ordered so the
 /// Dolby Digital Plus spellings match before plain AC3 ("eac3" contains "ac3").
 inline std::string parseAudioLabel(const std::string& text) {
@@ -701,6 +685,12 @@ inline media::Media streamToMedia(const StreamOption& s, const std::string& addo
 #endif
     media::Media m;
     std::string blob = s.name + " " + s.title;
+    // codec and 10-bit also read the torrent file's name: addons often print "x265 10bit" only there
+#ifdef USE_TORRENT
+    const std::string codecText = blob + " " + s.filename;
+#else
+    const std::string& codecText = blob;
+#endif
     m.videoResolution = qualityLabel(blob);
     m.label = addonName;
 
@@ -716,9 +706,9 @@ inline media::Media streamToMedia(const StreamOption& s, const std::string& addo
         m.parts.push_back(std::move(p));
         // structured fields, not just display: the PSV stream filter/sort in
         // resolveAllStreams reads them (codecRankVita / audioRankVita)
-        m.videoCodec = parseCodecLabel(blob);
+        m.videoCodec = parseCodecLabel(codecText);
         m.audioCodec = parseAudioLabel(blob);
-        m.tenBit = parseTenBit(blob);
+        m.tenBit = parseTenBit(codecText);
         std::string size = parseSizeLabel(s.title.empty() ? s.name : s.title);
         m.sizeBytes = parseSizeBytes(size);
         std::string detail;
@@ -729,9 +719,9 @@ inline media::Media streamToMedia(const StreamOption& s, const std::string& addo
         m.kind = media::SourceKind::Torrent;
 #ifdef USE_TORRENT
         // the same codec, size and seeders a link's row shows
-        m.videoCodec = parseCodecLabel(blob);
+        m.videoCodec = parseCodecLabel(codecText);
         m.audioCodec = parseAudioLabel(blob);
-        m.tenBit = parseTenBit(blob);
+        m.tenBit = parseTenBit(codecText);
         std::string size = parseSizeLabel(s.title.empty() ? s.name : s.title);
         m.sizeBytes = parseSizeBytes(size);
         std::string detail = m.videoCodec;
