@@ -403,13 +403,17 @@ elseif (PLATFORM_PSV)
         FILE ${PSV_ASSETS_FILES}
     )
 elseif (PLATFORM_PS4)
+    # param.sfo ATTRIBUTE: 0x800000 (PS4 Pro mode) and 0x20, the system software assigns the
+    # enter button of system dialogs such as the keyboard: it follows the console's setting, as
+    # borealis does for the app's own keys, instead of always confirming with Circle
+    set(PS4_SFO_ATTRIBUTE 8388640)
     add_self(${PROJECT_NAME})
     add_pkg(${PROJECT_NAME}
             ${CMAKE_BINARY_DIR}/ps4
             ${PSN_TITLE_ID}
             ${PROJECT_NAME}
             ${VITA_VERSION}
-            8388608
+            ${PS4_SFO_ATTRIBUTE}
     )
     add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
         COMMAND "${CMAKE_COMMAND}" -E copy_directory ${BOREALIS_DIR}/ps4/sce_module ${CMAKE_BINARY_DIR}/ps4/sce_module
