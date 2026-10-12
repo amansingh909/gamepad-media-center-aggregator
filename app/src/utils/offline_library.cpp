@@ -36,6 +36,9 @@ void OfflineLibrary::init() {
     }
     // legacy back-fill takes the lock per putItem, so run it outside the block
     this->migrateLegacy();
+    // forget nodes no download backs any more (a download removed while its capture ran, then
+    // dropped at DownloadManager::init(), which runs first); outside our lock, as prune needs
+    this->prune();
 }
 
 void OfflineLibrary::load() {

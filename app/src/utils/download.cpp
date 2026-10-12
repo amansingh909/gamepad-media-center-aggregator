@@ -75,10 +75,8 @@ void DownloadManager::init() {
         }
         this->saveIndex();
     }
-    if (!gone.empty()) {
-        for (const auto& id : gone) removeDownloadDir(dir, id);
-        OfflineLibrary::instance().prune();
-    }
+    // their catalog nodes go when OfflineLibrary::init() prunes, which runs after this
+    for (const auto& id : gone) removeDownloadDir(dir, id);
 }
 
 void DownloadManager::loadIndex() {
