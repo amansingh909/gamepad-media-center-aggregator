@@ -8,8 +8,17 @@
 #include <borealis.hpp>
 #include <utils/event.hpp>
 #include <api/plex/types.hpp>
+#ifdef USE_TORRENT
+#include <memory>
+#endif
 
 class VideoView;
+#ifdef USE_TORRENT
+class TorrentLoadingView;
+namespace torrent {
+class Warmup;
+}
+#endif
 
 class PlayerView : public brls::Box {
 public:
@@ -22,6 +31,11 @@ public:
     /// Loads the show's episode list (previous/next navigation)
     void setSeries(const std::string& showRatingKey);
     void setTitie(const std::string& title);
+
+#ifdef USE_TORRENT
+    /// The torrent loading screen has the focus while it shows (B cancels).
+    brls::View* getDefaultFocus() override;
+#endif
 
 #ifdef ANDROID
     void willDisappear(bool resetState) override {
@@ -130,4 +144,28 @@ private:
     brls::VoidEvent::Subscription settingSubscribeID;
     MPVCustomEvent::Subscription customEventSubscribeID;
     VideoView* view = nullptr;
+
+#ifdef USE_TORRENT
+    /// A torrent source (a local stream URL): shows the loading screen and buffers the
+    /// start of the file, then calls startPlayback() again to play it. False for any other
+    /// source, once the start is buffered, and for a torrent already warmed up in this
+    /// player session (warmedUrl).
+    bool warmUpTorrent(const int64_t seekMs, bool forceDirect, int64_t forceBitrate);
+    /// mpv has data, the load failed or another source plays: the loading screen goes and
+    /// the buffered start's reader with it (a warm-up still buffering is cancelled). Safe
+    /// to call any time.
+    void endTorrentLoading();
+    /// mpv failed on a torrent source: says why in the engine's words, and closes.
+    bool explainTorrentError();
+
+    TorrentLoadingView* torrentLoading = nullptr;
+    std::shared_ptr<torrent::Warmup> warmup;  // the start being buffered, or held until mpv has data
+    std::string warmupUrl;                    // the source it's for
+    bool warmupReady = false;                 // its start is in: startPlayback() plays it
+    int warmupGeneration = 0;                 // a warm-up's answer counts only if no newer load began
+    /// The local URL whose warm-up reported Ok in this player session: reloading it (a
+    /// quality, audio or subtitle switch, a replay) goes straight to mpv. Cleared when
+    /// another source plays or another torrent starts warming up.
+    std::string warmedUrl;
+#endif
 };

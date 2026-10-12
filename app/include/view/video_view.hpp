@@ -87,6 +87,12 @@ public:
 
     static bool close(bool quit = false);
 
+#ifdef USE_TORRENT
+    /// Torrent sources: text added after the cache speed under the centre spinner (the
+    /// peers). nullptr for none.
+    void setSpeedSuffix(std::function<std::string()> suffix) { this->speedSuffix = std::move(suffix); }
+#endif
+
 private:
     /// OSD
     BRLS_BIND(brls::Label, titleLabel, "video/osd/title");
@@ -113,6 +119,9 @@ private:
     BRLS_BIND(brls::Box, osdTopBox, "video/osd/top/box");
     BRLS_BIND(brls::Box, osdBottomBox, "video/osd/bottom/box");
     // 用于显示缓冲组件
+#ifdef USE_TORRENT
+    std::function<std::string()> speedSuffix;
+#endif
     BRLS_BIND(brls::Box, osdCenterBox, "video/osd/center/box");
     BRLS_BIND(brls::Label, centerLabel, "video/osd/center/label");
     BRLS_BIND(brls::ProgressSpinner, osdSpinner, "video/osd/loading");

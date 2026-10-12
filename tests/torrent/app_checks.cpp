@@ -12,6 +12,7 @@
 #include <torrent/torrent_engine.hpp>
 #include <torrent/torrent_server.hpp>
 #include <torrent/torrent_service.hpp>
+#include <torrent/ui_model.hpp>
 
 #include <arpa/inet.h>
 #include <netinet/in.h>
@@ -242,6 +243,16 @@ static void serviceChecks() {
     }
     std::this_thread::sleep_for(std::chrono::milliseconds(1500));
     CHECK(dropped.count() == 1 && dropped.last() == torrent::Status::Stopped);
+
+    // the player leaves a torrent before its start is in (another source or episode): the
+    // warm-up gives up at once, it doesn't keep its reader until the bytes or the stall come
+    Calls left;
+    auto w4 = service.warmUp(request(dead(12)), torrent::startBufferBytes, left.recorder());
+    std::this_thread::sleep_for(std::chrono::seconds(1));
+    CHECK(left.count() == 0);
+    torrent::endWarmup(*w4, /*ready=*/false);
+    std::this_thread::sleep_for(std::chrono::milliseconds(1500));
+    CHECK(left.count() == 1 && left.last() == torrent::Status::Stopped);
 
     // stop() ends a waiting warm-up, and later ones are refused at once
     Calls pending;

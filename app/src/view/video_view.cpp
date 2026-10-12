@@ -668,7 +668,11 @@ void VideoView::registerMpvEvent() {
             if (this->osdCenterBox->getVisibility() != brls::Visibility::GONE) {
                 if (this->centerLabel->getVisibility() != brls::Visibility::VISIBLE)
                     this->centerLabel->setVisibility(brls::Visibility::VISIBLE);
-                this->centerLabel->setText(MPVCore::instance().getCacheSpeed());
+                std::string speed = MPVCore::instance().getCacheSpeed();
+#ifdef USE_TORRENT
+                if (this->speedSuffix) speed += this->speedSuffix();
+#endif
+                this->centerLabel->setText(speed);
             }
             break;
         case MpvEventEnum::VIDEO_MUTE:

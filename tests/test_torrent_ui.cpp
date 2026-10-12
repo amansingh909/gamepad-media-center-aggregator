@@ -35,6 +35,67 @@ int main() {
     CHECK_EQ(availabilityKey(Availability::Ready), "main/torrent/error/unplayable");
     CHECK_EQ(availabilityKey(Availability::Stopped), "main/torrent/error/unplayable");
 
+    // why a torrent didn't load (a cancel says nothing)
+    CHECK_EQ(errorKey(Status::NoPeers), "main/torrent/error/no_peers");
+    CHECK_EQ(errorKey(Status::DiskError), "main/torrent/error/no_space");
+    CHECK_EQ(errorKey(Status::Failed), "main/torrent/error/unplayable");
+    CHECK_EQ(errorKey(Status::NotFound), "main/torrent/error/unplayable");
+    CHECK_EQ(errorKey(Status::BadRequest), "main/torrent/error/unplayable");
+    CHECK_EQ(errorKey(Status::Stopped), "");
+    CHECK_EQ(errorKey(Status::Ok), "");
+
+    // mpv's error on a torrent: the engine's error first, then the server's status
+    CHECK_EQ(playerErrorKey("mpv -13: loading failed: http: HTTP error 504 Gateway Timeout", Status::Ok),
+             "main/torrent/error/no_peers");
+    CHECK_EQ(playerErrorKey("mpv -13: loading failed: http: HTTP error 507 Insufficient Storage", Status::Ok),
+             "main/torrent/error/no_space");
+    CHECK_EQ(playerErrorKey("mpv -13: loading failed: http: HTTP error 503 Service Unavailable", Status::Ok),
+             "main/torrent/error/off");
+    CHECK_EQ(playerErrorKey("mpv -13: loading failed: http: HTTP error 504 Gateway Timeout", Status::DiskError),
+             "main/torrent/error/no_space");
+    CHECK_EQ(playerErrorKey("mpv -17: unrecognized file format", Status::Failed), "main/torrent/error/unplayable");
+    CHECK_EQ(playerErrorKey("mpv -17: unrecognized file format", Status::Ok), "main/torrent/error/unplayable");
+    CHECK_EQ(playerErrorKey("", Status::NoPeers), "main/torrent/error/unplayable");
+
+    // the loading screen's stages and bar
+    Stats st;
+    LoadingState l = loadingState(st, 0, 0);
+    CHECK(l.stage == LoadingStage::FindingPeers && l.percent == 0 && l.progress == 0.05f);
+    st.peers = 12;
+    st.downloadBytesPerSec = 3565158;
+    l = loadingState(st, 0, 0);
+    CHECK(l.stage == LoadingStage::GettingInfo && l.progress == 0.10f && l.peers == 12 && l.bytesPerSec == 3565158);
+    st.hasMetadata = true;  // the engine has it, the warm-up doesn't know the file yet
+    l = loadingState(st, 0, 0);
+    CHECK(l.stage == LoadingStage::Buffering && l.percent == 0 && l.progress == 0.10f);
+    l = loadingState(st, 1887437, 4194304);  // 45%
+    CHECK(l.stage == LoadingStage::Buffering && l.percent == 45);
+    CHECK(l.progress > 0.50f && l.progress < 0.51f);
+    l = loadingState(st, 4194304, 4194304);
+    CHECK(l.percent == 100 && l.progress == 1.0f);
+    st.hasMetadata = false;  // the warm-up's target says the metadata is in, whatever stats lag
+    l = loadingState(st, 1048576, 4194304);
+    CHECK(l.stage == LoadingStage::Buffering && l.percent == 25);
+    l = loadingState(st, 5000000, 4194304);  // never past the end
+    CHECK(l.percent == 100 && l.progress == 1.0f);
+    l = loadingState(st, 0, 123);  // a file smaller than the buffer
+    CHECK(l.stage == LoadingStage::Buffering && l.percent == 0);
+
+    // "12 peers · 3.4 MB/s"
+    CHECK_EQ(formatRate(3565158), "3.4 MB/s");
+    CHECK_EQ(formatRate(1 << 20), "1.0 MB/s");
+    CHECK_EQ(formatRate(524288), "512 KB/s");
+    CHECK_EQ(formatRate(1000), "0 KB/s");
+    CHECK_EQ(formatRate(0), "0 KB/s");
+    CHECK_EQ(formatRate(-5), "0 KB/s");
+
+    // the slow pulse: full at 0, faintest half way, full again after 2.4 s
+    CHECK(pulseAlpha(0) > 0.999f);
+    CHECK(pulseAlpha(1.2) > 0.449f && pulseAlpha(1.2) < 0.451f);
+    CHECK(pulseAlpha(2.4) > 0.999f);
+    CHECK(pulseAlpha(0.6) < pulseAlpha(0.3) && pulseAlpha(1.8) > pulseAlpha(1.5));
+    CHECK(pulseAlpha(-1) > 0.999f);
+
     if (failures == 0) printf("test_torrent_ui: all passed\n");
     return failures ? 1 : 0;
 }
