@@ -1,6 +1,8 @@
 #include "tab/home_tab.hpp"
 #include "view/recyling_video.hpp"
 #include "view/loading_spinner.hpp"
+#include "view/resume_source.hpp"
+#include "view/video_card.hpp"
 #include "api/plex.hpp"
 #include "api/backend.hpp"
 #include "utils/keybind.hpp"
@@ -92,8 +94,13 @@ void HomeTab::doResume(RecylingVideo* row) {
                 if (hub.items.empty()) continue;
                 std::string title = hub.title.empty() ? "main/home/resume"_i18n : hub.title;
                 row->setTitle(title);
-                // truncated hub (more=1): "+" card to the full page
-                if (hub.more && !hub.key.empty()) {
+                if (AppConfig::instance().backend().type() == media::BackendType::Stremio) {
+                    // Stremio: cards with the episode, the time left and when last watched
+                    auto* source = new ResumeDataSource(hub.items);
+                    row->setSource(source);
+                    this->fillEpisodes(row, source);
+                } else if (hub.more && !hub.key.empty()) {
+                    // truncated hub (more=1): "+" card to the full page
                     row->setItems(hub.items, title, hub.key);
                 } else {
                     row->setItems(hub.items);
@@ -161,6 +168,19 @@ void HomeTab::doHubs() {
             dialog->addButton("hints/cancel"_i18n, []() {});
             dialog->open();
         });
+}
+
+void HomeTab::fillEpisodes(RecylingVideo* row, ResumeDataSource* source) {
+    for (const std::string& show : source->showKeys()) {
+        std::weak_ptr<bool> alive = source->alive();
+        AppConfig::instance().backend().getAllEpisodes(show, false,
+            [alive, source, row, show](const media::Container<media::Item>& r) {
+                if (alive.expired()) return;  // the row was rebuilt meanwhile, its data source with it
+                for (size_t i : source->applyEpisodes(show, r.Items))
+                    if (auto* cell = dynamic_cast<VideoCardCell*>(row->visibleCard(i))) source->decorate(cell, i);
+            },
+            [show](const std::string& ex) { brls::Logger::warning("continue watching {}: {}", show, ex); });
+    }
 }
 
 void HomeTab::tryRestoreFocus() {

@@ -46,10 +46,21 @@
             title="@i18n/main/media/go_season"
             visibility="gone"
             id="menu/go/season" />
+        <!-- Continue Watching (Stremio) only: shown by context_menu.cpp -->
+        <MenuItem
+            icon="@res/icon/ico-play.svg"
+            title="@i18n/main/resume/start_over"
+            visibility="gone"
+            id="menu/start_over" />
         <MenuItem
             icon="@res/icon/ico-checkmark.svg"
             title="@i18n/main/media/mark_played"
             id="menu/mark/play" />
+        <MenuItem
+            icon="@res/icon/ico-trash.svg"
+            title="@i18n/main/resume/remove"
+            visibility="gone"
+            id="menu/remove_resume" />
         <!-- movies/shows with a plex:// guid only; revealed once the
              watchlist state is known (async provider request, context_menu.cpp) -->
         <MenuItem

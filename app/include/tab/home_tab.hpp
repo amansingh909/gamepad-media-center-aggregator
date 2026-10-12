@@ -9,6 +9,7 @@
 
 class RecylingVideo;
 class LoadingSpinner;
+class ResumeDataSource;
 
 class HomeTab : public AttachedView, public Presenter {
 public:
@@ -23,6 +24,9 @@ public:
 
 private:
     void doResume(RecylingVideo* row);
+    /// Asks each show of the Continue Watching row for its episodes: the cards get their
+    /// episode titles, and a finished episode's card becomes the next episode.
+    void fillEpisodes(RecylingVideo* row, ResumeDataSource* source);
     void doHubs();
     void tryRestoreFocus();
 
