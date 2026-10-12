@@ -52,6 +52,12 @@ fetch('https://api.github.com/repos/thcolin/gamepad-media-center-aggregator/rele
   })
   .catch(() => {});
 
+// Download clicks, counted by Umami without holding back the navigation
+document.addEventListener('click', (e) => {
+  const link = e.target.closest('[data-track]');
+  if (link) window.umami?.track(link.dataset.track);
+});
+
 // Hero — rotate media center x device to prove any-on-any.
 const heroStage = document.getElementById('hero-stage');
 if (heroStage) {
