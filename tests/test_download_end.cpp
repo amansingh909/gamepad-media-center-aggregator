@@ -21,6 +21,13 @@ int main() {
     // a genuine failure stays a failure
     CHECK(!classifyDownloadEnd(true, false).cancelled);
     CHECK(!classifyDownloadEnd(true, false).success);
+    // a remove wins over whatever ended the transfer
+    CHECK(nextAfterTransfer(true, classifyDownloadEnd(false, false)) == DownloadNext::Remove);  // in the capture
+    CHECK(nextAfterTransfer(true, DownloadEnd{true, false}) == DownloadNext::Remove);           // at startup
+    CHECK(nextAfterTransfer(true, classifyDownloadEnd(true, true)) == DownloadNext::Remove);    // mid-transfer
+    CHECK(nextAfterTransfer(false, classifyDownloadEnd(true, true)) == DownloadNext::Cancelled);
+    CHECK(nextAfterTransfer(false, classifyDownloadEnd(false, false)) == DownloadNext::Completed);
+    CHECK(nextAfterTransfer(false, classifyDownloadEnd(true, false)) == DownloadNext::Failed);
     if (fails) return 1;
     std::printf("test_download_end: all passed\n");
     return 0;

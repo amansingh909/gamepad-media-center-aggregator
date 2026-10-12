@@ -15,3 +15,21 @@ struct DownloadEnd {
 inline DownloadEnd classifyDownloadEnd(bool threw, bool cancelFlag) {
     return DownloadEnd{cancelFlag, !threw && !cancelFlag};
 }
+
+/// What the queue does with a download once its transfer has ended (or never started).
+enum class DownloadNext {
+    Remove,     // removed meanwhile: its entry and its folder go
+    Cancelled,  // cancelled: kept, with its partial file, for a retry
+    Completed,
+    Failed,     // "Download Failed"
+};
+
+/// A remove (the entry's "removed" marker) wins over everything: it can land while the
+/// transfer starts, before curl runs, or after a transfer that succeeded, during the offline
+/// capture; the download must still go.
+inline DownloadNext nextAfterTransfer(bool removed, const DownloadEnd& end) {
+    if (removed) return DownloadNext::Remove;
+    if (end.cancelled) return DownloadNext::Cancelled;
+    if (end.success) return DownloadNext::Completed;
+    return DownloadNext::Failed;
+}

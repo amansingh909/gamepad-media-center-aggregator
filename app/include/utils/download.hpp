@@ -87,6 +87,10 @@ private:
     void captureOfflineSync(const std::string& itemId);
     std::string downloadDir() const;
     std::string buildDownloadUrl(const DownloadItem& item) const;
+    /// A download removed while its transfer ran, once the queue has erased its entry: its
+    /// folder goes, and the offline catalog forgets what the capture may have added.
+    /// Without our lock.
+    void finishRemove(const std::string& itemId);
 
     mutable std::mutex mutex;
     std::vector<DownloadItem> items;

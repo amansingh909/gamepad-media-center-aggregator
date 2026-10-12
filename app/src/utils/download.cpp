@@ -258,6 +258,12 @@ void DownloadManager::removeDownload(const std::string& itemId) {
     OfflineLibrary::instance().prune();
 }
 
+void DownloadManager::finishRemove(const std::string& itemId) {
+    std::string root = this->downloadDir();
+    brls::async([root, itemId]() { removeDownloadDir(root, itemId); });
+    OfflineLibrary::instance().prune();
+}
+
 void DownloadManager::retryDownload(const std::string& itemId) {
     {
         std::lock_guard<std::mutex> lock(this->mutex);
@@ -409,21 +415,30 @@ void DownloadManager::doDownload(DownloadItem& item) {
     // a progress callback + cancel token that would otherwise linger on the
     // shared session and leak into the next image/version task on that worker.
     ThreadPool::instance().submit([this, itemId, thumb, partKey, url, itemDir, cancel](HTTP&) {
-        auto resetQueue = [this, itemId](const std::string& error) {
-            brls::sync([this, itemId, error]() {
+        // before the transfer: a cancel at startup, or no folder. A remove that came meanwhile
+        // left the "removed" marker, which must win here too.
+        auto resetQueue = [this, itemId](const std::string& error, bool cancelled) {
+            brls::sync([this, itemId, error, cancelled]() {
+                bool removed = false;
                 {
                     std::lock_guard<std::mutex> lock(this->mutex);
-                    for (auto& item : this->items) {
-                        if (item.itemId == itemId) {
-                            item.status = DownloadStatus::Failed;
-                            item.errorMessage = error;
-                            break;
+                    for (auto it = this->items.begin(); it != this->items.end(); ++it) {
+                        if (it->itemId != itemId) continue;
+                        if (nextAfterTransfer(it->errorMessage == "removed", DownloadEnd{cancelled, false}) ==
+                            DownloadNext::Remove) {
+                            this->items.erase(it);
+                            removed = true;
+                        } else {
+                            it->status = DownloadStatus::Failed;
+                            it->errorMessage = error;
                         }
+                        break;
                     }
                     this->downloading = false;
                     this->currentCancel.reset();
                     this->saveIndex();
                 }
+                if (removed) this->finishRemove(itemId);
                 this->statusEvent.fire(itemId, DownloadStatus::Failed);
                 {
                     std::lock_guard<std::mutex> lock(this->mutex);
@@ -436,14 +451,14 @@ void DownloadManager::doDownload(DownloadItem& item) {
             if (!fs::exists(itemDir)) fs::create_directories(itemDir);
         } catch (const std::exception& e) {
             brls::Logger::error("Failed to create download dir: {}", e.what());
-            resetQueue(e.what());
+            resetQueue(e.what(), false);
             return;
         }
 
         HTTP::Header header = AppConfig::instance().backend().authHeaders();
 
         if (cancel->load()) {
-            resetQueue("Cancelled");
+            resetQueue("Cancelled", true);
             return;
         }
         // Extension of the original file, read from Part.key (Plex:
@@ -568,7 +583,6 @@ void DownloadManager::doDownload(DownloadItem& item) {
         // a cancel aborts curl through the progress callback, so the transfer throws:
         // the flag is read on both paths (removing an active download sets it too)
         const DownloadEnd end = classifyDownloadEnd(threw, cancel->load());
-        const bool cancelled = end.cancelled;
         const bool success = end.success;
 
         // Offline capture (fiche + ancestors + artwork) on this worker thread,
@@ -581,64 +595,49 @@ void DownloadManager::doDownload(DownloadItem& item) {
             }
         }
 
-        brls::sync([this, itemId, fileName, cancelled, success, error]() {
+        brls::sync([this, itemId, fileName, end, error]() {
             DownloadStatus finalStatus = DownloadStatus::Failed;
-
+            bool removed = false;
             {
                 std::lock_guard<std::mutex> lock(this->mutex);
-
-                if (cancelled) {
-                    bool removed = false;
-                    for (auto it = this->items.begin(); it != this->items.end(); ++it) {
-                        if (it->itemId == itemId) {
-                            if (it->errorMessage == "removed") {
-                                this->items.erase(it);
-                                removed = true;
-                            } else {
-                                it->status = DownloadStatus::Failed;
-                                it->errorMessage = "Cancelled";
-                            }
-                            break;
+                for (auto it = this->items.begin(); it != this->items.end(); ++it) {
+                    if (it->itemId != itemId) continue;
+                    // a remove that came at any point, the offline capture included, wins
+                    switch (nextAfterTransfer(it->errorMessage == "removed", end)) {
+                    case DownloadNext::Remove:
+                        this->items.erase(it);
+                        removed = true;
+                        break;
+                    case DownloadNext::Cancelled:
+                        it->status = DownloadStatus::Failed;
+                        it->errorMessage = "Cancelled";
+                        break;
+                    case DownloadNext::Completed: {
+                        finalStatus = DownloadStatus::Completed;
+                        it->status = DownloadStatus::Completed;
+                        it->filePath = fileName;
+                        std::string metaPath = this->downloadDir() + "/" + itemId + "/metadata.json";
+                        try {
+                            nlohmann::json j = *it;
+                            std::ofstream f(metaPath);
+                            f << j.dump(2);
+                        } catch (...) {
                         }
+                        brls::Logger::info("Download completed: {}", itemId);
+                        break;
                     }
-                    this->saveIndex();
-                    if (removed) {
-                        std::string root = this->downloadDir();
-                        brls::async([root, itemId]() { removeDownloadDir(root, itemId); });
+                    case DownloadNext::Failed:
+                        it->status = DownloadStatus::Failed;
+                        it->errorMessage = error;
+                        break;
                     }
-                } else if (success) {
-                    finalStatus = DownloadStatus::Completed;
-                    for (auto& item : this->items) {
-                        if (item.itemId == itemId) {
-                            item.status = DownloadStatus::Completed;
-                            item.filePath = fileName;
-
-                            std::string metaPath = this->downloadDir() + "/" + itemId + "/metadata.json";
-                            try {
-                                nlohmann::json j = item;
-                                std::ofstream f(metaPath);
-                                f << j.dump(2);
-                            } catch (...) {
-                            }
-                            break;
-                        }
-                    }
-                    this->saveIndex();
-                    brls::Logger::info("Download completed: {}", itemId);
-                } else {
-                    for (auto& item : this->items) {
-                        if (item.itemId == itemId) {
-                            item.status = DownloadStatus::Failed;
-                            item.errorMessage = error;
-                            break;
-                        }
-                    }
-                    this->saveIndex();
+                    break;
                 }
-
+                this->saveIndex();
                 this->downloading = false;
                 this->currentCancel.reset();
             }
+            if (removed) this->finishRemove(itemId);
 
             this->statusEvent.fire(itemId, finalStatus);
             {
