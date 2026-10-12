@@ -94,6 +94,47 @@ int main() {
     p = huge.update(0);
     CHECK(p.refill && p.wantEnd == 256 * MiB && p.deadlineEnd == 32 * MiB);
 
+    // how much of a range is in: verified pieces whole, written blocks of the others
+    {
+        const int64_t B = blockBytes;  // 16 KiB, 16 blocks a piece
+        const int64_t total = 10 * int64_t(P);
+        std::vector<bool> have(10, false);
+        CHECK(bytesIn(0, 0, 4 * int64_t(P), P, total, have, {}) == 0);
+        have[0] = have[1] = true;
+        CHECK(bytesIn(0, 0, 4 * int64_t(P), P, total, have, {}) == 2 * int64_t(P));
+        // a file 1000 bytes into the torrent: its first P bytes are piece 0's tail and
+        // piece 1's first 1000 bytes
+        CHECK(bytesIn(1000, 0, P, P, total, have, {}) == P);
+        CHECK(bytesIn(1000, 0, P, P, total, {true, false}, {}) == P - 1000);
+        // piece 2 downloading: blocks 0, 1 and 5 written
+        std::vector<bool> blocks(16, false);
+        blocks[0] = blocks[1] = blocks[5] = true;
+        const std::vector<PartialPiece> partial = {{2, blocks}};
+        CHECK(bytesIn(0, 0, 4 * int64_t(P), P, total, have, partial) == 2 * int64_t(P) + 3 * B);
+        // a range that starts and ends inside written blocks counts only its part
+        CHECK(bytesIn(0, 2 * int64_t(P) + B / 2, 2 * int64_t(P) + B + B / 2, P, total, have, partial) == B);
+        // a block or piece outside the range counts nothing
+        CHECK(bytesIn(0, 2 * int64_t(P) + 2 * B, 2 * int64_t(P) + 5 * B, P, total, have, partial) == 0);
+        CHECK(bytesIn(0, 3 * int64_t(P), 4 * int64_t(P), P, total, have, partial) == 0);
+        // a piece both verified and in the download queue counts once
+        have[2] = true;
+        CHECK(bytesIn(0, 0, 4 * int64_t(P), P, total, have, partial) == 3 * int64_t(P));
+        // never more than the range, never past the torrent, nothing for an empty range
+        CHECK(bytesIn(0, -5, P, P, total, have, {}) == P);
+        CHECK(bytesIn(0, 0, 20 * int64_t(P), P, total, std::vector<bool>(10, true), {}) == total);
+        CHECK(bytesIn(0, 100, 100, P, total, have, {}) == 0);
+        CHECK(bytesIn(0, 0, P, 0, total, have, {}) == 0);
+
+        // a short last piece: 3 full pieces, then 40000 bytes (blocks of 16384, 16384, 7232)
+        const int64_t shortTotal = 3 * int64_t(P) + 40000;
+        std::vector<bool> none(4, false);
+        CHECK(bytesIn(0, 0, shortTotal, P, shortTotal, {false, false, false, true}, {}) == 40000);
+        CHECK(bytesIn(0, 0, shortTotal, P, shortTotal, none, {{3, {false, false, true}}}) == 7232);
+        CHECK(bytesIn(0, 0, shortTotal, P, shortTotal, none, {{3, {true, true, true}}}) == 40000);
+        // its file starts 2 bytes in: the file's last 4 bytes are the torrent's last 4
+        CHECK(bytesIn(2, shortTotal - 6, shortTotal - 2, P, shortTotal, none, {{3, {false, false, true}}}) == 4);
+    }
+
     if (failures == 0) printf("test_torrent_pieces: all passed\n");
     return failures ? 1 : 0;
 }

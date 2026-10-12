@@ -61,8 +61,9 @@ struct LoadingState {
 
 /// The loading screen from the engine's stats and the warm-up's progress: no metadata and
 /// no peer yet is "Finding peers", peers but no metadata "Getting torrent info", then
-/// "Buffering N%" of the `target` bytes. The bar holds 5% and 10% in the first two stages,
-/// so it moves before data does, and fills the rest with the buffer.
+/// "Buffering N%" of the `target` bytes, `buffered` of them in (Warmup::progress()). The
+/// bar holds 5% and 10% in the first two stages, so it moves before data does, and fills
+/// the rest with the buffer.
 inline LoadingState loadingState(const Stats& s, int64_t buffered, int64_t target) {
     LoadingState out;
     out.peers = s.peers;

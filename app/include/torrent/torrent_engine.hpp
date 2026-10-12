@@ -65,9 +65,9 @@ struct EngineSettings {
 using ReaderId = uint64_t;
 
 /// Every request's infoHash must be 40 lowercase hex characters (parseStreamPath() and
-/// parseLocalStreamUrl() make them so); the engine refuses any other. prefetch(), stats()
-/// and setUploadLimit() take the engine's lock and ask libtorrent's thread for answers: the
-/// app calls them from TorrentService's worker, never from the UI thread.
+/// parseLocalStreamUrl() make them so); the engine refuses any other. prefetch(), stats(),
+/// bytesReady() and setUploadLimit() take the engine's lock and ask libtorrent's thread for
+/// answers: the app calls them from TorrentService's worker, never from the UI thread.
 class TorrentEngine {
 public:
     explicit TorrentEngine(EngineSettings settings);
@@ -101,6 +101,10 @@ public:
     void prefetch(const StreamRequest& req);
 
     Stats stats(const std::string& infoHash);
+    /// Bytes of [begin, end) of the reader's file that are in: verified pieces whole, and
+    /// the written blocks of the pieces still downloading (what a progress bar can show
+    /// before waitFor() returns). -1 when the reader is gone or the engine has stopped.
+    int64_t bytesReady(const StreamRequest& req, ReaderId reader, int64_t begin, int64_t end);
     void setUploadLimit(int bytesPerSec);
 
     /// Wakes every waiter with Stopped and refuses new work, for good. Call before

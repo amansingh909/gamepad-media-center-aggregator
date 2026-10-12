@@ -19,6 +19,7 @@
 #include <sys/socket.h>
 #include <unistd.h>
 
+#include <algorithm>
 #include <chrono>
 #include <csignal>
 #include <cstdio>
@@ -279,9 +280,27 @@ static void onlineChecks() {
     service.watch(sintel);
     Calls calls;
     auto w = service.warmUp(request(sintel, 5), torrent::startBufferBytes, calls.recorder());
-    for (int i = 0; i < 120 && calls.count() == 0; ++i) std::this_thread::sleep_for(std::chrono::seconds(1));
+    // while it buffers, the loading screen's progress moves inside pieces too (their
+    // written blocks), not only in buffered()'s 256 KiB steps, and never goes back
+    int64_t highest = 0;
+    int between = 0, offStep = 0;
+    bool backwards = false;
+    for (int i = 0; i < 2400 && calls.count() == 0; ++i) {
+        const int64_t v = w->progress();
+        if (v < highest) backwards = true;
+        highest = std::max(highest, v);
+        if (calls.count() == 0 && v > 0 && v < torrent::startBufferBytes) {  // read before Ok
+            ++between;
+            if (v % (256 << 10) != 0) ++offStep;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    }
+    std::printf("  progress before Ok: %d samples between 0 and the target, %d off the 256 KiB steps\n", between,
+                offStep);
     CHECK(calls.count() == 1 && calls.last() == torrent::Status::Ok);
+    CHECK(between > 0 && offStep > 0 && !backwards);
     CHECK(w->target() == torrent::startBufferBytes && w->buffered() == torrent::startBufferBytes);
+    CHECK(w->progress() == torrent::startBufferBytes);
     std::this_thread::sleep_for(std::chrono::seconds(1));
     torrent::Stats s = service.snapshot();
     CHECK(s.known && s.hasMetadata && s.peers > 0 && s.error == torrent::Status::Ok);

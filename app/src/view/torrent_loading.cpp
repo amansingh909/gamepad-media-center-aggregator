@@ -72,9 +72,10 @@ void TorrentLoadingView::update() {
 
     auto* service = torrent::TorrentService::current();
     const torrent::Stats engineStats = service ? service->snapshot() : torrent::Stats{};
-    const int64_t buffered = this->warmup ? this->warmup->buffered() : 0;
+    // written blocks count too, so the bar moves before a whole piece is verified
+    const int64_t in = this->warmup ? this->warmup->progress() : 0;
     const int64_t target = this->warmup ? this->warmup->target() : 0;
-    const torrent::LoadingState s = torrent::loadingState(engineStats, buffered, target);
+    const torrent::LoadingState s = torrent::loadingState(engineStats, in, target);
     this->barFill->setWidth(barWidth * s.progress);
     switch (s.stage) {
         case torrent::LoadingStage::FindingPeers:

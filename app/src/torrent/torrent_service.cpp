@@ -13,6 +13,7 @@
 #include <system_error>
 #include <thread>
 #include <utility>
+#include <vector>
 
 namespace torrent {
 
@@ -36,6 +37,11 @@ EngineSettings engineSettings(const ServiceSettings& s) {
 struct Warmup::State {
     std::atomic<int64_t> buffered{0};
     std::atomic<int64_t> target{0};
+    // the worker's: progress() without the buffered floor, from what the engine says of
+    // `reader` while the warm-up waits for its bytes (`reading`)
+    std::atomic<int64_t> progress{0};
+    std::atomic<bool> reading{false};
+    std::atomic<ReaderId> reader{0};
     std::atomic<bool> abandoned{false};  // the engine reads it with its lock held: no mutex
     std::atomic<bool> exited{false};     // its thread is done and can be joined
     std::mutex mutex;
@@ -55,6 +61,7 @@ struct Warmup::State {
 Warmup::Warmup(std::shared_ptr<State> s) : state(std::move(s)) {}
 int64_t Warmup::buffered() const { return state->buffered; }
 int64_t Warmup::target() const { return state->target; }
+int64_t Warmup::progress() const { return std::max<int64_t>(state->progress, state->buffered); }
 void Warmup::finish() { state->end(false); }
 void Warmup::cancel() { state->end(true); }
 // Dropping the handle ends the warm-up: end(true) both gives up a warm-up that hasn't reported
@@ -84,6 +91,7 @@ struct TorrentService::Impl {
     struct Running {
         std::thread thread;
         std::shared_ptr<Warmup::State> state;
+        StreamRequest req;
     };
     std::mutex warmMutex;
     std::list<Running> warmups;
@@ -115,8 +123,28 @@ struct TorrentService::Impl {
             if (limit >= 0) engine.setUploadLimit(limit);
             for (const auto& r : todo) engine.prefetch(r);
             Stats s = hash.empty() ? Stats{} : engine.stats(hash);
+            publishProgress();
             lock.lock();
             if (hash == watched) latest = s;
+        }
+    }
+
+    // Warmup::progress(): what's in so far of each buffering warm-up's [0, target),
+    // written blocks included. The engine call waits on libtorrent's thread, so it runs
+    // with no lock of ours held (warmUp() takes warmMutex on the UI thread).
+    void publishProgress() {
+        std::vector<std::pair<StreamRequest, std::shared_ptr<Warmup::State>>> reading;
+        {
+            std::lock_guard<std::mutex> lock(warmMutex);
+            for (const Running& r : warmups)
+                if (r.state->reading) reading.emplace_back(r.req, r.state);
+        }
+        for (const auto& w : reading) {
+            Warmup::State& st = *w.second;
+            const int64_t target = st.target;
+            const int64_t ready = target > 0 ? engine.bytesReady(w.first, st.reader, 0, target) : -1;
+            // this thread is the only writer: the value only goes up
+            if (ready > st.progress) st.progress = ready;
         }
     }
 
@@ -151,11 +179,14 @@ struct TorrentService::Impl {
                 } release{engine, req, reader};
                 const int64_t target = std::min(bytes, file.size);
                 st->target = target;
+                st->reader = reader;
+                st->reading = true;
                 for (int64_t pos = 0; pos < target && result == Status::Ok; pos += warmupChunk) {
                     const int64_t end = std::min(target, pos + warmupChunk);
                     result = engine.waitFor(req, reader, pos, end, abandoned);
                     if (result == Status::Ok) st->buffered = end;
                 }
+                st->reading = false;
                 tell(result);
                 if (result == Status::Ok) {
                     // the player opens the file now: keep the reader (its window and the
@@ -294,6 +325,7 @@ std::shared_ptr<Warmup> TorrentService::warmUp(const StreamRequest& req, int64_t
                 impl->warmups.emplace_back();
                 Impl::Running& running = impl->warmups.back();
                 running.state = state;
+                running.req = req;
                 running.thread =
                     std::thread([this, req, bytes, state, done] { impl->runWarmup(req, bytes, state, done); });
             } catch (const std::exception& e) {  // system_error, bad_alloc

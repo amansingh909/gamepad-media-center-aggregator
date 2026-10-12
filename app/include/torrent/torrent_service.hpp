@@ -52,6 +52,11 @@ public:
     /// until the torrent's metadata is in). Any thread.
     int64_t buffered() const;
     int64_t target() const;
+    /// Bytes of [0, target()) in so far for the loading screen: also counts the written
+    /// blocks of pieces still downloading (the service's worker refreshes it twice a
+    /// second), so it moves before a whole piece is verified. At least buffered(), and it
+    /// never goes down. Any thread.
+    int64_t progress() const;
     /// The player has its data: the reader goes. Any thread, any number of times.
     void finish();
     /// Gives up: `done` runs with Stopped within about a second if it hasn't run yet, and

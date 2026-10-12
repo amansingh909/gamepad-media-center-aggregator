@@ -45,6 +45,7 @@ using Clock = std::chrono::steady_clock;
 static_assert(static_cast<std::uint8_t>(lt::dont_download) == pieceSkip &&
                   static_cast<std::uint8_t>(lt::top_priority) == pieceTop,
               "piece_plan.hpp's priorities are libtorrent's");
+static_assert(lt::default_block_size == blockBytes, "pieces.hpp's block is libtorrent's");
 
 namespace {
 
@@ -791,6 +792,48 @@ Stats TorrentEngine::stats(const std::string& infoHash) {
         if (!t->error.empty()) s.error = Impl::failure(*t);
     });
     return ok ? s : Stats{};
+}
+
+int64_t TorrentEngine::bytesReady(const StreamRequest& req, ReaderId reader, int64_t begin, int64_t end) {
+    int64_t ready = -1;
+    // log what fails and report nothing, never throw
+    impl->guarded("bytesReady", [&] {
+        std::lock_guard<std::mutex> lock(impl->mutex);
+        if (impl->quit) return;
+        Torrent* t = impl->find(req.infoHash);
+        Reader* r = t ? impl->findReader(*t, reader) : nullptr;
+        if (!r || !t->metadata || !t->info) return;
+        begin = std::max<int64_t>(0, begin);
+        end = std::min(end, r->fileSize);
+        if (end <= begin) {
+            ready = 0;
+            return;
+        }
+        PieceSpan span = piecesFor(r->fileOffset, begin, end, t->pieceLength);
+        bool whole = true;
+        for (int p = span.first; p <= span.last && whole; ++p) whole = size_t(p) < t->have.size() && t->have[size_t(p)];
+        std::vector<PartialPiece> partial;
+        if (!whole) {
+            // the blocks arrays belong to the session until its next get_download_queue(),
+            // which only this call makes, under the engine's lock
+            std::vector<lt::partial_piece_info> queue;
+            t->handle.get_download_queue(queue);
+            for (const lt::partial_piece_info& q : queue) {
+                const int p = static_cast<int>(q.piece_index);
+                if (p < span.first || p > span.last || !q.blocks) continue;
+                PartialPiece pp;
+                pp.piece = p;
+                pp.written.resize(size_t(std::max(0, q.blocks_in_piece)));
+                for (int b = 0; b < q.blocks_in_piece; ++b) {
+                    const auto state = q.blocks[b].state;
+                    pp.written[size_t(b)] = state == lt::block_info::writing || state == lt::block_info::finished;
+                }
+                partial.push_back(std::move(pp));
+            }
+        }
+        ready = bytesIn(r->fileOffset, begin, end, t->pieceLength, t->info->total_size(), t->have, partial);
+    });
+    return ready;
 }
 
 void TorrentEngine::setUploadLimit(int bytesPerSec) {
