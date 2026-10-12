@@ -20,19 +20,21 @@ constexpr const char* localStreamBase = "http://127.0.0.1:11470";
 /// screen reports that; mpv must not give up first.
 constexpr int playerNetworkTimeoutSecs = 120;
 
+/// mpv's read-ahead for a local stream URL, in MiB: up to this much of the file buffered ahead
+/// of the picture, about a minute at 1080p web bitrates, so a short gap in the download doesn't
+/// reach it. The console has room for it.
+constexpr int torrentCacheMiB = 64;
+
 /// mpv's options for a local stream URL: the timeout above, and no reconnect. mpv turns
 /// ffmpeg's reconnect on, and ffmpeg then retries a body that ended early four times; against
 /// a stalled torrent each retry waited the engine's whole stall timeout before its 504, so
 /// "No peers" came five minutes after the data stopped, not one. The server ends a body early
 /// only when the engine gives up on the torrent or the app stops, where a retry can't help.
 /// Seeks open their own connections and don't depend on it.
-/// mpv's read-ahead for a local stream URL, in MiB: about a minute of a 1080p file, so a gap in
-/// the download doesn't reach the picture. The console has room for it.
-constexpr int torrentCacheMiB = 64;
-
-/// And mpv's cache: on (GMCA's in-memory cache setting is 10 MB by default), torrentCacheMiB
-/// ahead and 16 MiB behind, 60 s read ahead, and after a stall 5 s buffered before playing on
-/// instead of stuttering.
+/// And mpv's cache: on (GMCA's in-memory cache setting is 10 MB by default), up to
+/// torrentCacheMiB ahead and 16 MiB behind (with the cache on, mpv reads ahead for its
+/// cache-secs, not demuxer-readahead-secs=60, so the byte cap is what bounds it); after a stall
+/// it waits for 5 s of buffer (cache-pause-wait=5) before playing on instead of stuttering.
 inline std::string playerOptions() {
     return "network-timeout=" + std::to_string(playerNetworkTimeoutSecs) + ",stream-lavf-o=reconnect=0" +
            ",cache=yes,demuxer-max-bytes=" + std::to_string(torrentCacheMiB) +
