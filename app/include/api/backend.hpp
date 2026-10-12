@@ -159,6 +159,10 @@ public:
     }
     virtual void getAllEpisodes(
         const std::string& showId, bool includeStreams, Then<Container<Item>> then, OnError error) = 0;
+    /// A show's episodes as an earlier getAllEpisodes left them, with no request: nullptr when
+    /// the backend doesn't keep them (the default) or hasn't them yet. UI thread; the pointer is
+    /// good until the next call into the backend.
+    virtual const std::vector<Item>* keptEpisodes(const std::string& showId) const { return nullptr; }
     /// Next episode to play. `then(item, fromStart)`: fromStart=true means the
     /// show is fully watched and `item` is its first episode ("Replay"). On no
     /// episode / failure, then(Item{}, false). Never surfaces a hard error to the UI.

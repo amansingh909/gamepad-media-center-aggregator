@@ -420,6 +420,8 @@ StremioBackend::StremioBackend() {
     caps_.serverProgress = account;
     caps_.downloadOriginal = false;
     caps_.multiProfile = false;
+    episodes = std::make_shared<cache::SessionCache<std::vector<media::Item>>>(
+        [this](const std::string& seriesId) { this->fetchEpisodes(seriesId); });
 }
 
 // ---- navigation ----------------------------------------------------------------
@@ -818,21 +820,54 @@ void StremioBackend::getChildren(
     });
 }
 
+/// The series id behind a show, season or episode id ("series:tt0903747:2:5" -> "tt0903747").
+static std::string seriesIdOf(const std::string& id) {
+    ParsedId pid = parseId(id);
+    return (pid.episode >= 0 || pid.season >= 0) ? pid.baseId : pid.stremioId;
+}
+
 void StremioBackend::getAllEpisodes(const std::string& showId, bool,
     media::Then<media::Container<media::Item>> then, media::OnError error) {
-    ParsedId pid = parseId(showId);
-    std::string baseId = (pid.episode >= 0 || pid.season >= 0) ? pid.baseId : pid.stremioId;
-    std::string idCopy = showId;
-    brls::async([this, idCopy, baseId, then, error]() {
+    const std::string seriesId = seriesIdOf(showId);
+    // kept from an earlier ask: on a later frame, as an answer to a request comes, never inside
+    // this call
+    if (const std::vector<media::Item>* kept = this->episodes->find(seriesId)) {
+        media::Container<media::Item> c;
+        c.Items = *kept;  // already sorted (season, episode)
+        c.TotalRecordCount = (long)c.Items.size();
+        brls::sync(std::bind(then, std::move(c)));
+        return;
+    }
+    // else the show's one request (started now, or already running for someone else), whose
+    // answer comes on the UI thread
+    this->episodes->get(seriesId, [then, error](const std::vector<media::Item>* eps, const std::string& ex) {
+        if (!eps) {
+            if (error) error(ex);
+            return;
+        }
+        media::Container<media::Item> c;
+        c.Items = *eps;
+        c.TotalRecordCount = (long)c.Items.size();
+        then(c);
+    });
+}
+
+const std::vector<media::Item>* StremioBackend::keptEpisodes(const std::string& showId) const {
+    return this->episodes->find(seriesIdOf(showId));
+}
+
+void StremioBackend::fetchEpisodes(const std::string& seriesId) {
+    std::weak_ptr<cache::SessionCache<std::vector<media::Item>>> kept = this->episodes;
+    brls::async([this, seriesId, kept]() {
         try {
             engine.ensureLoaded();
-            auto addons = engine.addonsFor("meta", "series", baseId);
+            auto addons = engine.addonsFor("meta", "series", seriesId);
             if (addons.empty()) throw std::runtime_error("stremio: no meta addon for series");
 
             nlohmann::json metaObj;
             bool found = false;
             for (auto& a : addons) {
-                std::string url = engine.resourceUrl(a, "meta", "series", baseId);
+                std::string url = engine.resourceUrl(a, "meta", "series", seriesId);
                 nlohmann::json j;
                 try {
                     j = getSync(url);
@@ -850,12 +885,15 @@ void StremioBackend::getAllEpisodes(const std::string& showId, bool,
             if (!found) throw std::runtime_error("stremio: series meta not found");
 
             media::Item show = parseMeta(metaObj);
-            media::Container<media::Item> c;
-            c.Items = parseEpisodes(metaObj, show);  // already sorted (season, episode)
-            c.TotalRecordCount = (long)c.Items.size();
-            brls::sync(std::bind(then, std::move(c)));
+            std::vector<media::Item> eps = parseEpisodes(metaObj, show);
+            brls::sync([kept, seriesId, eps]() {
+                if (auto c = kept.lock()) c->done(seriesId, eps);
+            });
         } catch (const std::exception& ex) {
-            if (error) brls::sync(std::bind(error, std::string(ex.what())));
+            std::string what = ex.what();
+            brls::sync([kept, seriesId, what]() {
+                if (auto c = kept.lock()) c->failed(seriesId, what);
+            });
         }
     });
 }

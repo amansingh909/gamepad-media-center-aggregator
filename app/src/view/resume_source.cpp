@@ -152,10 +152,11 @@ void ResumeDataSource::onItemSelected(brls::Box* recycler, size_t index) {
             break;
     }
     // a finished episode whose next one isn't known yet: ask the show, then decide again (once:
-    // a second A while the answer is on its way does nothing). Only if the user is still where
-    // A was pressed: any focus change meanwhile (another card or tab, the options panel or any
-    // other activity pushed, even if closed again) drops it, so the player never opens over
-    // what came next. The card then says what A does now.
+    // a second A while the answer is on its way does nothing). The backend keeps each show's
+    // episodes, and a request for the show already running for the row answers this one too.
+    // Only if the user is still where A was pressed: any focus change meanwhile (another card
+    // or tab, the options panel or any other activity pushed, even if closed again) drops it,
+    // so the player never opens over what came next. The card then says what A does now.
     if (this->asking) return;
     this->asking = true;
     auto moved = std::make_shared<bool>(false);

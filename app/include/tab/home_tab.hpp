@@ -24,8 +24,9 @@ public:
 
 private:
     void doResume(RecylingVideo* row);
-    /// Asks each show of the Continue Watching row for its episodes: the cards get their
-    /// episode titles, and a finished episode's card becomes the next episode.
+    /// Gives the Continue Watching row its shows' episodes: the cards get their episode titles,
+    /// and a finished episode's card becomes the next episode. Shows the backend keeps apply at
+    /// once; the others are asked one at a time.
     void fillEpisodes(RecylingVideo* row, ResumeDataSource* source);
     void doHubs();
     void tryRestoreFocus();
