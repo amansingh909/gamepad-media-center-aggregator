@@ -28,6 +28,18 @@ int main() {
     CHECK(nextAfterTransfer(false, classifyDownloadEnd(true, true)) == DownloadNext::Cancelled);
     CHECK(nextAfterTransfer(false, classifyDownloadEnd(false, false)) == DownloadNext::Completed);
     CHECK(nextAfterTransfer(false, classifyDownloadEnd(true, false)) == DownloadNext::Failed);
+    // a failure with another source left falls back; a cancel or a remove never does
+    CHECK(nextAfterTransfer(false, classifyDownloadEnd(true, false), 2) == DownloadNext::Fallback);
+    CHECK(nextAfterTransfer(false, classifyDownloadEnd(true, false), 0) == DownloadNext::Failed);
+    CHECK(nextAfterTransfer(false, classifyDownloadEnd(true, true), 2) == DownloadNext::Cancelled);
+    CHECK(nextAfterTransfer(true, classifyDownloadEnd(true, true), 2) == DownloadNext::Remove);
+    CHECK(nextAfterTransfer(false, classifyDownloadEnd(false, false), 2) == DownloadNext::Completed);
+    // the playable sources after the chosen one, in the list's order, 3 in all at most
+    CHECK((fallbackSources({true, true, true, true}, 0) == std::vector<size_t>{1, 2}));
+    CHECK((fallbackSources({true, false, true, false, true}, 0) == std::vector<size_t>{2, 4}));
+    CHECK((fallbackSources({true, true, true}, 1) == std::vector<size_t>{2}));
+    CHECK(fallbackSources({true, true, true}, 2).empty());
+    CHECK(fallbackSources({}, 0).empty());
     if (fails) return 1;
     std::printf("test_download_end: all passed\n");
     return 0;

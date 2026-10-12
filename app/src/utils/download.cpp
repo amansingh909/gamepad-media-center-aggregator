@@ -11,6 +11,7 @@
 #include <algorithm>
 #include <cctype>
 
+#include <cstdio>
 #include <optional>
 
 #include "utils/download_path.hpp"
@@ -160,7 +161,8 @@ void DownloadManager::addDownload(const std::string& itemId) {
         [](const std::string& ex) { brls::Application::notify(ex); });
 }
 
-void DownloadManager::addDownload(const media::Item& item, const std::string& partKey) {
+void DownloadManager::addDownload(
+    const media::Item& item, const std::string& partKey, const std::vector<std::string>& fallbackKeys) {
     // Explicit-source variant (Stremio release picker): the caller already
     // resolved which source to fetch, so we skip the getItemDetail round-trip
     // (Stremio only resolves sources with full=true anyway) and download exactly
@@ -189,6 +191,7 @@ void DownloadManager::addDownload(const media::Item& item, const std::string& pa
                    ? (!item.parentThumb.empty() ? item.parentThumb : item.grandparentThumb)
                    : item.thumb;
     dl.partKey = partKey;
+    dl.fallbackKeys = fallbackKeys;
     dl.status = DownloadStatus::Queued;
     this->items.push_back(dl);
     this->saveIndex();
@@ -599,6 +602,9 @@ void DownloadManager::doDownload(DownloadItem& item) {
         // the flag is read on both paths (removing an active download sets it too)
         const DownloadEnd end = classifyDownloadEnd(threw, cancel->load());
         const bool success = end.success;
+        // a failed source's partial file goes now: the next source may write another file name,
+        // and a retry starts from zero anyway (a cancel keeps its partial file for a retry)
+        if (!success && !end.cancelled) std::remove(filePath.c_str());
 
         // Offline capture (fiche + ancestors + artwork) on this worker thread,
         // before signalling completion — best-effort, never fails the download.
@@ -618,7 +624,7 @@ void DownloadManager::doDownload(DownloadItem& item) {
                 for (auto it = this->items.begin(); it != this->items.end(); ++it) {
                     if (it->itemId != itemId) continue;
                     // a remove that came at any point, the offline capture included, wins
-                    switch (nextAfterTransfer(it->errorMessage == "removed", end)) {
+                    switch (nextAfterTransfer(it->errorMessage == "removed", end, it->fallbackKeys.size())) {
                     case DownloadNext::Remove:
                         this->items.erase(it);
                         removed = true;
@@ -641,6 +647,17 @@ void DownloadManager::doDownload(DownloadItem& item) {
                         brls::Logger::info("Download completed: {}", itemId);
                         break;
                     }
+                    case DownloadNext::Fallback:
+                        // the next best source, from the start
+                        brls::Logger::warning("Download {} failed ({}), trying its next source", itemId, error);
+                        it->partKey = it->fallbackKeys.front();
+                        it->fallbackKeys.erase(it->fallbackKeys.begin());
+                        it->status = DownloadStatus::Queued;
+                        it->errorMessage.clear();
+                        it->downloadedBytes = 0;
+                        it->totalBytes = 0;
+                        finalStatus = DownloadStatus::Queued;
+                        break;
                     case DownloadNext::Failed:
                         it->status = DownloadStatus::Failed;
                         it->errorMessage = error;

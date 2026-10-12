@@ -13,6 +13,7 @@
 #include "utils/misc.hpp"
 #include "utils/dialog.hpp"
 #include "utils/download.hpp"
+#include "utils/download_end.hpp"
 #include "utils/rating.hpp"
 #include "utils/media_source.hpp"
 #include "utils/offline_library.hpp"
@@ -368,7 +369,13 @@ void MediaMovie::downloadSource(int mediaIndex) {
         brls::Application::notify("main/download/downloading"_i18n);
         return;
     }
-    dm.addDownload(this->movieItem, m.parts.front().key);
+    // if it fails, the next rows of the list are tried, in its order (3 sources in all)
+    std::vector<bool> playable;
+    for (auto& s : this->movieItem.media) playable.push_back(s.playable());
+    std::vector<std::string> fallbacks;
+    for (size_t f : fallbackSources(playable, size_t(mediaIndex)))
+        fallbacks.push_back(this->movieItem.media[f].parts.front().key);
+    dm.addDownload(this->movieItem, m.parts.front().key, fallbacks);
     brls::Application::notify("main/download/queued"_i18n);
 }
 
