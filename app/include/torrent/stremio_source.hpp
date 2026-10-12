@@ -140,13 +140,4 @@ inline int parseSeeders(const std::string& text) {
     return -1;
 }
 
-/// The order of two playable sources of the same quality: a link before a torrent (it
-/// needs no peers), then the torrent with more seeders (unknown, -1, last). Negative when
-/// x goes first, positive when y does, 0 when this has no say.
-inline int torrentOrder(bool xTorrent, int xSeeders, bool yTorrent, int ySeeders) {
-    if (xTorrent != yTorrent) return xTorrent ? 1 : -1;
-    if (xTorrent && xSeeders != ySeeders) return xSeeders > ySeeders ? -1 : 1;
-    return 0;
-}
-
 }  // namespace torrent

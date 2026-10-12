@@ -203,6 +203,8 @@ struct Media {
     std::string detail;  // secondary line: codec · size · seeders (our own re-render)
     SourceKind kind = SourceKind::Direct;
     bool cached = true;  // debrid cache hint (best-effort; ⚡ vs pending). false = uncached
+    bool tenBit = false;     // Stremio rows: the stream's text names 10-bit video (source_order.hpp)
+    int64_t sizeBytes = -1;  // Stremio rows: the size the addon printed, -1 when it printed none
 #ifdef USE_TORRENT
     int seeders = -1;  // torrent rows: the seeders the addon printed, -1 when it didn't
 #endif

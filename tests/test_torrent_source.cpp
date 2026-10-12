@@ -1,5 +1,6 @@
 // Standalone logic test: Stremio torrent streams as source rows (the local server's URL for a
-// stream and back, trackers, the download's extension, seeders, row order).
+// stream and back, trackers, the download's extension, seeders). The row order is
+// tests/test_source_order.cpp's.
 //
 //   c++ -std=gnu++17 -Wall -Iapp/include tests/test_torrent_source.cpp -o /tmp/t && /tmp/t
 //   in Docker, from the repo root: docker run --rm --user "$(id -u):$(id -g)" -v "$PWD:/src" -w /src
@@ -111,15 +112,6 @@ int main() {
     CHECK(parseSeeders("Sintel 1080p") == -1);
     CHECK(parseSeeders("\xF0\x9F\x91\xA4 n/a") == -1);
     CHECK(parseSeeders("") == -1);
-
-    // same quality: a link before a torrent, better seeded torrents first, unknown last
-    CHECK(torrentOrder(false, -1, true, 100) < 0);
-    CHECK(torrentOrder(true, 100, false, -1) > 0);
-    CHECK(torrentOrder(true, 50, true, 5) < 0);
-    CHECK(torrentOrder(true, 5, true, 50) > 0);
-    CHECK(torrentOrder(true, 0, true, -1) < 0);
-    CHECK(torrentOrder(true, 7, true, 7) == 0);
-    CHECK(torrentOrder(false, -1, false, -1) == 0);
 
     // mpv waits longer than the engine's stall timeout, so the engine's error is the one shown
     CHECK(playerNetworkTimeoutSecs > EngineSettings{}.stallSecs);

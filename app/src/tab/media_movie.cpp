@@ -18,6 +18,7 @@
 #include "utils/offline_library.hpp"
 #include "utils/network_state.hpp"
 #include "tab/remote_view.hpp"
+#include "api/stremio/source_order.hpp"
 #include <fmt/ranges.h>
 #ifdef USE_TORRENT
 #include <chrono>
@@ -490,6 +491,11 @@ void MediaMovie::buildSources(const media::Item& item) {
         // the seeders the addon printed: a torrent with none rarely starts
         if (torrentRow && m.seeders >= 0)
             cells.push_back(sourcePill(brls::getStr("main/torrent/source/seeders", m.seeders), pillBg, textCol));
+#endif
+#ifdef __PS4__
+        // HEVC, AV1 and 10-bit decode in software on the console and are often not drawn
+        if (stremio::heavyOnPs4(m.videoCodec, m.tenBit, m.videoResolution, stremio::ps4LightHevcPlays))
+            cells.push_back(sourcePill("main/sources/ps4_note"_i18n, pillBg, greyCol));
 #endif
         // source name (grows) + meta (codec · size)
         cells.push_back(sourceLabel(m.label, 15, textCol, true));

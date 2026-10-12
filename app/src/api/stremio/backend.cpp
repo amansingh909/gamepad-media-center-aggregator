@@ -206,10 +206,34 @@ std::string buildCatalogUrl(const std::string& base, const std::string& type, co
     return url;
 }
 
+#if !defined(__PSV__)
+#ifdef __PS4__
+constexpr bool onPs4 = true;
+#else
+constexpr bool onPs4 = false;
+#endif
+
+/// What the source order (source_order.hpp) reads from a row (the PS Vita keeps its own).
+SourceKey sourceKey(const media::Media& m) {
+    SourceKey k;
+    k.playable = m.playable();
+    k.quality = qualityRank(m.videoResolution);
+    k.heavy = heavyOnPs4(m.videoCodec, m.tenBit, m.videoResolution, ps4LightHevcPlays);
+    k.torrent = m.kind == media::SourceKind::Torrent;
+#ifdef USE_TORRENT
+    k.seeders = m.seeders;
+#endif
+    k.sizeBytes = m.sizeBytes;
+    k.cached = m.cached;
+    return k;
+}
+#endif
+
 /// Fan out /stream across the addons serving (type,id) and return EVERY source
 /// as a neutral media::Media row (parsed quality/codec/size/kind/cache), ordered
-/// playable-first by quality (cached debrid before uncached), then the non-
-/// playable sources (torrent/external/youtube) by quality. The order is stable
+/// by compareSources() (source_order.hpp): playable first, then quality, torrents,
+/// seeders and size, then the non-playable sources (torrent/external/youtube) by
+/// quality. The PS Vita keeps its own order. The order is stable
 /// so the index the detail page shows matches the one PlayerView re-resolves at
 /// play time. Debrid addons resolve infoHash -> a real url server-side, landing
 /// here as a playable Direct/Debrid row; infoHash-only/ytId/externalUrl stay
@@ -253,8 +277,8 @@ std::vector<media::Media> resolveAllStreams(
         all.end());
 #endif
     std::stable_sort(all.begin(), all.end(), [](const media::Media& x, const media::Media& y) {
-        if (x.playable() != y.playable()) return x.playable();  // playable first
 #if defined(__PSV__)
+        if (x.playable() != y.playable()) return x.playable();  // playable first
         // decodable video codec first (H.264 explicit > unknown; the
         // no-decoder codecs were erased above, this is a safety net), then
         // decodable audio (an eac3/dts/truehd/opus track plays SILENT on the
@@ -264,20 +288,12 @@ std::vector<media::Media> resolveAllStreams(
         int ax = audioRankVita(x.audioCodec), ay = audioRankVita(y.audioCodec);
         if (ax != ay) return ax > ay;
         int qx = qualityRankVita(x.videoResolution), qy = qualityRankVita(y.videoResolution);
-#else
-        int qx = qualityRank(x.videoResolution), qy = qualityRank(y.videoResolution);
-#endif
         if (qx != qy) return qx > qy;                           // then best quality
-#ifdef USE_TORRENT
-        // same quality: a link before a torrent, then the better seeded torrent
-        if (x.playable() && y.playable()) {
-            int order = torrent::torrentOrder(x.kind == media::SourceKind::Torrent, x.seeders,
-                                              y.kind == media::SourceKind::Torrent, y.seeders);
-            if (order != 0) return order < 0;
-        }
-#endif
         if (x.playable() && x.cached != y.cached) return x.cached;  // then cached debrid first
         return false;
+#else
+        return compareSources(sourceKey(x), sourceKey(y), onPs4) < 0;
+#endif
     });
     return all;
 }

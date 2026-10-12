@@ -41,6 +41,7 @@
 #include <vector>
 #include "api/http.hpp"
 #include "api/media/types.hpp"
+#include "api/stremio/source_order.hpp"
 #ifdef USE_TORRENT
 #include <torrent/stremio_source.hpp>
 #endif
@@ -717,7 +718,9 @@ inline media::Media streamToMedia(const StreamOption& s, const std::string& addo
         // resolveAllStreams reads them (codecRankVita / audioRankVita)
         m.videoCodec = parseCodecLabel(blob);
         m.audioCodec = parseAudioLabel(blob);
+        m.tenBit = parseTenBit(blob);
         std::string size = parseSizeLabel(s.title.empty() ? s.name : s.title);
+        m.sizeBytes = parseSizeBytes(size);
         std::string detail;
         if (!m.videoCodec.empty()) detail = m.videoCodec;
         if (!size.empty()) detail += (detail.empty() ? "" : "  ·  ") + size;
@@ -728,7 +731,9 @@ inline media::Media streamToMedia(const StreamOption& s, const std::string& addo
         // the same codec, size and seeders a link's row shows
         m.videoCodec = parseCodecLabel(blob);
         m.audioCodec = parseAudioLabel(blob);
+        m.tenBit = parseTenBit(blob);
         std::string size = parseSizeLabel(s.title.empty() ? s.name : s.title);
+        m.sizeBytes = parseSizeBytes(size);
         std::string detail = m.videoCodec;
         if (!size.empty()) detail += (detail.empty() ? "" : "  ·  ") + size;
         m.detail = detail;
