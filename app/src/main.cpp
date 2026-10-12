@@ -271,9 +271,11 @@ int main(int argc, char* argv[]) {
     // Run the app
     while (brls::Application::mainLoop());
 
-    // The pool first: stop() joins its threads, so no async task can still be running (or
-    // call TorrentService::current()) once it returns. Only then is the service cleared and
-    // destroyed, which also ends any download still reading from the server.
+    // Stop the service first so a pool task reading from the server ends, then join the pool
+    // (no task can reach the service after that) and only then clear and destroy the service.
+#ifdef USE_TORRENT
+    torrents->stop();
+#endif
     ThreadPool::instance().stop();
 #ifdef USE_TORRENT
     torrent::TorrentService::setCurrent(nullptr);
