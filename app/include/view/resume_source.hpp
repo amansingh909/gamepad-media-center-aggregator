@@ -14,6 +14,7 @@ class VideoCardCell;
 class ResumeDataSource : public VideoDataSource {
 public:
     explicit ResumeDataSource(const MediaList& items);
+    ~ResumeDataSource() override;
 
     RecyclingGridItem* cellForRow(RecyclingView* recycler, size_t index) override;
     void onItemSelected(brls::Box* recycler, size_t index) override;
@@ -36,9 +37,15 @@ public:
 
 private:
     stremio::ResumeCard card(size_t index) const;
+    /// The wait of an A on a finished episode ends: its show's episodes arrived or failed, or
+    /// this data source goes. The focus is no longer watched.
+    void endAsking();
 
     std::vector<stremio::CardKind> cards;  // per item
     std::vector<bool> resolved;            // the show's episodes were applied to this card
-    bool asking = false;                   // A on a finished episode: its show's episodes on their way
+    // A on a finished episode whose next one isn't known yet: its show's episodes are on their
+    // way, and the focus is watched meanwhile (A is dropped if it moves)
+    bool asking = false;
+    brls::GenericEvent::Subscription focusWatch;
     std::shared_ptr<bool> token = std::make_shared<bool>(true);
 };

@@ -2,6 +2,7 @@
 #include "view/video_card.hpp"
 #include "view/context_menu.hpp"
 #include "view/auto_tab_frame.hpp"
+#include "view/presenter.hpp"
 #include "activity/player_view.hpp"
 #include "tab/media_series.hpp"
 #include "api/backend.hpp"
@@ -24,6 +25,15 @@ std::string phraseText(const stremio::Phrase& p) {
 
 ResumeDataSource::ResumeDataSource(const MediaList& items)
     : VideoDataSource(items), cards(items.size(), stremio::CardKind::AsSaved), resolved(items.size(), false) {}
+
+ResumeDataSource::~ResumeDataSource() { this->endAsking(); }
+
+void ResumeDataSource::endAsking() {
+    if (!this->asking) return;
+    this->asking = false;
+    // never from inside the event's own fire (its callback only sets a flag)
+    brls::Application::getGlobalFocusChangeEvent()->unsubscribe(this->focusWatch);
+}
 
 stremio::ResumeCard ResumeDataSource::card(size_t index) const {
     const media::Item& item = this->list[index];
@@ -142,24 +152,37 @@ void ResumeDataSource::onItemSelected(brls::Box* recycler, size_t index) {
             break;
     }
     // a finished episode whose next one isn't known yet: ask the show, then decide again (once:
-    // a second A while the answer is on its way does nothing)
+    // a second A while the answer is on its way does nothing). Only if the user is still where
+    // A was pressed: any focus change meanwhile (another card or tab, the options panel or any
+    // other activity pushed, even if closed again) drops it, so the player never opens over
+    // what came next. The card then says what A does now.
     if (this->asking) return;
     this->asking = true;
+    auto moved = std::make_shared<bool>(false);
+    this->focusWatch =
+        brls::Application::getGlobalFocusChangeEvent()->subscribe([moved](brls::View*) { *moved = true; });
     std::weak_ptr<bool> alive = this->token;
     const std::string showKey = item.grandparentRatingKey;
     AppConfig::instance().backend().getAllEpisodes(
         showKey, false,
-        [this, alive, recycler, showKey, index](const media::Container<media::Item>& r) {
+        [this, alive, recycler, showKey, index, moved](const media::Container<media::Item>& r) {
             if (alive.expired()) return;  // the row was rebuilt meanwhile, this data source with it
-            this->asking = false;
+            this->endAsking();
+            auto* rv = dynamic_cast<RecyclingView*>(recycler);
             for (size_t i : this->applyEpisodes(showKey, r.Items))
-                if (auto* rv = dynamic_cast<RecyclingView*>(recycler))
-                    if (auto* cell = dynamic_cast<VideoCardCell*>(rv->getGridItemByIndex(i))) this->decorate(cell, i);
+                if (auto* cell = dynamic_cast<VideoCardCell*>(rv ? rv->getGridItemByIndex(i) : nullptr))
+                    this->decorate(cell, i);
+            // the focus never moved, the card still has it, and nothing sits above its activity
+            brls::View* card = rv ? rv->getGridItemByIndex(index) : nullptr;
+            const auto stack = brls::Application::getActivitiesStack();
+            if (*moved || !card || !hasFocusWithin(card) || stack.empty() ||
+                stack.back() != recycler->getParentActivity())
+                return;
             this->onItemSelected(recycler, index);
         },
         [this, alive](const std::string& ex) {
             if (alive.expired()) return;
-            this->asking = false;
+            this->endAsking();
             brls::Application::notify(ex);
         });
 }

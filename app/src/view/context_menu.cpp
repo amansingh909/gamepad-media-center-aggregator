@@ -201,8 +201,8 @@ ContextMenu::ContextMenu(const plex::Item& item, brls::Box* host, bool resumeRow
     }
 
     auto& dm = DownloadManager::instance();
-    // a backend without original-quality downloads (Stremio) can't download from here: the
-    // entry always failed there
+    // a backend without original-quality downloads (Stremio) has no Download entry here: its
+    // downloads go through a title's source list (the movie page), where a source is chosen
     if (be.caps().downloadOriginal && (item.type == plex::mediaTypeMovie || item.type == plex::mediaTypeEpisode ||
                                           item.type == plex::mediaTypeClip)) {
         if (dm.isDownloaded(item.ratingKey)) {

@@ -46,14 +46,16 @@
             title="@i18n/main/media/go_season"
             visibility="gone"
             id="menu/go/season" />
-        <!-- Continue Watching (Stremio) only: shown by context_menu.cpp -->
+        <!-- Continue Watching (Stremio) only: shown by context_menu.cpp. Its icon, like Mark
+             played's, is a grey copy (#61666D, as the others here): a white icon disappears on
+             the light theme's white panel -->
         <MenuItem
-            icon="@res/icon/ico-play.svg"
+            icon="@res/icon/ico-play-grey.svg"
             title="@i18n/main/resume/start_over"
             visibility="gone"
             id="menu/start_over" />
         <MenuItem
-            icon="@res/icon/ico-checkmark.svg"
+            icon="@res/icon/ico-checkmark-grey.svg"
             title="@i18n/main/media/mark_played"
             id="menu/mark/play" />
         <MenuItem
