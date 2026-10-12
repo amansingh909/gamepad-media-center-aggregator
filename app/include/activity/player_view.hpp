@@ -35,8 +35,9 @@ public:
 #ifdef USE_TORRENT
     /// The torrent loading screen has the focus while it shows (B cancels).
     brls::View* getDefaultFocus() override;
-    /// And gets it back whenever the focus lands on the player under it (a dialog or an
-    /// activity over the player closing hands the focus back to what had it before).
+    /// And gets it back, on the next frame, whenever the focus lands on the player under it
+    /// (a dialog or an activity over the player closing hands the focus back to what had it
+    /// before).
     void onChildFocusGained(brls::View* directChild, brls::View* focusedView) override;
 #endif
 
@@ -168,6 +169,7 @@ private:
     std::string warmupUrl;                    // the source it's for
     bool warmupReady = false;                 // its start is in: startPlayback() plays it
     int warmupGeneration = 0;                 // a warm-up's answer counts only if no newer load began
+    bool focusRedirectPending = false;        // onChildFocusGained() has queued its redirect
     /// The local URL whose warm-up reported Ok in this player session: reloading it (a
     /// quality, audio or subtitle switch, a replay) goes straight to mpv. Cleared when
     /// another source plays or another torrent starts warming up.

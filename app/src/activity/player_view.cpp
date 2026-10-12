@@ -696,8 +696,23 @@ void PlayerView::endTorrentLoading() {
 
 void PlayerView::onChildFocusGained(brls::View* directChild, brls::View* focusedView) {
     brls::Box::onChildFocusGained(directChild, focusedView);
-    if (this->torrentLoading && this->torrentLoading->isLoading() && directChild != this->torrentLoading)
-        brls::Application::giveFocus(this->torrentLoading);
+    if (!this->torrentLoading || !this->torrentLoading->isLoading() || directChild == this->torrentLoading) return;
+    // On the next frame, never from inside this focus change: VideoView's own
+    // onChildFocusGained() runs on after this returns and, with its OSD locked, gives the
+    // focus back to its lock box, which would call this again, and so on until the stack
+    // overflows. From brls::sync, the redirect moves the focus out of VideoView once, and
+    // nothing in the loading view's chain calls it again.
+    if (this->focusRedirectPending) return;
+    this->focusRedirectPending = true;
+    ASYNC_RETAIN
+    brls::sync([ASYNC_TOKEN]() {
+        ASYNC_RELEASE
+        this->focusRedirectPending = false;
+        // still loading, and the focus still on the player, not on something opened over it
+        if (this->torrentLoading->isLoading() && this->focusInPlayer() &&
+            brls::Application::getCurrentFocus() != this->torrentLoading)
+            brls::Application::giveFocus(this->torrentLoading);
+    });
 }
 
 bool PlayerView::focusInPlayer() {
