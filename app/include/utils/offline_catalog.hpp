@@ -200,7 +200,10 @@ inline std::unordered_set<std::string> survivors(
         else if (it.type == plex::mediaTypeSeason)
             k = showsWithDl.count(it.parentRatingKey) > 0 && seasonsWithDl.count(it.ratingKey) > 0;
         else if (it.type == plex::mediaTypeEpisode)
-            k = seasonsWithDl.count(it.parentRatingKey) > 0;
+            // a downloaded episode always stays (legacy ones have no parent keys); a greyed
+            // sibling stays with its season, and an empty key never matches anything
+            k = isDownloaded(it.ratingKey) ||
+                (!it.parentRatingKey.empty() && seasonsWithDl.count(it.parentRatingKey) > 0);
         else
             k = true;  // unknown type: keep defensively
         if (k) keep.insert(it.ratingKey);
