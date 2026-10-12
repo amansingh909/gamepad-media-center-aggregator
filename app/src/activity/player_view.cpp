@@ -14,6 +14,7 @@
 #include "api/media/resolution.hpp"
 #include "utils/dialog.hpp"
 #include "utils/misc.hpp"
+#include "utils/playback_end.hpp"
 #include "view/mpv_core.hpp"
 #include "view/player_setting.hpp"
 #include "view/video_view.hpp"
@@ -79,17 +80,19 @@ PlayerView::PlayerView(const plex::Item& item, const int64_t seekMs, int version
     // full disk) reaches mpv as an early end of the file: its last position, and the player
     // says why instead of the next episode or a Repeat One reload of a dead torrent.
     view->registerEnd([this](...) {
+        auto& mpv = MPVCore::instance();
         // mpv's clock and the file's length are still those of the file that ended
-        const int64_t lastMs = this->mediaTimeMs(MPVCore::instance().playback_time);
+        const int64_t lastMs = this->mediaTimeMs(mpv.playback_time);
 #ifdef USE_TORRENT
         if (this->explainTorrentEnd()) {
             this->reportEnd(lastMs);
             return true;
         }
 #endif
-        // played to its end: the item's length when it is longer (a server's length can
-        // differ a little from the file's), so the end always counts as watched to the end
-        this->reportEnd(std::max(lastMs, this->durationMs()));
+        // the length only when mpv's clock reached mpv's length: mpv also ends a file whose
+        // connection dropped mid-file (Wi-Fi, a dying transcoder), and that one stopped where
+        // it stopped, not watched to the end
+        this->reportEnd(playback::endPositionMs(lastMs, this->durationMs(), mpv.duration, mpv.playback_time));
         return false;
     });
 
@@ -582,8 +585,10 @@ void PlayerView::reportTimeline(const std::string& state, int64_t timeMs) {
 
 void PlayerView::reportStop() {
     int64_t timeMs = this->mediaTimeMs(MPVCore::instance().playback_time);
-    this->reportTimeline("stopped", timeMs);
+    // the scrobble first: the backends' requests run in order on one worker, so the stop's save
+    // (Stremio: this episode watched to its end) comes after a mark that would move the show on
     this->maybeScrobble(timeMs);
+    this->reportTimeline("stopped", timeMs);
     brls::Logger::debug("PlayerView reportStop {}", this->sessionId);
 }
 
@@ -591,8 +596,8 @@ void PlayerView::reportEnd(int64_t timeMs) {
     if (this->endReported) return;
     this->endReported = true;
     brls::Logger::info("PlayerView: {} ended at {} ms", this->itemId, timeMs);
+    this->maybeScrobble(timeMs);  // first, as in reportStop()
     this->reportTimeline("stopped", timeMs);
-    this->maybeScrobble(timeMs);
 }
 
 void PlayerView::maybeScrobble(int64_t timeMs) {

@@ -11,6 +11,7 @@
 #include <string>
 
 #include <torrent/torrent_service.hpp>
+#include <utils/playback_end.hpp>
 
 namespace torrent {
 
@@ -49,17 +50,11 @@ inline const char* playerErrorKey(const std::string& mpvError, Status engineErro
     return errorKey(Status::Failed);
 }
 
-/// How short of a file's duration an end of the file must come to count as a stream that broke
-/// off rather than one that played to its end.
-constexpr double endSlackSecs = 5;
-
-/// mpv reached the end of a torrent's file at `positionSecs` of `durationSecs`. When the engine
-/// gives up during playback (no data for 60 s, a full disk), the server can only close the
-/// connection, and mpv takes that for the end of the file once it has played what it had. True
-/// if it ended more than endSlackSecs early; a duration mpv doesn't know says nothing.
-inline bool endedEarly(int64_t durationSecs, double positionSecs) {
-    return durationSecs > 0 && positionSecs + endSlackSecs < double(durationSecs);
-}
+/// A torrent's file that mpv ended more than endSlackSecs short of its length broke off: the
+/// engine gave up during playback (no data for 60 s, a full disk), and the server could only
+/// close the connection. The rule is every source's (utils/playback_end.hpp).
+using playback::endSlackSecs;
+using playback::endedEarly;
 
 /// Why a torrent stream broke off during playback, as an i18n key: the engine's error for it
 /// (TorrentService::snapshot()) if it had one, else no peers, as a stall leaves none.
