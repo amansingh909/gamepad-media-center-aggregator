@@ -52,6 +52,7 @@ inline std::string statusLine(int code) {
         case 404: text = "Not Found"; break;
         case 405: text = "Method Not Allowed"; break;
         case 416: text = "Range Not Satisfiable"; break;
+        case 502: text = "Bad Gateway"; break;
         case 503: text = "Service Unavailable"; break;
         case 504: text = "Gateway Timeout"; break;
         case 507: text = "Insufficient Storage"; break;

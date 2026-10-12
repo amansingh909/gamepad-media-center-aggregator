@@ -23,6 +23,7 @@
 #endif
 
 #include <algorithm>
+#include <cerrno>
 #include <chrono>
 #include <condition_variable>
 #include <cstdio>
@@ -48,6 +49,18 @@ static_assert(static_cast<std::uint8_t>(lt::dont_download) == pieceSkip &&
 namespace {
 
 double secondsNow() { return std::chrono::duration<double>(Clock::now().time_since_epoch()).count(); }
+
+// A prefetched torrent only needs its metadata and a few peers; its first reader lifts this.
+const int prefetchConnections = 20;
+// Prefetched torrents nobody has opened yet: past this many, the oldest goes.
+const size_t maxPrefetched = 3;
+
+// "Not enough storage space" is only for a full disk or quota; any other file error means
+// the source can't be played. (OpenOrbis' errno.h has the FreeBSD values the PS4 returns.)
+bool isDiskFull(const lt::error_code& ec) {
+    if (ec.category() != lt::system_category() && ec.category() != lt::generic_category()) return false;
+    return ec.value() == ENOSPC || ec.value() == EDQUOT;
+}
 
 #ifdef __PS4__
 // libtorrent can't list interfaces or routes on the PS4 (the TORRENT_PS4 patch), so
@@ -96,7 +109,10 @@ struct Torrent {
     std::string savePath;
     bool metadata = false;
     std::shared_ptr<const lt::torrent_info> info;  // set with `metadata`
-    std::string error;  // set by a file or torrent error alert
+    std::string error;      // set by the first file or torrent error alert
+    bool diskFull = false;  // that error is a full disk or quota
+    bool prefetchOnly = false;  // added by prefetch(), no reader yet
+    Clock::time_point addedAt = Clock::now();
     int readers = 0;    // readers in `active`, plus callers still waiting in acquire()
     Clock::time_point removeAt = Clock::time_point::max();
     Clock::time_point lastProgress = Clock::now();
@@ -287,6 +303,9 @@ struct TorrentEngine::Impl {
         sp.set_int(lt::settings_pack::upload_rate_limit, settings.uploadLimit);
         // closing the session waits this long for trackers to acknowledge "stopped"
         sp.set_int(lt::settings_pack::stop_tracker_timeout, 1);
+        // the addon's trackers and the default ones at once, not one tier after another
+        sp.set_bool(lt::settings_pack::announce_to_all_tiers, true);
+        sp.set_bool(lt::settings_pack::announce_to_all_trackers, true);
         lt::session_params params(std::move(sp));
         // The server relies on this: once waitFor() returns Ok, pread() of the file sees
         // the verified bytes. The POSIX backend writes each block to the file before
@@ -316,7 +335,8 @@ struct TorrentEngine::Impl {
         return it == t.active.end() ? nullptr : &it->second;
     }
 
-    Torrent* ensure(const StreamRequest& req, std::unique_lock<std::mutex>& lock, std::string& error) {
+    Torrent* ensure(const StreamRequest& req, std::unique_lock<std::mutex>& lock, std::string& error,
+                    bool forPrefetch = false) {
         // a session closing for idleness still holds the port: let it go first
         changed.wait(lock, [this] { return !closing || quit; });
         if (quit) {
@@ -327,6 +347,11 @@ struct TorrentEngine::Impl {
             error = "no usable temp folder";
             return nullptr;
         }
+        // an uppercase hash would name a folder the sweep never deletes
+        if (!isInfoHash(req.infoHash)) {
+            error = "bad info hash \"" + req.infoHash + "\"";
+            return nullptr;
+        }
         if (Torrent* t = find(req.infoHash)) return t;
         if (!session) startSession();
         lt::error_code ec;
@@ -335,6 +360,16 @@ struct TorrentEngine::Impl {
             error = ec.message();
             return nullptr;
         }
+        // the default trackers after the addon's, each in a tier of its own like the
+        // magnet's (startSession() announces to every tier at once)
+        int tier = atp.tracker_tiers.empty() ? 0 : atp.tracker_tiers.back() + 1;
+        atp.tracker_tiers.resize(atp.trackers.size(), 0);
+        for (const auto& tracker : settings.defaultTrackers) {
+            if (std::find(atp.trackers.begin(), atp.trackers.end(), tracker) != atp.trackers.end()) continue;
+            atp.trackers.push_back(tracker);
+            atp.tracker_tiers.push_back(tier++);
+        }
+        if (forPrefetch) atp.max_connections = prefetchConnections;
         Torrent t;
         // its own folder: the previous copy of this torrent may still be being deleted
         t.savePath = settings.tempDir + "/" + req.infoHash + "-" + std::to_string(++addCount);
@@ -368,6 +403,30 @@ struct TorrentEngine::Impl {
         guarded("engine", [&] { t.handle.set_upload_limit(1); });
     }
 
+    // A torrent error as the caller sees it: only a full disk is "Not enough storage space".
+    static Status failure(const Torrent& t) { return t.diskFull ? Status::DiskError : Status::Failed; }
+
+    // Past maxPrefetched torrents that only a prefetch added, the oldest goes now (expire()
+    // removes it within a quarter second): scrolling a long source list mustn't keep a
+    // dozen swarms open.
+    void dropOldPrefetches() {
+        std::vector<Torrent*> waiting;
+        for (auto& kv : torrents)
+            if (kv.second.prefetchOnly && kv.second.readers == 0) waiting.push_back(&kv.second);
+        if (waiting.size() <= maxPrefetched) return;
+        std::sort(waiting.begin(), waiting.end(),
+                  [](const Torrent* a, const Torrent* b) { return a->addedAt < b->addedAt; });
+        for (size_t i = 0; i + maxPrefetched < waiting.size(); ++i) waiting[i]->removeAt = Clock::now();
+    }
+
+    // The first error decides; a full disk repeats it for every block.
+    void onError(Torrent& t, const lt::error_code& ec, const std::string& message, const char* what) {
+        if (!t.error.empty()) return;
+        t.error = message;
+        t.diskFull = isDiskFull(ec);
+        log(std::string(what) + ": " + message);
+    }
+
     void onMetadata(Torrent& t) {
         if (t.metadata) return;
         auto ti = t.handle.torrent_file();
@@ -396,15 +455,9 @@ struct TorrentEngine::Impl {
                 t->lastProgress = Clock::now();
             }
         } else if (auto* fe = lt::alert_cast<lt::file_error_alert>(a)) {
-            if (Torrent* t = byHandle(fe->handle)) {
-                t->error = fe->message();
-                log("file error: " + t->error);
-            }
+            if (Torrent* t = byHandle(fe->handle)) onError(*t, fe->error, fe->message(), "file error");
         } else if (auto* te = lt::alert_cast<lt::torrent_error_alert>(a)) {
-            if (Torrent* t = byHandle(te->handle)) {
-                t->error = te->message();
-                log("torrent error: " + t->error);
-            }
+            if (Torrent* t = byHandle(te->handle)) onError(*t, te->error, te->message(), "torrent error");
         } else if (lt::alert_cast<lt::alerts_dropped_alert>(a)) {
             // a lost metadata or piece alert would leave readers waiting for data that
             // is already there: ask libtorrent instead
@@ -489,13 +542,20 @@ struct TorrentEngine::Impl {
                 ++it;
             }
         }
+        std::vector<std::string> due;
         for (auto it = pendingDirs.begin(); it != pendingDirs.end();) {
             if (now >= it->second) {
-                removeFolder(it->first);
+                due.push_back(it->first);
                 it = pendingDirs.erase(it);
             } else {
                 ++it;
             }
+        }
+        if (!due.empty()) {
+            // a multi-gigabyte folder takes a while: waiters and stats() don't wait for it
+            lock.unlock();
+            for (const auto& dir : due) removeFolder(dir);
+            lock.lock();
         }
         if (!torrents.empty() || !session) {
             idleSince = now;
@@ -596,6 +656,11 @@ Status TorrentEngine::acquire(const StreamRequest& req, FileInfo& file, ReaderId
     Impl::Reference ref(*impl, *t);
     // lift dropReader()'s 1 B/s throttle: the session-wide cap governs while someone reads
     if (t->readers == 1) t->handle.set_upload_limit(-1);
+    // and a prefetch's connection cap
+    if (t->prefetchOnly) {
+        t->prefetchOnly = false;
+        t->handle.set_max_connections(-1);
+    }
     t->removeAt = Clock::time_point::max();
 
     auto deadline = Clock::now() + std::chrono::seconds(impl->settings.stallSecs);
@@ -607,7 +672,7 @@ Status TorrentEngine::acquire(const StreamRequest& req, FileInfo& file, ReaderId
         impl->changed.wait_until(lock, std::min(deadline, now + std::chrono::seconds(1)));
     }
     if (impl->quit) return Status::Stopped;
-    if (!t->error.empty()) return Status::DiskError;
+    if (!t->error.empty()) return Impl::failure(*t);
 
     const lt::file_storage& files = t->info->files();
     std::vector<int64_t> sizes;
@@ -669,7 +734,7 @@ Status TorrentEngine::waitFor(const StreamRequest& req, ReaderId reader, int64_t
         // look the reader up again after every wait: only its reference keeps `t` alive
         t = impl->find(req.infoHash);
         if (!t || !impl->findReader(*t, reader)) return Status::Stopped;
-        if (!t->error.empty()) return Status::DiskError;
+        if (!t->error.empty()) return Impl::failure(*t);
         bool ready = true;
         for (int p = span.first; p <= span.last; ++p) {
             if (!t->have[size_t(p)]) {
@@ -687,43 +752,49 @@ Status TorrentEngine::waitFor(const StreamRequest& req, ReaderId reader, int64_t
 }
 
 void TorrentEngine::prefetch(const StreamRequest& req) {
-    // UI thread: log what fails, never throw
+    // log what fails, never throw
     impl->guarded("prefetch", [&] {
         std::unique_lock<std::mutex> lock(impl->mutex);
         if (impl->quit) return;
-        // runs on the UI thread: never wait for an idle session to finish closing
+        // never wait for an idle session to finish closing
         if (impl->closing) {
             impl->log("prefetch skipped, session closing");
             return;
         }
         bool existed = impl->find(req.infoHash) != nullptr;
         std::string error;
-        Torrent* t = impl->ensure(req, lock, error);
+        Torrent* t = impl->ensure(req, lock, error, true);
         if (!t) {
             impl->log("prefetch failed: " + error);
             return;
         }
-        if (!existed) t->removeAt = Clock::now() + std::chrono::seconds(std::max(120, impl->settings.graceSecs));
+        if (existed) return;
+        t->prefetchOnly = true;
+        t->removeAt = Clock::now() + std::chrono::seconds(std::max(120, impl->settings.graceSecs));
+        impl->dropOldPrefetches();
     });
 }
 
 Stats TorrentEngine::stats(const std::string& infoHash) {
     Stats s;
-    // UI thread: log what fails and report nothing, never throw
+    // log what fails and report nothing, never throw
     bool ok = impl->guarded("stats", [&] {
         std::lock_guard<std::mutex> lock(impl->mutex);
         Torrent* t = impl->find(infoHash);
         if (!t) return;
-        lt::torrent_status st = t->handle.status();
+        // no query flags: peers and rates are always filled in, the piece bitfield isn't needed
+        lt::torrent_status st = t->handle.status(lt::status_flags_t{});
+        s.known = true;
+        s.hasMetadata = t->metadata;
         s.peers = st.num_peers;
         s.downloadBytesPerSec = st.download_payload_rate;
-        s.hasMetadata = t->metadata;
+        if (!t->error.empty()) s.error = Impl::failure(*t);
     });
     return ok ? s : Stats{};
 }
 
 void TorrentEngine::setUploadLimit(int bytesPerSec) {
-    // UI thread: log what fails, never throw
+    // log what fails, never throw
     impl->guarded("setUploadLimit", [&] {
         std::lock_guard<std::mutex> lock(impl->mutex);
         impl->settings.uploadLimit = bytesPerSec;

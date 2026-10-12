@@ -7,6 +7,7 @@
 #include <torrent/byte_range.hpp>
 #include <torrent/http_head.hpp>
 #include <torrent/stream_url.hpp>
+#include <torrent/torrent_engine.hpp>
 
 static int failures = 0;
 #define CHECK(cond)                                              \
@@ -83,6 +84,17 @@ int main() {
     CHECK_EQ(statusLine(206), "HTTP/1.1 206 Partial Content");
     CHECK_EQ(statusLine(504), "HTTP/1.1 504 Gateway Timeout");
     CHECK_EQ(statusLine(507), "HTTP/1.1 507 Insufficient Storage");
+    CHECK_EQ(statusLine(502), "HTTP/1.1 502 Bad Gateway");
+    CHECK_EQ(statusName(Status::DiskError), "disk full");
+    CHECK_EQ(statusName(Status::Failed), "torrent error");
+
+    // the engine takes lowercase hashes only: an uppercase one would name a folder it never deletes
+    CHECK(isInfoHash(H));
+    CHECK(!isInfoHash("01C137287D6F0ED05A56742DAE794F632C79FF3D"));
+    CHECK(!isInfoHash(H.substr(1)));
+    CHECK(!isInfoHash(H + "0"));
+    CHECK(!isInfoHash(H.substr(1) + "g"));
+    CHECK(!isInfoHash(""));
     CHECK_EQ(contentTypeFor("Show/S01E01.MKV"), "video/x-matroska");
     CHECK_EQ(contentTypeFor("a.mp4"), "video/mp4");
     CHECK_EQ(contentTypeFor("noext"), "application/octet-stream");

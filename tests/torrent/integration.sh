@@ -88,6 +88,15 @@ if [ "$(cat "$WORK/p1.code")" = 206 ] && [ "$(size "$WORK/p1")" = 4194304 ] &&
     [ "$(cat "$WORK/p2.code")" = 206 ] && [ "$(size "$WORK/p2")" = 1048576 ]; then
     pass "two readers at once"; else fail "two readers at once: $(cat "$WORK/p1.code") $(cat "$WORK/p2.code")"; fi
 
+# a URL with no tracker (Stremio addons often send a bare info hash): the engine's default
+# trackers find the peers. Sintel (Blender Foundation, CC BY), WebTorrent's sample torrent;
+# file 5 is Sintel.mp4, 129241752 bytes.
+SINTEL=08ada5a7a6183aae1e09d831df6748d566095a10
+c=$(fetch "$BASE/$SINTEL/5" 0-1048575 "$WORK/sintel")
+if [ "$c" = 206 ] && [ "$(size "$WORK/sintel")" = 1048576 ] &&
+    grep -qi "^content-range: bytes 0-1048575/129241752" "$WORK/sintel.h"; then
+    pass "no tracker in the URL"; else fail "no tracker in the URL: $c"; fi
+
 # a reader back from a pause longer than the stall timeout, on a new connection, still
 # gets data (the torrent was dropped meanwhile and is added again). The engine-level
 # pause, same reader, is the harness's --pause check.

@@ -18,3 +18,8 @@ add_executable(torrent_serve torrent_serve.cpp ${TORRENT_SRC})
 target_include_directories(torrent_serve PRIVATE ${GMCA_ROOT}/app/include)
 target_compile_options(torrent_serve PRIVATE -Wall)
 target_link_libraries(torrent_serve PRIVATE LibtorrentRasterbar::torrent-rasterbar Threads::Threads)
+
+add_executable(app_checks app_checks.cpp ${TORRENT_SRC})
+target_include_directories(app_checks PRIVATE ${GMCA_ROOT}/app/include)
+target_compile_options(app_checks PRIVATE -Wall)
+target_link_libraries(app_checks PRIVATE LibtorrentRasterbar::torrent-rasterbar Threads::Threads)

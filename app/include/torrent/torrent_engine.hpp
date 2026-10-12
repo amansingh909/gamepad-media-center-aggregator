@@ -8,12 +8,13 @@
 #include <functional>
 #include <memory>
 #include <string>
+#include <vector>
 
 #include <torrent/stream_url.hpp>
 
 namespace torrent {
 
-enum class Status { Ok, BadRequest, NotFound, NoPeers, DiskError, Stopped };
+enum class Status { Ok, BadRequest, NotFound, NoPeers, DiskError, Failed, Stopped };
 
 inline const char* statusName(Status s) {
     switch (s) {
@@ -21,7 +22,8 @@ inline const char* statusName(Status s) {
         case Status::BadRequest: return "bad request";
         case Status::NotFound: return "file not found";
         case Status::NoPeers: return "no peers";
-        case Status::DiskError: return "disk error";
+        case Status::DiskError: return "disk full";
+        case Status::Failed: return "torrent error";
         case Status::Stopped: return "stopped";
     }
     return "unknown";
@@ -34,23 +36,38 @@ struct FileInfo {
 };
 
 struct Stats {
+    bool known = false;  // the engine has this torrent right now
+    bool hasMetadata = false;
     int peers = 0;
     int downloadBytesPerSec = 0;
-    bool hasMetadata = false;
+    Status error = Status::Ok;  // DiskError (no space left) or Failed (any other file or torrent error)
 };
 
 struct EngineSettings {
-    std::string tempDir;        // owned by the engine: emptied at start and on exit
+    std::string tempDir;        // absolute; the engine makes <info hash>-<n> folders in it and deletes only those
     int uploadLimit = 1 << 20;  // bytes per second, only while torrents are open
     int graceSecs = 30;         // keep a torrent this long after its last reader
     int stallSecs = 60;         // no metadata, or no new data, for this long: NoPeers
     int idleSecs = 300;         // close the session after this long with no torrents
+    /// Called from the engine's thread and its callers' threads, at the same time, and with
+    /// the engine's lock held: it must not block on another thread or call into the engine.
     std::function<void(const std::string&)> log;
+    /// Added to every torrent: Stremio addons often send a bare info hash, and the DHT alone
+    /// found no peer in 90 s for a seeded torrent that these trackers served at once.
+    std::vector<std::string> defaultTrackers = {
+        "udp://tracker.opentrackr.org:1337/announce",
+        "udp://open.stealth.si:80/announce",
+        "udp://explodie.org:6969/announce",
+    };
 };
 
 /// One open reader of one file in a torrent (for the server: one HTTP connection).
 using ReaderId = uint64_t;
 
+/// Every request's infoHash must be 40 lowercase hex characters (parseStreamPath() and
+/// parseLocalStreamUrl() make them so); the engine refuses any other. prefetch(), stats()
+/// and setUploadLimit() take the engine's lock and ask libtorrent's thread for answers: the
+/// app calls them from TorrentService's worker, never from the UI thread.
 class TorrentEngine {
 public:
     explicit TorrentEngine(EngineSettings settings);
@@ -70,21 +87,24 @@ public:
     void release(const StreamRequest& req, ReaderId reader);
 
     /// Blocks until bytes [begin, end) of the reader's file are downloaded and
-    /// verified, steering that reader's download window to `begin`. `abandoned` as
-    /// for acquire(): asked at least once a second while the data isn't there yet, run
-    /// with the engine's lock held, so it must not block or call into the engine.
+    /// verified, steering that reader's download window to `begin`. Keep `end - begin`
+    /// small (the server asks for 256 KiB): a range longer than half the reader's window
+    /// never completes. `abandoned` as for acquire(): asked at least once a second while
+    /// the data isn't there yet, run with the engine's lock held, so it must not block or
+    /// call into the engine.
     Status waitFor(const StreamRequest& req, ReaderId reader, int64_t begin, int64_t end,
                    const std::function<bool()>& abandoned = {});
 
-    /// Starts fetching metadata and peers without downloading pieces; dropped after
-    /// two minutes unless a reader acquires it.
+    /// Starts fetching metadata and peers without downloading pieces, on few
+    /// connections; dropped after two minutes unless a reader acquires it, or at once
+    /// when more than three prefetched torrents are waiting for a reader (the oldest).
     void prefetch(const StreamRequest& req);
 
     Stats stats(const std::string& infoHash);
     void setUploadLimit(int bytesPerSec);
 
-    /// Wakes every waiter with Stopped and refuses new work. Call before tearing
-    /// down anything that still calls into the engine.
+    /// Wakes every waiter with Stopped and refuses new work, for good. Call before
+    /// tearing down anything that still calls into the engine.
     void shutdown();
 
 private:

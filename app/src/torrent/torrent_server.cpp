@@ -48,6 +48,7 @@ int httpCodeFor(Status s) {
         case Status::NotFound: return 404;
         case Status::NoPeers: return 504;
         case Status::DiskError: return 507;
+        case Status::Failed: return 502;
         case Status::Stopped: return 503;
     }
     return 500;
@@ -59,7 +60,8 @@ std::string messageFor(Status s) {
         case Status::NoPeers: return "No peers found for this source, try another one";
         case Status::DiskError: return "Not enough storage space";
         case Status::BadRequest:
-        case Status::NotFound: return "This source can't be played";
+        case Status::NotFound:
+        case Status::Failed: return "This source can't be played";
         default: return "Torrent engine stopped";
     }
 }
@@ -124,6 +126,8 @@ struct TorrentServer::Impl {
     std::function<void(const std::string&)> logFn;
     int listenFd = -1;
     std::atomic<bool> stopping{false};
+    std::atomic<bool> enabled{true};
+    bool stopped = false;  // stop() ran: start() refuses
     std::thread acceptThread;
     std::mutex connMutex;
     std::list<Conn> conns;  // a list: each thread holds a reference to its own entry
@@ -146,9 +150,21 @@ struct TorrentServer::Impl {
         std::string head;
         RequestHead req;
         if (!readHead(fd, head) || !parseRequestHead(head, req)) return sendError(fd, 400, "bad request");
-        if (req.method != "GET" && req.method != "HEAD") return sendError(fd, 405, "only GET and HEAD");
+        // a wrong URL from the app leaves a trace in torrent.log
+        if (req.method != "GET" && req.method != "HEAD") {
+            log("405 for " + req.method.substr(0, 16));
+            return sendError(fd, 405, "only GET and HEAD", "Allow: GET, HEAD\r\n");
+        }
         StreamRequest stream;
-        if (!parseStreamPath(req.target, stream)) return sendError(fd, 400, "expected /<info hash>/<file index>");
+        if (!parseStreamPath(req.target, stream)) {
+            log("400 for " + req.target.substr(0, 200));
+            return sendError(fd, 400, "expected /<info hash>/<file index>");
+        }
+        // the Settings switch: open streams carry on, new ones are refused
+        if (!enabled) {
+            log(stream.infoHash + ": refused, torrent streaming is off");
+            return sendError(fd, 503, "Torrent streaming is off");
+        }
 
         // asked by the engine while this connection waits for data; `gone` then says
         // why a wait ended with Stopped
@@ -301,6 +317,14 @@ TorrentServer::TorrentServer(TorrentEngine& engine, std::function<void(const std
 TorrentServer::~TorrentServer() { stop(); }
 
 bool TorrentServer::start(uint16_t port, bool lan, std::string& error) {
+    if (impl->stopped) {
+        error = "server stopped";
+        return false;
+    }
+    if (impl->acceptThread.joinable()) {
+        error = "server already running";
+        return false;
+    }
     // a client hanging up mid-send must not kill the app
     if (std::signal(SIGPIPE, SIG_IGN) == SIG_ERR) impl->log(std::string("ignoring SIGPIPE: ") + std::strerror(errno));
     int fd = ::socket(AF_INET, SOCK_STREAM, 0);
@@ -337,7 +361,10 @@ bool TorrentServer::start(uint16_t port, bool lan, std::string& error) {
     return true;
 }
 
+void TorrentServer::setEnabled(bool on) { impl->enabled = on; }
+
 void TorrentServer::stop() {
+    impl->stopped = true;
     if (!impl->acceptThread.joinable()) return;
     impl->stopping = true;
     impl->acceptThread.join();  // from here on, nothing adds to or reaps `conns`

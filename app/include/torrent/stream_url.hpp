@@ -15,6 +15,14 @@ struct StreamRequest {
     std::vector<std::string> fileHints;
 };
 
+/// 40 lowercase hex characters: the form the engine accepts and names its folders by.
+inline bool isInfoHash(const std::string& h) {
+    if (h.size() != 40) return false;
+    for (char c : h)
+        if (!((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f'))) return false;
+    return true;
+}
+
 inline int hexValue(char c) {
     if (c >= '0' && c <= '9') return c - '0';
     if (c >= 'a' && c <= 'f') return c - 'a' + 10;
