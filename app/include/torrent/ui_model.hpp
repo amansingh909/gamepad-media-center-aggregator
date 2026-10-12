@@ -63,7 +63,9 @@ struct LoadingState {
 /// no peer yet is "Finding peers", peers but no metadata "Getting torrent info", then
 /// "Buffering N%" of the `target` bytes, `buffered` of them in (Warmup::progress()). The
 /// bar holds 5% and 10% in the first two stages, so it moves before data does, and fills
-/// the rest with the buffer.
+/// the rest with the buffer. It stops at 99%: 100% would read as "playing now", and the
+/// screen only goes once mpv has data (LOADING_END), which can come a while after the
+/// buffer is in.
 inline LoadingState loadingState(const Stats& s, int64_t buffered, int64_t target) {
     LoadingState out;
     out.peers = s.peers;
@@ -75,8 +77,8 @@ inline LoadingState loadingState(const Stats& s, int64_t buffered, int64_t targe
     }
     out.stage = LoadingStage::Buffering;
     double f = target > 0 ? double(buffered) / double(target) : 0.0;
-    f = std::min(1.0, std::max(0.0, f));
-    out.percent = int(f * 100);
+    f = std::min(0.99, std::max(0.0, f));
+    out.percent = std::min(99, int(f * 100));
     out.progress = float(0.10 + 0.90 * f);
     return out;
 }

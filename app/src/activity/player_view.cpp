@@ -672,8 +672,9 @@ bool PlayerView::warmUpTorrent(const int64_t seekMs, bool forceDirect, int64_t f
     // not from a dialog or an activity over the player: onChildFocusGained() takes the
     // focus over once it comes back to the player
     if (this->focusInPlayer()) brls::Application::giveFocus(this->torrentLoading);
-    // the subtitle fetch runs while the torrent buffers
-    this->resolveExternalSubtitles();
+    // No subtitle fetch here: brls::async is one FIFO thread, and the fetch (up to 15 s per
+    // subtitles addon) would sit ahead of resolvePlayback once the start is in.
+    // startPlayback() queues it after the playback task, as for any source.
     return true;
 }
 

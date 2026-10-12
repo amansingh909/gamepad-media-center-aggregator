@@ -71,13 +71,17 @@ int main() {
     l = loadingState(st, 1887437, 4194304);  // 45%
     CHECK(l.stage == LoadingStage::Buffering && l.percent == 45);
     CHECK(l.progress > 0.50f && l.progress < 0.51f);
+    // all of it in: still 99% and a bar short of full, since 100% would read as playing and the
+    // screen goes only when mpv has data
     l = loadingState(st, 4194304, 4194304);
-    CHECK(l.percent == 100 && l.progress == 1.0f);
+    CHECK(l.percent == 99 && l.progress < 1.0f && l.progress > 0.99f);
+    l = loadingState(st, 4173824, 4194304);  // 99.5%
+    CHECK(l.percent == 99);
     st.hasMetadata = false;  // the warm-up's target says the metadata is in, whatever stats lag
     l = loadingState(st, 1048576, 4194304);
     CHECK(l.stage == LoadingStage::Buffering && l.percent == 25);
     l = loadingState(st, 5000000, 4194304);  // never past the end
-    CHECK(l.percent == 100 && l.progress == 1.0f);
+    CHECK(l.percent == 99 && l.progress < 1.0f);
     l = loadingState(st, 0, 123);  // a file smaller than the buffer
     CHECK(l.stage == LoadingStage::Buffering && l.percent == 0);
 
