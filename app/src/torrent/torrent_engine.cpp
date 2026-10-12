@@ -20,6 +20,9 @@
 #ifdef __PS4__
 #include <libtorrent/enum_net.hpp>
 #include <orbis/NetCtl.h>
+#include <torrent/network_watch.hpp>
+
+#include <cstring>
 #endif
 
 #include <algorithm>
@@ -65,29 +68,6 @@ bool isDiskFull(const lt::error_code& ec) {
     if (ec.category() != lt::system_category() && ec.category() != lt::generic_category()) return false;
     return ec.value() == ENOSPC || ec.value() == EDQUOT;
 }
-
-#ifdef __PS4__
-// libtorrent can't list interfaces or routes on the PS4 (the TORRENT_PS4 patch), so
-// hand it what NetCtl reports. borealis has already called sceNetCtlInit.
-void setPs4Network(const std::function<void(const std::string&)>& log) {
-    OrbisNetCtlInfo ip{}, mask{}, gw{};
-    if (sceNetCtlGetInfo(ORBIS_NET_CTL_INFO_IP_ADDRESS, &ip) < 0 ||
-        sceNetCtlGetInfo(ORBIS_NET_CTL_INFO_NETMASK, &mask) < 0 ||
-        sceNetCtlGetInfo(ORBIS_NET_CTL_INFO_DEFAULT_ROUTE, &gw) < 0) {
-        if (log) log("no network info from NetCtl");
-        return;
-    }
-    lt::error_code e1, e2, e3;
-    auto a = lt::make_address(ip.ip_address, e1);
-    auto m = lt::make_address(mask.netmask, e2);
-    auto g = lt::make_address(gw.default_route, e3);
-    if (e1 || e2 || e3) {
-        if (log) log("unparsable NetCtl addresses");
-        return;
-    }
-    lt::ps4_set_network(a, m, g);
-}
-#endif
 
 }  // namespace
 
@@ -143,6 +123,12 @@ struct TorrentEngine::Impl {
     Clock::time_point nextStats = Clock::time_point::max();  // the next stats lines, while a session exists
     bool quit = false;
     bool closing = false;  // expire() is destroying an idle session with the lock dropped
+    bool keepOpen = false;  // keepSessionOpen(true): the session doesn't close for idleness
+    Clock::time_point nextStateSave = Clock::time_point::max();  // the next DHT state save, while a session exists
+#ifdef __PS4__
+    NetworkWatch network;  // the console's network as libtorrent was last told it
+    Clock::time_point nextNetworkCheck = Clock::time_point::max();  // the next NetCtl reading, while a session exists
+#endif
     int inside = 0;        // acquire() and waitFor() calls in progress
     ReaderId nextReader = 1;
     uint64_t addCount = 0;  // every add gets its own folder
@@ -214,6 +200,7 @@ struct TorrentEngine::Impl {
             s = std::move(session);
             torrents.clear();
         }
+        if (s) saveState(*s);
         s.reset();  // closes the session, so its files are no longer in use
         sweep();
     }
@@ -283,9 +270,50 @@ struct TorrentEngine::Impl {
         if (removed > 0) log("swept " + std::to_string(removed) + " leftovers");
     }
 
+#ifdef __PS4__
+    // libtorrent can't list interfaces or routes on the PS4 (the TORRENT_PS4 patch), so hand
+    // it what NetCtl reports: before a session starts, and every 30 s while one is open, since
+    // it stays open for the app's life (a cable plugged in, another Wi-Fi, a new DHCP lease).
+    // New addresses, or the network back after a failed reading, reopen a running session's
+    // sockets. Engine lock held; borealis has already called sceNetCtlInit.
+    void followPs4Network() {
+        auto text = [](const char* field, size_t size) { return std::string(field, strnlen(field, size)); };
+        OrbisNetCtlInfo ip{}, mask{}, gw{};
+        NetworkReading r;
+        lt::address a, m, g;
+        std::string why;
+        if (sceNetCtlGetInfo(ORBIS_NET_CTL_INFO_IP_ADDRESS, &ip) < 0 ||
+            sceNetCtlGetInfo(ORBIS_NET_CTL_INFO_NETMASK, &mask) < 0 ||
+            sceNetCtlGetInfo(ORBIS_NET_CTL_INFO_DEFAULT_ROUTE, &gw) < 0) {
+            why = "no network info from NetCtl";
+        } else {
+            r.ip = text(ip.ip_address, sizeof ip.ip_address);
+            r.netmask = text(mask.netmask, sizeof mask.netmask);
+            r.gateway = text(gw.default_route, sizeof gw.default_route);
+            lt::error_code e1, e2, e3;
+            a = lt::make_address(r.ip, e1);
+            m = lt::make_address(r.netmask, e2);
+            g = lt::make_address(r.gateway, e3);
+            r.ok = !e1 && !e2 && !e3;
+            if (!r.ok) why = "unparsable NetCtl addresses";
+        }
+        switch (network.update(r)) {
+            case NetworkWatch::Action::None: break;
+            case NetworkWatch::Action::Failed: log(why); break;
+            case NetworkWatch::Action::Changed:
+                lt::ps4_set_network(a, m, g);
+                if (session) {
+                    session->reopen_network_sockets();
+                    log("network changed: " + r.ip);
+                }
+                break;
+        }
+    }
+#endif
+
     void startSession() {
 #ifdef __PS4__
-        setPs4Network(settings.log);
+        followPs4Network();
 #endif
         lt::settings_pack sp;
         sp.set_str(lt::settings_pack::listen_interfaces, "0.0.0.0:6881");
@@ -311,6 +339,7 @@ struct TorrentEngine::Impl {
         sp.set_bool(lt::settings_pack::announce_to_all_tiers, true);
         sp.set_bool(lt::settings_pack::announce_to_all_trackers, true);
         lt::session_params params(std::move(sp));
+        loadState(params);
         // The server relies on this: once waitFor() returns Ok, pread() of the file sees
         // the verified bytes. The POSIX backend writes each block to the file before
         // completing it and hashes a piece by reading it back from the file, so a piece
@@ -320,7 +349,66 @@ struct TorrentEngine::Impl {
         session = std::make_unique<lt::session>(std::move(params));
         idleSince = Clock::now();
         nextStats = Clock::now() + std::chrono::seconds(30);
+        nextStateSave = Clock::now() + std::chrono::minutes(2);  // once the DHT has nodes
+#ifdef __PS4__
+        nextNetworkCheck = Clock::now() + std::chrono::seconds(30);
+#endif
         log("session started");
+    }
+
+    // The DHT nodes the last session knew: a new session asks them first instead of
+    // bootstrapping from nothing (the console's first torrent waited 28 s for its peers). No
+    // file is a first run; a damaged one is logged and ignored, and the next save (once the DHT
+    // has nodes) replaces it.
+    void loadState(lt::session_params& params) {
+        if (settings.stateFile.empty()) return;
+        std::FILE* f = std::fopen(settings.stateFile.c_str(), "rb");
+        if (!f) return;
+        std::vector<char> buf;
+        char chunk[4096];
+        size_t n;
+        while (buf.size() < (size_t(4) << 20) && (n = std::fread(chunk, 1, sizeof chunk, f)) > 0)
+            buf.insert(buf.end(), chunk, chunk + n);
+        std::fclose(f);
+        try {
+            lt::span<char const> bytes(buf.data(), std::ptrdiff_t(buf.size()));
+            lt::session_params saved = lt::read_session_params(bytes, lt::session::save_dht_state);
+            params.dht_state = std::move(saved.dht_state);
+            log("loaded the DHT state: " +
+                std::to_string(params.dht_state.nodes.size() + params.dht_state.nodes6.size()) + " nodes");
+        } catch (const std::exception& e) {
+            log(std::string("DHT state unreadable, starting without it: ") + e.what());
+        }
+    }
+
+    // Writes the DHT state for the next session: a temp file renamed over the old one, so a
+    // crash mid-write leaves the last good copy. A DHT that knows no node yet (a session that
+    // closes before it bootstraps) leaves the file as it is. Never throws.
+    void saveState(lt::session& s) {
+        if (settings.stateFile.empty()) return;
+        guarded("saving the DHT state", [&] {
+            const lt::session_params p = s.session_state(lt::session::save_dht_state);
+            if (p.dht_state.nodes.empty() && p.dht_state.nodes6.empty()) {
+                log("DHT state not saved: no nodes");
+                return;
+            }
+            const std::vector<char> buf = lt::write_session_params_buf(p, lt::session::save_dht_state);
+            const std::string tmp = settings.stateFile + ".part";
+            std::FILE* f = std::fopen(tmp.c_str(), "wb");
+            if (!f) {
+                log("saving the DHT state: cannot write " + tmp);
+                return;
+            }
+            const bool written = std::fwrite(buf.data(), 1, buf.size(), f) == buf.size();
+            const bool closed = std::fclose(f) == 0;
+            if (!written || !closed || std::rename(tmp.c_str(), settings.stateFile.c_str()) != 0) {
+                std::remove(tmp.c_str());
+                log("saving the DHT state: write failed");
+                return;
+            }
+            log("saved the DHT state: " + std::to_string(p.dht_state.nodes.size() + p.dht_state.nodes6.size()) +
+                " nodes");
+        });
     }
 
     Torrent* find(const std::string& hash) {
@@ -561,7 +649,7 @@ struct TorrentEngine::Impl {
             for (const auto& dir : due) removeFolder(dir);
             lock.lock();
         }
-        if (!torrents.empty() || !session) {
+        if (!torrents.empty() || !session || keepOpen) {
             idleSince = now;
             return;
         }
@@ -569,7 +657,9 @@ struct TorrentEngine::Impl {
             std::unique_ptr<lt::session> s = std::move(session);
             log("idle, closing the session");
             closing = true;
+            nextStateSave = Clock::time_point::max();
             lock.unlock();
+            saveState(*s);
             s.reset();
             lock.lock();
             closing = false;
@@ -617,6 +707,19 @@ struct TorrentEngine::Impl {
         for (lt::alert* a : alerts) guarded("engine", [&] { handle(a); });
         if (!alerts.empty()) changed.notify_all();
         logStats();
+#ifdef __PS4__
+        if (Clock::now() >= nextNetworkCheck) {
+            nextNetworkCheck = Clock::now() + std::chrono::seconds(30);
+            followPs4Network();
+        }
+#endif
+        if (Clock::now() >= nextStateSave) {
+            // a PS-button close never reaches the destructor: keep a recent copy on disk
+            nextStateSave = Clock::now() + std::chrono::minutes(15);
+            lock.unlock();
+            saveState(*s);
+            lock.lock();
+        }
         expire(lock);
     }
 
@@ -859,6 +962,20 @@ void TorrentEngine::setUploadLimit(int bytesPerSec) {
             sp.set_int(lt::settings_pack::upload_rate_limit, bytesPerSec);
             impl->session->apply_settings(std::move(sp));
         }
+    });
+}
+
+void TorrentEngine::keepSessionOpen(bool on) {
+    // log what fails, never throw
+    impl->guarded("keepSessionOpen", [&] {
+        std::unique_lock<std::mutex> lock(impl->mutex);
+        if (impl->quit || impl->keepOpen == on) return;
+        impl->keepOpen = on;
+        impl->log(on ? "keeping the session open" : "the session closes when idle");
+        if (!on) return;
+        // a session closing for idleness still holds the port: let it go first
+        impl->changed.wait(lock, [this] { return !impl->closing || impl->quit; });
+        if (!impl->quit && !impl->session) impl->startSession();
     });
 }
 

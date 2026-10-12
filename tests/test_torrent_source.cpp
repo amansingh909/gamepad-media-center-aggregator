@@ -1,6 +1,7 @@
 // Standalone logic test: Stremio torrent streams as source rows (the local server's URL for a
 // stream and back, trackers, the download's extension, seeders). The row order is
-// tests/test_source_order.cpp's.
+// tests/test_source_order.cpp's. Also how the engine finds peers: its default trackers, and
+// how it follows the PS4's network (network_watch.hpp).
 //
 //   c++ -std=gnu++17 -Wall -Iapp/include tests/test_torrent_source.cpp -o /tmp/t && /tmp/t
 //   in Docker, from the repo root: docker run --rm --user "$(id -u):$(id -g)" -v "$PWD:/src" -w /src
@@ -9,6 +10,7 @@
 #include <cstdio>
 #include <string>
 #include <vector>
+#include <torrent/network_watch.hpp>
 #include <torrent/stremio_source.hpp>
 #include <torrent/torrent_engine.hpp>
 
@@ -118,6 +120,50 @@ int main() {
     // and never retries a body the server ended (each retry of a stalled torrent waited the
     // stall timeout again): mpv's options for a local stream URL
     CHECK(playerOptions() == "network-timeout=120,stream-lavf-o=reconnect=0");
+
+    // the default trackers: 15, no duplicates, UDP or plain HTTP (the PS4 build has no TLS)
+    {
+        const std::vector<std::string> d = EngineSettings{}.defaultTrackers;
+        CHECK(d.size() == 15);
+        for (size_t i = 0; i < d.size(); ++i) {
+            CHECK(d[i].compare(0, 6, "udp://") == 0 || d[i].compare(0, 7, "http://") == 0);
+            for (size_t j = i + 1; j < d.size(); ++j) CHECK(d[i] != d[j]);
+        }
+    }
+
+    // the PS4's network as the engine follows it: a new reading goes to libtorrent (and reopens
+    // the session's sockets) when it differs, or when the network is back after a failure; a
+    // failure is logged once while it lasts
+    {
+        using Action = NetworkWatch::Action;
+        const NetworkReading home{true, "192.168.1.88", "255.255.255.0", "192.168.1.1"};
+        const NetworkReading failed{};
+        NetworkWatch w;
+        CHECK(w.update(home) == Action::Changed);  // the first reading
+        CHECK(w.update(home) == Action::None);
+        NetworkReading lease = home;
+        lease.ip = "192.168.1.90";
+        CHECK(w.update(lease) == Action::Changed);
+        CHECK(w.update(lease) == Action::None);
+        NetworkReading mask = lease;
+        mask.netmask = "255.255.0.0";
+        CHECK(w.update(mask) == Action::Changed);
+        NetworkReading gateway = mask;
+        gateway.gateway = "192.168.1.254";
+        CHECK(w.update(gateway) == Action::Changed);
+        CHECK(w.update(failed) == Action::Failed);
+        CHECK(w.update(failed) == Action::None);
+        CHECK(w.update(failed) == Action::None);
+        CHECK(w.update(gateway) == Action::Changed);  // the same addresses, back after a failure
+        CHECK(w.update(gateway) == Action::None);
+        CHECK(w.update(failed) == Action::Failed);  // a new failure is logged again
+        // no network when the app starts, then a cable
+        NetworkWatch late;
+        CHECK(late.update(failed) == Action::Failed);
+        CHECK(late.update(failed) == Action::None);
+        CHECK(late.update(home) == Action::Changed);
+        CHECK(late.update(home) == Action::None);
+    }
 
     if (failures == 0) printf("test_torrent_source: all passed\n");
     return failures ? 1 : 0;

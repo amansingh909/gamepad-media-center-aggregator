@@ -106,6 +106,8 @@ static std::unique_ptr<torrent::TorrentService> startTorrents(AppConfig& conf) {
     if (!torrentLog) brls::Logger::warning("torrent: cannot write {}/torrent.log", conf.configDir());
     torrent::ServiceSettings settings;
     settings.tempDir = conf.configDir() + "/torrents";
+    // next to torrent.log, not in the torrents folder the sweep empties
+    settings.stateFile = conf.configDir() + "/torrent-dht.dat";
 #ifdef TORRENT_DEBUG_LAN
     settings.lan = true;  // testing builds: tests/torrent/integration.sh --remote drives the console
 #endif

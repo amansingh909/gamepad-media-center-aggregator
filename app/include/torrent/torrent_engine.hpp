@@ -48,16 +48,33 @@ struct EngineSettings {
     int uploadLimit = 1 << 20;  // bytes per second, only while torrents are open
     int graceSecs = 30;         // keep a torrent this long after its last reader
     int stallSecs = 60;         // no metadata, or no new data, for this long: NoPeers
-    int idleSecs = 300;         // close the session after this long with no torrents
+    int idleSecs = 300;         // close the session after this long with no torrents, unless kept open
     /// Called from the engine's thread and its callers' threads, at the same time, and with
     /// the engine's lock held: it must not block on another thread or call into the engine.
     std::function<void(const std::string&)> log;
-    /// Added to every torrent: Stremio addons often send a bare info hash, and the DHT alone
-    /// found no peer in 90 s for a seeded torrent that these trackers served at once.
+    /// Where the session's DHT state is kept between runs (absolute; "" keeps none). Outside
+    /// tempDir: the sweep empties that folder.
+    std::string stateFile;
+    /// Added to every torrent: Stremio addons often send a bare info hash (Torrentio sends no
+    /// trackers at all), and the DHT alone found no peer in 90 s for a seeded torrent that a
+    /// few trackers served at once. Well-known public trackers, UDP or plain HTTP only (the
+    /// PS4 build has no TLS); one that is down just doesn't answer.
     std::vector<std::string> defaultTrackers = {
         "udp://tracker.opentrackr.org:1337/announce",
         "udp://open.stealth.si:80/announce",
         "udp://explodie.org:6969/announce",
+        "udp://tracker.torrent.eu.org:451/announce",
+        "udp://open.demonii.com:1337/announce",
+        "udp://exodus.desync.com:6969/announce",
+        "udp://tracker.tiny-vps.com:6969/announce",
+        "udp://tracker.dler.org:6969/announce",
+        "udp://opentracker.io:6969/announce",
+        "udp://tracker.theoks.net:6969/announce",
+        "udp://tracker-udp.gbitt.info:80/announce",
+        "udp://tracker.qu.ax:6969/announce",
+        "udp://tracker.filemail.com:6969/announce",
+        "http://tracker.opentrackr.org:1337/announce",
+        "http://tracker.bt4g.com:2095/announce",
     };
 };
 
@@ -108,6 +125,11 @@ public:
     /// before waitFor() returns). -1 when the reader is gone or the engine has stopped.
     int64_t bytesReady(const StreamRequest& req, ReaderId reader, int64_t begin, int64_t end);
     void setUploadLimit(int bytesPerSec);
+
+    /// On: the session starts now if it hasn't, and stays open with no torrents, so the DHT is
+    /// warm for the next one. Off: it closes after idleSecs with no torrents, as before. Blocks
+    /// while a session starts: the app calls it from TorrentService's worker.
+    void keepSessionOpen(bool on);
 
     /// Wakes every waiter with Stopped and refuses new work, for good. Call before
     /// tearing down anything that still calls into the engine.

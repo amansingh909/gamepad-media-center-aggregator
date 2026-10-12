@@ -28,6 +28,7 @@ EngineSettings engineSettings(const ServiceSettings& s) {
     EngineSettings e;
     e.tempDir = s.tempDir;
     e.uploadLimit = s.uploadLimit;
+    e.stateFile = s.stateFile;
     e.log = s.log;
     return e;
 }
@@ -82,6 +83,7 @@ struct TorrentService::Impl {
     std::condition_variable wake;
     std::deque<StreamRequest> prefetches;
     int uploadLimit = -1;  // a limit to apply, -1 for none
+    int keepOpen = -1;     // keep the engine's session open (1) or let it idle (0), -1 for no change
     std::string watched;
     Stats latest;
     bool quit = false;
@@ -111,15 +113,19 @@ struct TorrentService::Impl {
         std::unique_lock<std::mutex> lock(mutex);
         while (!quit) {
             wake.wait_for(lock, std::chrono::milliseconds(500),
-                          [this] { return quit || !prefetches.empty() || uploadLimit >= 0; });
+                          [this] { return quit || !prefetches.empty() || uploadLimit >= 0 || keepOpen >= 0; });
             if (quit) break;
             std::deque<StreamRequest> todo;
             todo.swap(prefetches);
             const int limit = uploadLimit;
             uploadLimit = -1;
+            const int keep = keepOpen;
+            keepOpen = -1;
             const std::string hash = watched;
             lock.unlock();
-            // these log their own failures and never throw
+            // these log their own failures and never throw; a session starting takes a moment,
+            // which is why it starts here and not on the caller's thread
+            if (keep >= 0) engine.keepSessionOpen(keep == 1);
             if (limit >= 0) {
                 engine.setUploadLimit(limit);
                 log("upload limit " + std::to_string(limit / 1024) + " KB/s");
@@ -239,6 +245,13 @@ bool TorrentService::start() {
         return false;
     }
     impl->started = true;
+    // the engine's session starts now, on the worker, and stays open while streaming is on:
+    // the DHT is warm when the first torrent comes
+    {
+        std::lock_guard<std::mutex> lock(impl->mutex);
+        impl->keepOpen = impl->enabled ? 1 : 0;
+    }
+    impl->wake.notify_one();
     return true;
 }
 
@@ -277,6 +290,12 @@ void TorrentService::setEnabled(bool on) {
     impl->enabled = on;
     impl->server.setEnabled(on);
     impl->log(on ? "streaming on" : "streaming off");
+    if (!impl->started) return;
+    {
+        std::lock_guard<std::mutex> lock(impl->mutex);
+        impl->keepOpen = on ? 1 : 0;
+    }
+    impl->wake.notify_one();
 }
 
 void TorrentService::setUploadLimit(int bytesPerSec) {

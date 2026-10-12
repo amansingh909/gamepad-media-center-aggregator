@@ -1,6 +1,7 @@
 // Laptop checks for what the app needs from the torrent engine, the server and
 // TorrentService. Offline checks use dead info hashes and need no torrent data;
-// --online also buffers the start of Sintel (Blender Foundation, CC BY). Build and run, from
+// --online also saves the DHT state (once the DHT has found nodes) and buffers the start of
+// Sintel (Blender Foundation, CC BY). Build and run, from
 // the repo root, in the harness image (tests/torrent/Dockerfile):
 //   docker run --rm --user "$(id -u):$(id -g)" -v "$PWD:/src" -w /src gmca-torrent-harness
 //     bash -c 'cmake -S tests/torrent -B build-torrent && cmake --build build-torrent -j$(nproc)'
@@ -56,6 +57,37 @@ static bool logged(const std::string& text) {
     for (const auto& l : logLines)
         if (l.find(text) != std::string::npos) return true;
     return false;
+}
+static int countLogged(const std::string& text) {
+    std::lock_guard<std::mutex> lock(logMutex);
+    int n = 0;
+    for (const auto& l : logLines)
+        if (l.find(text) != std::string::npos) ++n;
+    return n;
+}
+static long fileSize(const std::string& path) {
+    std::FILE* f = std::fopen(path.c_str(), "rb");
+    if (!f) return -1;
+    std::fseek(f, 0, SEEK_END);
+    const long n = std::ftell(f);
+    std::fclose(f);
+    return n;
+}
+static std::string readFile(const std::string& path) {
+    std::string out;
+    std::FILE* f = std::fopen(path.c_str(), "rb");
+    if (!f) return out;
+    char buf[4096];
+    size_t n;
+    while ((n = std::fread(buf, 1, sizeof buf, f)) > 0) out.append(buf, n);
+    std::fclose(f);
+    return out;
+}
+static void writeFile(const std::string& path, const std::string& bytes) {
+    std::FILE* f = std::fopen(path.c_str(), "wb");
+    if (!f) return;
+    std::fwrite(bytes.data(), 1, bytes.size(), f);
+    std::fclose(f);
 }
 
 // One HTTP/1.1 request to 127.0.0.1:port; the whole response, "" if it can't connect.
@@ -172,6 +204,69 @@ static void engineChecks() {
     }
 }
 
+// A DHT state file as libtorrent writes it, listing these IPv4 nodes.
+static std::string dhtState(const std::vector<std::string>& nodes) {
+    auto bytes = [](const std::string& s) { return std::to_string(s.size()) + ":" + s; };
+    std::string list;
+    for (const auto& n : nodes) list += bytes(n);
+    return "d" + bytes("dht state") + "d" + bytes("nodes") + "l" + list + "eee";
+}
+// One node as the file lists it: the address's 4 bytes, then the port's 2.
+static std::string node4(int a, int b, int c, int d, int port) {
+    return std::string{char(a), char(b), char(c), char(d), char(port >> 8), char(port & 0xff)};
+}
+
+// An engine whose session starts with `s` and closes at once, before its DHT knows any node.
+static void briefSession(const torrent::EngineSettings& s) {
+    torrent::TorrentEngine engine(s);
+    engine.keepSessionOpen(true);
+}
+
+// The DHT state is loaded when a session starts, a damaged file is ignored, and a DHT that
+// knows no node yet (a session that closes right after it starts, as here) never replaces the
+// file: the last good copy stays. Saving needs a DHT that has found nodes, on the internet:
+// dhtOnlineChecks(). A session kept open doesn't close for idleness.
+static void stateChecks() {
+    std::printf("dht state\n");
+    const std::string file = "/tmp/app-checks/torrent-dht.dat";
+    std::remove(file.c_str());
+    torrent::EngineSettings s = engineSettings("/tmp/app-checks/state");
+    s.stateFile = file;
+    const std::string notSaved = "DHT state not saved: no nodes";
+    const int sessions = countLogged("session started");
+    const int skipped = countLogged(notSaved);
+
+    // a first run: no file, and none made from an empty DHT
+    briefSession(s);
+    CHECK(countLogged("session started") == sessions + 1 && countLogged(notSaved) == skipped + 1);
+    CHECK(fileSize(file) == -1 && !logged("loaded the DHT state"));
+
+    // a good file (two documentation addresses, nobody answers): loaded, and kept as it is
+    const std::string good = dhtState({node4(192, 0, 2, 1, 6881), node4(192, 0, 2, 2, 6881)});
+    writeFile(file, good);
+    briefSession(s);
+    CHECK(logged("loaded the DHT state: 2 nodes") && countLogged(notSaved) == skipped + 2);
+    CHECK(readFile(file) == good);
+
+    // a damaged file: the session starts without it; only a DHT with nodes replaces it
+    const std::string damaged = "this is not a DHT state";
+    writeFile(file, damaged);
+    briefSession(s);
+    CHECK(logged("DHT state unreadable") && countLogged("session started") == sessions + 3);
+    CHECK(countLogged(notSaved) == skipped + 3 && readFile(file) == damaged);
+
+    torrent::EngineSettings idle = engineSettings("/tmp/app-checks/state");
+    idle.idleSecs = 1;
+    torrent::TorrentEngine engine(idle);
+    const int closes = countLogged("idle, closing the session");
+    engine.keepSessionOpen(true);
+    std::this_thread::sleep_for(std::chrono::milliseconds(2500));
+    CHECK(countLogged("idle, closing the session") == closes);
+    engine.keepSessionOpen(false);
+    std::this_thread::sleep_for(std::chrono::milliseconds(2500));
+    CHECK(countLogged("idle, closing the session") == closes + 1);
+}
+
 // What a warm-up's `done` was called with.
 struct Calls {
     std::mutex m;
@@ -223,14 +318,23 @@ static void serviceChecks() {
 
     torrent::TorrentService service(serviceSettings("/tmp/app-checks/service", 11483));
     CHECK(service.availability() == torrent::Availability::NotStarted);
+    const int kept = countLogged("keeping the session open");
+    const int idling = countLogged("the session closes when idle");
     CHECK(service.start());
     CHECK(service.availability() == torrent::Availability::Ready);
+    // the session starts with the service, on its worker, and stays open while streaming is on
+    std::this_thread::sleep_for(std::chrono::milliseconds(1500));
+    CHECK(countLogged("keeping the session open") == kept + 1);
 
     // the Settings switch: off refuses streams and prefetches, on serves again
     service.setEnabled(false);
     CHECK(service.availability() == torrent::Availability::Off);
     CHECK(startsWith(httpRequest(11483, "GET", "/" + dead(6) + "/0"), "HTTP/1.1 503"));
     service.prefetch(request(dead(6)));
+    // the worker lets the session idle before the switch goes on again (it would take only the
+    // last of two quick changes)
+    for (int i = 0; i < 40 && countLogged("the session closes when idle") == idling; ++i)
+        std::this_thread::sleep_for(std::chrono::milliseconds(50));
     service.setEnabled(true);
     CHECK(service.availability() == torrent::Availability::Ready);
 
@@ -241,6 +345,9 @@ static void serviceChecks() {
     service.watch(dead(7));
     std::this_thread::sleep_for(std::chrono::milliseconds(1500));
     CHECK(service.snapshot().known);
+    // the switch went off and on meanwhile: the session may idle, then is kept open again
+    CHECK(countLogged("the session closes when idle") == idling + 1);
+    CHECK(countLogged("keeping the session open") == kept + 2);
     service.watch(dead(6));
     std::this_thread::sleep_for(std::chrono::milliseconds(1500));
     CHECK(!service.snapshot().known);  // the prefetch made while off never reached the engine
@@ -290,6 +397,54 @@ static void serviceChecks() {
     service.warmUp(request(dead(10)), torrent::startBufferBytes, late.recorder());
     CHECK(late.count() == 1 && late.last() == torrent::Status::Stopped);
     service.stop();
+}
+
+// Saving the DHT state needs a DHT that has found nodes: a few seconds on the internet. Saved
+// when an idle session closes (replacing a damaged file) and when the engine goes, loaded by the
+// next session, never with no nodes; an unwritable file is only logged.
+static void dhtOnlineChecks() {
+    std::printf("dht state online\n");
+    const std::string file = "/tmp/app-checks/torrent-dht-online.dat";
+    const std::string damaged = "this is not a DHT state";
+    writeFile(file, damaged);
+    torrent::EngineSettings s = engineSettings("/tmp/app-checks/state-online");
+    s.stateFile = file;
+    const std::string saved = "saved the DHT state: ";
+    const int saves = countLogged(saved);
+    const int closes = countLogged("idle, closing the session");
+    {
+        torrent::EngineSettings idle = s;
+        idle.idleSecs = 1;
+        torrent::TorrentEngine engine(idle);
+        engine.keepSessionOpen(true);
+        std::this_thread::sleep_for(std::chrono::seconds(4));  // the DHT finds nodes
+        engine.keepSessionOpen(false);
+        std::this_thread::sleep_for(std::chrono::milliseconds(2500));
+        // saved as the idle session closed, before the engine goes
+        CHECK(countLogged("idle, closing the session") == closes + 1 && countLogged(saved) == saves + 1);
+    }
+    CHECK(countLogged(saved) == saves + 1);  // no session left to save
+    CHECK(fileSize(file) > 0 && readFile(file) != damaged && !logged(saved + "0 nodes"));
+
+    // the next session starts from those nodes, and saves again when the engine goes
+    const int loads = countLogged("loaded the DHT state: ");
+    {
+        torrent::TorrentEngine engine(s);
+        engine.keepSessionOpen(true);
+        std::this_thread::sleep_for(std::chrono::seconds(4));
+    }
+    CHECK(countLogged("loaded the DHT state: ") == loads + 1 && !logged("loaded the DHT state: 0 nodes"));
+    CHECK(countLogged(saved) == saves + 2 && !logged(saved + "0 nodes"));
+
+    // a folder that doesn't exist: the save fails, it is logged, nothing else happens
+    {
+        torrent::EngineSettings u = s;
+        u.stateFile = "/nonexistent-dir/torrent-dht.dat";
+        torrent::TorrentEngine engine(u);
+        engine.keepSessionOpen(true);
+        std::this_thread::sleep_for(std::chrono::seconds(4));
+    }
+    CHECK(logged("saving the DHT state: cannot write /nonexistent-dir/torrent-dht.dat.part"));
 }
 
 // Sintel (Blender Foundation, CC BY), WebTorrent's sample torrent: file 5 is Sintel.mp4,
@@ -382,7 +537,9 @@ int main(int argc, char** argv) {
     std::signal(SIGPIPE, SIG_IGN);
     serverChecks();
     engineChecks();
+    stateChecks();
     serviceChecks();
+    if (online) dhtOnlineChecks();
     if (online) onlineChecks();
     if (online && !fullDisk.empty()) fullDiskChecks(fullDisk);
     if (failures == 0) std::printf("app_checks: all passed\n");

@@ -40,6 +40,7 @@ struct ServiceSettings {
     bool lan = false;           // listen on every interface (testing builds only)
     bool enabled = true;        // the Settings switch
     int uploadLimit = 1 << 20;  // bytes per second, while someone reads
+    std::string stateFile;      // absolute; the engine's DHT state between runs ({config}/torrent-dht.dat)
     /// Called from several threads at once, sometimes with the engine's lock held: it must
     /// not block on another thread or call into the service or the engine.
     std::function<void(const std::string&)> log;
@@ -84,8 +85,9 @@ public:
     TorrentService(const TorrentService&) = delete;
     TorrentService& operator=(const TorrentService&) = delete;
 
-    /// Starts the server. False if it couldn't listen: torrent rows then stay grey, and
-    /// startError() says why. Call once, from the thread that calls stop().
+    /// Starts the server, and on the worker the engine's session, which stays open while
+    /// streaming is on (setEnabled()). False if it couldn't listen: torrent rows then stay
+    /// grey, and startError() says why. Call once, from the thread that calls stop().
     bool start();
     std::string startError() const;
 
