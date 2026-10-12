@@ -494,7 +494,8 @@
     "setting": {
       "header": "種子",
       "streaming": "種子串流",
-      "upload_limit": "上傳速度上限"
+      "upload_limit": "上傳速度上限",
+      "incoming": "允許傳入連線 (UPnP)"
     },
     "loading": {
       "finding_peers": "正在尋找節點",
@@ -513,5 +514,28 @@
       "off": "種子串流已關閉，可在設定中開啟。",
       "start": "種子串流無法啟動：連接埠 11470 已被佔用。"
     }
+  },
+  "sources": {
+    "finding": "正在尋找影片來源...",
+    "none_found": "找不到影片來源",
+    "ps4_note": "可能無法在 PS4 上播放",
+    "show_all": "顯示全部",
+    "may_buffer": "可能會緩衝"
+  },
+  "audio_lang": {
+    "header": "音訊語言",
+    "auto": "自動（應用程式語言）"
+  },
+  "resume": {
+    "min_left": "剩餘 {} 分鐘",
+    "hours_left": "剩餘 {} 小時 {} 分鐘",
+    "just_now": "剛剛",
+    "min_ago": "{} 分鐘前",
+    "hours_ago": "{} 小時前",
+    "yesterday": "昨天",
+    "days_ago": "{} 天前",
+    "up_next": "接下來播放",
+    "start_over": "從頭播放",
+    "remove": "從清單中移除"
   }
 }

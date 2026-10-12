@@ -494,7 +494,8 @@
     "setting": {
       "header": "Torrentler",
       "streaming": "Torrent akışı",
-      "upload_limit": "Yükleme sınırı"
+      "upload_limit": "Yükleme sınırı",
+      "incoming": "Gelen bağlantılara izin ver (UPnP)"
     },
     "loading": {
       "finding_peers": "Eşler aranıyor",
@@ -513,5 +514,28 @@
       "off": "Torrent akışı kapalı. Ayarlar'dan açabilirsiniz.",
       "start": "Torrent akışı başlatılamadı: 11470 numaralı port kullanımda."
     }
+  },
+  "sources": {
+    "finding": "Yayınlar aranıyor...",
+    "none_found": "Yayın bulunamadı",
+    "ps4_note": "PS4'te oynatılamayabilir",
+    "show_all": "Tümünü göster",
+    "may_buffer": "Takılabilir"
+  },
+  "audio_lang": {
+    "header": "Ses dili",
+    "auto": "Otomatik (uygulama dili)"
+  },
+  "resume": {
+    "min_left": "{} dk kaldı",
+    "hours_left": "{} sa {} dk kaldı",
+    "just_now": "Az önce",
+    "min_ago": "{} dk önce",
+    "hours_ago": "{} sa önce",
+    "yesterday": "Dün",
+    "days_ago": "{} gün önce",
+    "up_next": "Sıradaki",
+    "start_over": "Baştan başlat",
+    "remove": "Listeden kaldır"
   }
 }

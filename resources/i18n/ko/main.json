@@ -494,7 +494,8 @@
     "setting": {
       "header": "토렌트",
       "streaming": "토렌트 스트리밍",
-      "upload_limit": "업로드 제한"
+      "upload_limit": "업로드 제한",
+      "incoming": "외부 연결 허용 (UPnP)"
     },
     "loading": {
       "finding_peers": "피어 찾는 중",
@@ -513,5 +514,28 @@
       "off": "토렌트 스트리밍이 꺼져 있습니다. 설정에서 켜세요.",
       "start": "토렌트 스트리밍을 시작할 수 없습니다: 포트 11470이 사용 중입니다."
     }
+  },
+  "sources": {
+    "finding": "스트림 찾는 중...",
+    "none_found": "스트림을 찾을 수 없음",
+    "ps4_note": "PS4에서 재생되지 않을 수 있음",
+    "show_all": "모두 보기",
+    "may_buffer": "버퍼링될 수 있음"
+  },
+  "audio_lang": {
+    "header": "오디오 언어",
+    "auto": "자동 (앱 언어)"
+  },
+  "resume": {
+    "min_left": "{}분 남음",
+    "hours_left": "{}시간 {}분 남음",
+    "just_now": "방금",
+    "min_ago": "{}분 전",
+    "hours_ago": "{}시간 전",
+    "yesterday": "어제",
+    "days_ago": "{}일 전",
+    "up_next": "다음 재생",
+    "start_over": "처음부터 재생",
+    "remove": "목록에서 제거"
   }
 }

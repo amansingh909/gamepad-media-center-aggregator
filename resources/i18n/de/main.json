@@ -494,7 +494,8 @@
     "setting": {
       "header": "Torrents",
       "streaming": "Torrent-Streaming",
-      "upload_limit": "Upload-Limit"
+      "upload_limit": "Upload-Limit",
+      "incoming": "Eingehende Verbindungen erlauben (UPnP)"
     },
     "loading": {
       "finding_peers": "Suche nach Peers",
@@ -513,5 +514,28 @@
       "off": "Torrent-Streaming ist aus. Schalte es in den Einstellungen ein.",
       "start": "Torrent-Streaming konnte nicht starten: Port 11470 ist belegt."
     }
+  },
+  "sources": {
+    "finding": "Streams werden gesucht...",
+    "none_found": "Keine Streams gefunden",
+    "ps4_note": "Läuft auf der PS4 eventuell nicht",
+    "show_all": "Alle anzeigen",
+    "may_buffer": "Kann ins Stocken geraten"
+  },
+  "audio_lang": {
+    "header": "Audiosprache",
+    "auto": "Automatisch (App-Sprache)"
+  },
+  "resume": {
+    "min_left": "Noch {} Min.",
+    "hours_left": "Noch {} Std. {} Min.",
+    "just_now": "Gerade eben",
+    "min_ago": "Vor {} Min.",
+    "hours_ago": "Vor {} Std.",
+    "yesterday": "Gestern",
+    "days_ago": "Vor {} Tagen",
+    "up_next": "Als Nächstes",
+    "start_over": "Von vorne beginnen",
+    "remove": "Aus der Liste entfernen"
   }
 }

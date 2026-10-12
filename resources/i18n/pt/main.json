@@ -494,7 +494,8 @@
     "setting": {
       "header": "Torrents",
       "streaming": "Streaming de torrents",
-      "upload_limit": "Limite de envio"
+      "upload_limit": "Limite de envio",
+      "incoming": "Permitir conexões de entrada (UPnP)"
     },
     "loading": {
       "finding_peers": "A procurar pares",
@@ -513,5 +514,28 @@
       "off": "O streaming de torrents está desligado. Ligue-o nas Definições.",
       "start": "Não foi possível iniciar o streaming de torrents: a porta 11470 está em uso."
     }
+  },
+  "sources": {
+    "finding": "Procurando streams...",
+    "none_found": "Nenhum stream encontrado",
+    "ps4_note": "Pode não reproduzir no PS4",
+    "show_all": "Mostrar tudo",
+    "may_buffer": "Pode travar para carregar"
+  },
+  "audio_lang": {
+    "header": "Idioma do áudio",
+    "auto": "Automático (idioma do app)"
+  },
+  "resume": {
+    "min_left": "Faltam {} min",
+    "hours_left": "Faltam {} h {} min",
+    "just_now": "Agora mesmo",
+    "min_ago": "Há {} min",
+    "hours_ago": "Há {} h",
+    "yesterday": "Ontem",
+    "days_ago": "Há {} dias",
+    "up_next": "A seguir",
+    "start_over": "Começar do início",
+    "remove": "Remover da lista"
   }
 }

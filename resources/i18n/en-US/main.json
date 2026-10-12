@@ -493,7 +493,8 @@
     "setting": {
       "header": "Torrents",
       "streaming": "Torrent streaming",
-      "upload_limit": "Upload limit"
+      "upload_limit": "Upload limit",
+      "incoming": "Allow incoming connections (UPnP)"
     },
     "loading": {
       "finding_peers": "Finding peers",
@@ -512,5 +513,28 @@
       "off": "Torrent streaming is off. Turn it on in Settings.",
       "start": "Torrent streaming couldn't start: port 11470 is in use."
     }
+  },
+  "sources": {
+    "finding": "Finding streams...",
+    "none_found": "No streams found",
+    "ps4_note": "May not play on PS4",
+    "show_all": "Show all",
+    "may_buffer": "May buffer"
+  },
+  "audio_lang": {
+    "header": "Audio language",
+    "auto": "Automatic (app language)"
+  },
+  "resume": {
+    "min_left": "{} min left",
+    "hours_left": "{} h {} min left",
+    "just_now": "Just now",
+    "min_ago": "{} min ago",
+    "hours_ago": "{} h ago",
+    "yesterday": "Yesterday",
+    "days_ago": "{} days ago",
+    "up_next": "Up next",
+    "start_over": "Start over",
+    "remove": "Remove from list"
   }
 }

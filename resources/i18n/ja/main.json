@@ -494,7 +494,8 @@
     "setting": {
       "header": "トレント",
       "streaming": "トレントストリーミング",
-      "upload_limit": "アップロード上限"
+      "upload_limit": "アップロード上限",
+      "incoming": "外部からの接続を許可 (UPnP)"
     },
     "loading": {
       "finding_peers": "ピアを検索中",
@@ -513,5 +514,28 @@
       "off": "トレントストリーミングはオフです。設定でオンにしてください。",
       "start": "トレントストリーミングを開始できませんでした: ポート 11470 は使用中です。"
     }
+  },
+  "sources": {
+    "finding": "ストリームを検索中...",
+    "none_found": "ストリームが見つかりません",
+    "ps4_note": "PS4 では再生できない場合があります",
+    "show_all": "すべて表示",
+    "may_buffer": "読み込みで止まる場合あり"
+  },
+  "audio_lang": {
+    "header": "音声の言語",
+    "auto": "自動（アプリの言語）"
+  },
+  "resume": {
+    "min_left": "残り {} 分",
+    "hours_left": "残り {} 時間 {} 分",
+    "just_now": "たった今",
+    "min_ago": "{} 分前",
+    "hours_ago": "{} 時間前",
+    "yesterday": "昨日",
+    "days_ago": "{} 日前",
+    "up_next": "次に再生",
+    "start_over": "最初から再生",
+    "remove": "リストから削除"
   }
 }

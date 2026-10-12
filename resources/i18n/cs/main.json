@@ -494,7 +494,8 @@
     "setting": {
       "header": "Torrenty",
       "streaming": "Streamování torrentů",
-      "upload_limit": "Limit odesílání"
+      "upload_limit": "Limit odesílání",
+      "incoming": "Povolit příchozí připojení (UPnP)"
     },
     "loading": {
       "finding_peers": "Hledání peerů",
@@ -513,5 +514,28 @@
       "off": "Streamování torrentů je vypnuté. Zapněte ho v Nastavení.",
       "start": "Streamování torrentů se nepodařilo spustit: port 11470 je obsazený."
     }
+  },
+  "sources": {
+    "finding": "Hledání streamů...",
+    "none_found": "Nenalezeny žádné streamy",
+    "ps4_note": "Na PS4 se nemusí přehrát",
+    "show_all": "Zobrazit vše",
+    "may_buffer": "Může se sekat"
+  },
+  "audio_lang": {
+    "header": "Jazyk zvuku",
+    "auto": "Automaticky (jazyk aplikace)"
+  },
+  "resume": {
+    "min_left": "Zbývá {} min",
+    "hours_left": "Zbývá {} h {} min",
+    "just_now": "Právě teď",
+    "min_ago": "Před {} min",
+    "hours_ago": "Před {} h",
+    "yesterday": "Včera",
+    "days_ago": "Před {} dny",
+    "up_next": "Další na řadě",
+    "start_over": "Přehrát od začátku",
+    "remove": "Odebrat ze seznamu"
   }
 }

@@ -494,7 +494,8 @@
     "setting": {
       "header": "Torrent",
       "streaming": "Phát trực tuyến torrent",
-      "upload_limit": "Giới hạn tải lên"
+      "upload_limit": "Giới hạn tải lên",
+      "incoming": "Cho phép kết nối đến (UPnP)"
     },
     "loading": {
       "finding_peers": "Đang tìm peer",
@@ -513,5 +514,28 @@
       "off": "Phát trực tuyến torrent đang tắt. Hãy bật trong Cài đặt.",
       "start": "Không thể khởi động phát trực tuyến torrent: cổng 11470 đang được sử dụng."
     }
+  },
+  "sources": {
+    "finding": "Đang tìm luồng...",
+    "none_found": "Không tìm thấy luồng nào",
+    "ps4_note": "Có thể không phát được trên PS4",
+    "show_all": "Hiện tất cả",
+    "may_buffer": "Có thể bị giật"
+  },
+  "audio_lang": {
+    "header": "Ngôn ngữ âm thanh",
+    "auto": "Tự động (ngôn ngữ ứng dụng)"
+  },
+  "resume": {
+    "min_left": "Còn {} phút",
+    "hours_left": "Còn {} giờ {} phút",
+    "just_now": "Vừa xong",
+    "min_ago": "{} phút trước",
+    "hours_ago": "{} giờ trước",
+    "yesterday": "Hôm qua",
+    "days_ago": "{} ngày trước",
+    "up_next": "Tiếp theo",
+    "start_over": "Xem lại từ đầu",
+    "remove": "Xóa khỏi danh sách"
   }
 }

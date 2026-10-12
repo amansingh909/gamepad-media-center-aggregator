@@ -494,7 +494,8 @@
     "setting": {
       "header": "种子",
       "streaming": "种子串流",
-      "upload_limit": "上传限速"
+      "upload_limit": "上传限速",
+      "incoming": "允许传入连接 (UPnP)"
     },
     "loading": {
       "finding_peers": "正在寻找节点",
@@ -513,5 +514,28 @@
       "off": "种子串流已关闭，可在设置中开启。",
       "start": "种子串流无法启动：端口 11470 已被占用。"
     }
+  },
+  "sources": {
+    "finding": "正在查找视频源...",
+    "none_found": "未找到视频源",
+    "ps4_note": "可能无法在 PS4 上播放",
+    "show_all": "显示全部",
+    "may_buffer": "可能会缓冲"
+  },
+  "audio_lang": {
+    "header": "音频语言",
+    "auto": "自动（应用语言）"
+  },
+  "resume": {
+    "min_left": "剩余 {} 分钟",
+    "hours_left": "剩余 {} 小时 {} 分钟",
+    "just_now": "刚刚",
+    "min_ago": "{} 分钟前",
+    "hours_ago": "{} 小时前",
+    "yesterday": "昨天",
+    "days_ago": "{} 天前",
+    "up_next": "接下来播放",
+    "start_over": "从头播放",
+    "remove": "从列表中移除"
   }
 }

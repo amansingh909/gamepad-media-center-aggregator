@@ -493,7 +493,8 @@
     "setting": {
       "header": "Torrents",
       "streaming": "Streaming de torrents",
-      "upload_limit": "Limite d'envoi"
+      "upload_limit": "Limite d'envoi",
+      "incoming": "Autoriser les connexions entrantes (UPnP)"
     },
     "loading": {
       "finding_peers": "Recherche de pairs",
@@ -512,5 +513,28 @@
       "off": "Le streaming de torrents est désactivé. Activez-le dans les Paramètres.",
       "start": "Le streaming de torrents n'a pas pu démarrer : le port 11470 est occupé."
     }
+  },
+  "sources": {
+    "finding": "Recherche des flux...",
+    "none_found": "Aucun flux trouvé",
+    "ps4_note": "Risque de ne pas être lu sur PS4",
+    "show_all": "Tout afficher",
+    "may_buffer": "Risque de coupures"
+  },
+  "audio_lang": {
+    "header": "Langue audio",
+    "auto": "Automatique (langue de l'application)"
+  },
+  "resume": {
+    "min_left": "{} min restantes",
+    "hours_left": "{} h {} min restantes",
+    "just_now": "À l'instant",
+    "min_ago": "Il y a {} min",
+    "hours_ago": "Il y a {} h",
+    "yesterday": "Hier",
+    "days_ago": "Il y a {} jours",
+    "up_next": "À suivre",
+    "start_over": "Reprendre du début",
+    "remove": "Retirer de la liste"
   }
 }
