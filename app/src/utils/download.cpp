@@ -117,7 +117,7 @@ void DownloadManager::addDownload(const std::string& itemId) {
 
     // metadata for the download
     AppConfig::instance().backend().getItemDetail(
-        itemId, false,
+        itemId, true,  // full: Stremio resolves its streams (the sources) only for a full detail
         [this](const media::Item& item) {
 
             std::lock_guard<std::mutex> lock(this->mutex);
@@ -135,9 +135,9 @@ void DownloadManager::addDownload(const std::string& itemId) {
             dl.thumb = item.type == plex::mediaTypeEpisode
                            ? (!item.parentThumb.empty() ? item.parentThumb : item.grandparentThumb)
                            : item.thumb;
-            // first accessible Part: original quality (PLEX_MIGRATION.md D2). The medias after
+            // first Part with a key: original quality (PLEX_MIGRATION.md D2). The medias after
             // the chosen one, in the detail's order, are the fallbacks (3 sources in all).
-            std::vector<std::string> mediaKeys;  // each media's first accessible part key, or ""
+            std::vector<std::string> mediaKeys;  // each media's first non-empty part key, or ""
             for (auto& media : item.media) {
                 std::string key;
                 for (auto& part : media.parts)

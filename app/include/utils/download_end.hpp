@@ -54,7 +54,7 @@ inline std::vector<size_t> fallbackSources(const std::vector<bool>& playable, si
 }
 
 /// The source a download takes from a detail's medias (`mediaKeys[i]`: media i's first
-/// accessible part key, or "" when it has none), and the keys it falls back to.
+/// non-empty part key, or "" when it has none), and the keys it falls back to.
 struct SourcePick {
     std::string first;
     std::vector<std::string> fallbacks;
