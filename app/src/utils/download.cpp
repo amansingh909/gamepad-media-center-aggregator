@@ -13,6 +13,8 @@
 
 #include <optional>
 
+#include "utils/download_path.hpp"
+
 #ifdef __PS4__
 #include <torrent/posix_tree.hpp>
 #endif
@@ -27,7 +29,13 @@ std::string DownloadManager::downloadDir() const { return AppConfig::instance().
 // Deletes a download's folder. On the PS4, std::filesystem::remove_all fails with ENOSYS
 // (OpenOrbis musl's lstat is a stub), so it goes through the POSIX remover the torrent
 // engine uses there.
-static void removeDownloadDir(const std::string& dir) {
+static void removeDownloadDir(const std::string& root, const std::string& itemId) {
+    // never delete anything but one folder directly under the downloads folder
+    if (!isSafeDownloadId(itemId)) {
+        brls::Logger::error("Refusing to remove download dir for unsafe item id '{}'", itemId);
+        return;
+    }
+    const std::string dir = root + "/" + itemId;
 #ifdef __PS4__
     std::string error;
     if (!torrent::removeTree(dir, error)) brls::Logger::error("Failed to remove download dir: {}", error);
@@ -234,8 +242,8 @@ void DownloadManager::removeDownload(const std::string& itemId) {
     }
 
     if (!wasActive) {
-        std::string dir = this->downloadDir() + "/" + itemId;
-        brls::async([dir]() { removeDownloadDir(dir); });
+        std::string root = this->downloadDir();
+        brls::async([root, itemId]() { removeDownloadDir(root, itemId); });
     }
 
     if (erased) {
@@ -588,8 +596,8 @@ void DownloadManager::doDownload(DownloadItem& item) {
                     }
                     this->saveIndex();
                     if (removed) {
-                        std::string dir = this->downloadDir() + "/" + itemId;
-                        brls::async([dir]() { removeDownloadDir(dir); });
+                        std::string root = this->downloadDir();
+                        brls::async([root, itemId]() { removeDownloadDir(root, itemId); });
                     }
                 } else if (success) {
                     finalStatus = DownloadStatus::Completed;
