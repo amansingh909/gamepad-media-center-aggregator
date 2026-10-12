@@ -74,6 +74,12 @@ int main() {
     // the caption's first line
     CHECK_EQ(said(cardStatus(card(movie, saved, 30 * MIN, 94 * MIN))), "main/resume/hours_left 1 4");
     CHECK_EQ(said(cardStatus(card(episode, saved, 10 * MIN, 44 * MIN))), "main/resume/min_left 34");
+    // whole hours in minutes, never "1 h 0 min left"
+    CHECK_EQ(said(cardStatus(card(movie, saved, 34 * MIN, 94 * MIN))), "main/resume/min_left 60");
+    CHECK_EQ(said(cardStatus(card(movie, saved, 30 * MIN + 30000, 90 * MIN))), "main/resume/min_left 60");  // 59.5 up
+    CHECK_EQ(said(cardStatus(card(movie, saved, 0, 120 * MIN))), "main/resume/min_left 120");
+    CHECK_EQ(said(cardStatus(card(movie, saved, 0, 121 * MIN))), "main/resume/hours_left 2 1");
+    CHECK_EQ(said(cardStatus(card(movie, saved, 0, 61 * MIN))), "main/resume/hours_left 1 1");
     CHECK_EQ(said(cardStatus(card(episode, upNext, 0, 44 * MIN))), "main/resume/up_next");
     CHECK_EQ(said(cardStatus(card(episode, upNext, 0, 0))), "main/resume/up_next");
     CHECK_EQ(said(cardStatus(card(episode, saved, 43 * MIN, 44 * MIN))), "main/media/played");  // next not known yet

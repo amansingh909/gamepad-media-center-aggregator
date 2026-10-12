@@ -114,12 +114,13 @@ inline int64_t resumePositionMs(const LibraryState& s, const std::string& episod
     return s.videoId == episodeVideoId ? s.timeOffsetMs : 0;
 }
 
-/// "32 min left" or "1 h 4 min left", rounded up to the minute; key "" when the length isn't known.
+/// "32 min left" or "1 h 4 min left", rounded up to the minute; whole hours in minutes ("60 min
+/// left", never "1 h 0 min left"). Key "" when the length isn't known.
 inline Phrase timeLeft(int64_t offsetMs, int64_t durationMs) {
     if (durationMs <= 0) return {"", 0, 0, 0};
     const int64_t left = std::max<int64_t>(0, durationMs - offsetMs);
     const int64_t minutes = std::max<int64_t>(1, (left + 59999) / 60000);
-    if (minutes < 60) return {"main/resume/min_left", 1, minutes, 0};
+    if (minutes < 60 || minutes % 60 == 0) return {"main/resume/min_left", 1, minutes, 0};
     return {"main/resume/hours_left", 2, minutes / 60, minutes % 60};
 }
 
