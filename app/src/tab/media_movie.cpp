@@ -305,6 +305,9 @@ void MediaMovie::doRequest() {
     const MPVCore& mpv = MPVCore::instance();
     int64_t seconds = stremio::replayPositionMs(int64_t(mpv.playback_time) * 1000, mpv.duration * 1000) / 1000;
     this->viewOffsetMs = seconds * 1000;
+    // the item's own position too: PlayerView takes it when it is given 0 (playSource), and it
+    // still held where the title stood when this page opened
+    this->movieItem.viewOffset = this->viewOffsetMs;
     this->btnPlay->setText(seconds > 0 ? misc::sec2Time(seconds) : "main/media/play"_i18n);
 }
 
