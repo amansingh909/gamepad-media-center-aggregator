@@ -19,14 +19,21 @@ static inline void check_error(int status) {
 #include <ctime>
 // Diag builds only (CMake MPV_DIAG_LOG): mpv's own log in {config}/mpv.log, written like
 // torrent.log, the kind of file a console run is known to leave readable over FTP. Opened once,
-// flushed per line (a crash or a PS-button close keeps what was written), capped so a long
-// session cannot fill the disk, and every line goes through redactLogLine (stream and addon URLs
-// can carry keys; it also cuts a line at 200 bytes).
+// capped so a long session cannot fill the disk, and every line goes through redactLogLine
+// (stream and addon URLs can carry keys; it also cuts a line at 200 bytes). Written on the UI
+// thread, so flushed at most once a second (mpv's verbose level writes dozens of lines a
+// second), at once for a warning, an error or a stats block, and when mpv goes (clean()): a
+// crash or a PS-button close can lose the lines written in the same second as the last flush.
 static std::FILE* mpvDiagFile() {
     static std::FILE* f = std::fopen((AppConfig::instance().configDir() + "/mpv.log").c_str(), "w");
     return f;
 }
-static void mpvDiagLine(const std::string& raw) {
+static std::time_t mpvDiagFlushed = 0;
+static void mpvDiagFlush() {
+    if (std::FILE* f = mpvDiagFile()) std::fflush(f);
+    mpvDiagFlushed = std::time(nullptr);
+}
+static void mpvDiagLine(const std::string& raw, bool urgent = false) {
     constexpr long maxFileBytes = 8L * 1024 * 1024;
     static long written = 0;
     std::FILE* f = mpvDiagFile();
@@ -37,25 +44,28 @@ static void mpvDiagLine(const std::string& raw) {
     char stamp[16];
     std::strftime(stamp, sizeof stamp, "%H:%M:%S", &local);
     std::string line = std::string("[") + stamp + "] " + misc::redactLogLine(raw);
-    if (written + (long)line.size() > maxFileBytes) line = std::string("[") + stamp + "] log full, no more lines";
+    const bool full = written + (long)line.size() > maxFileBytes;
+    if (full) line = std::string("[") + stamp + "] log full, no more lines";
     written += (long)line.size() + 1;
     std::fprintf(f, "%s\n", line.c_str());
-    std::fflush(f);
+    if (urgent || full || now != mpvDiagFlushed) mpvDiagFlush();
 }
 
-// Three lines, each under redactLogLine's 200 bytes
+// Three lines, each under redactLogLine's 200 bytes, flushed together (every 10 s): the
+// investigation reads them, and a close in the same second must not lose the last two
 void MPVCore::diagVideoStats() {
-    auto collect = [this](const std::string& head, std::initializer_list<const char*> props) {
+    auto collect = [this](const std::string& head, std::initializer_list<const char*> props, bool last = false) {
         std::string line = head;
         for (const char* p : props) line += std::string(" ") + p + "=" + this->getString(p);
-        mpvDiagLine(line);
+        mpvDiagLine(line, last);
     };
     const std::string at = "stats at " + std::to_string(this->video_progress) + " s";
     collect(at + ":", {"video-params/pixelformat", "video-params/hw-pixelformat", "video-params/w", "video-params/h",
                           "video-out-params/pixelformat", "hwdec-current", "current-vo"});
     collect(at + " (2):", {"video-codec", "container-fps", "estimated-vf-fps"});
-    collect(at + " (3):", {"decoder-frame-drop-count", "frame-drop-count", "vo-delayed-frame-count", "avsync",
-                              "demuxer-cache-duration"});
+    collect(at + " (3):",
+        {"decoder-frame-drop-count", "frame-drop-count", "vo-delayed-frame-count", "avsync", "demuxer-cache-duration"},
+        true);
 }
 #endif
 
@@ -464,6 +474,9 @@ void MPVCore::init() {
 }
 
 void MPVCore::clean() {
+#ifdef MPV_DIAG_LOG
+    mpvDiagFlush();
+#endif
     check_error(mpv_command_string(this->mpv, "quit"));
     brls::Application::getWindowFocusChangedEvent()->unsubscribe(focusSubscription);
     brls::Application::getWindowSizeChangedEvent()->unsubscribe(sizeSubscription);
@@ -672,7 +685,8 @@ void MPVCore::eventMainLoop() {
             {
                 std::string text = log->text ? log->text : "";
                 while (!text.empty() && text.back() == '\n') text.pop_back();
-                mpvDiagLine(std::string("[") + log->level + "] " + log->prefix + ": " + text);
+                mpvDiagLine(std::string("[") + log->level + "] " + log->prefix + ": " + text,
+                    log->log_level <= MPV_LOG_LEVEL_WARN);
             }
 #endif
             // keep the FIRST lines since the load or the last restart: with a
