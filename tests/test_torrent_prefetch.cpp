@@ -63,6 +63,18 @@ int main() {
         g.focus("h", 1);
         CHECK(g.due(2) == "h");
     }
+    {
+        // a row that just played prefetches again at its next focus, even within 90 s
+        PrefetchGate g;
+        g.focus("i", 0);
+        CHECK(g.due(1) == "i");
+        g.forget("i");
+        g.focus("i", 30);
+        CHECK(g.due(31) == "i");
+        g.forget("never seen");  // harmless
+        g.focus("i", 40);
+        CHECK(g.due(41) == "");  // and the 90 s rule holds again after that
+    }
     if (failures == 0) printf("test_torrent_prefetch: all passed\n");
     return failures ? 1 : 0;
 }

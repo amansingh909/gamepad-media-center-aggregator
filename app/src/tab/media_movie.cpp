@@ -340,6 +340,13 @@ void MediaMovie::doMovie() {
 }
 
 void MediaMovie::playSource(int mediaIndex) {
+#ifdef USE_TORRENT
+    // back on this row after the player closes, it prefetches again, which keeps the torrent
+    // in the engine for a replay instead of dropping it 30 s after the player went
+    if (mediaIndex >= 0 && mediaIndex < (int)this->movieItem.media.size() &&
+        this->movieItem.media[mediaIndex].playable())
+        this->prefetchGate.forget(this->movieItem.media[mediaIndex].parts.front().key);
+#endif
     // mediaIndex -1 = best (first accessible); otherwise the chosen source row.
     PlayerView* view = new PlayerView(this->movieItem, this->viewOffsetMs, mediaIndex);
     view->setTitie(this->movieItem.year ? fmt::format("{} ({})", this->movieItem.title, this->movieItem.year)

@@ -38,6 +38,10 @@ public:
         return key;
     }
 
+    /// The key may be prefetched again at its next focus: it just played, and a prefetch
+    /// then keeps its torrent in the engine for a replay.
+    void forget(const std::string& key) { done.erase(key); }
+
 private:
     double delay, repeat;
     std::string focused;

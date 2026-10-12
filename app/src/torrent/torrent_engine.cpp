@@ -55,6 +55,9 @@ double secondsNow() { return std::chrono::duration<double>(Clock::now().time_sin
 const int prefetchConnections = 20;
 // Prefetched torrents nobody has opened yet: past this many, the oldest goes.
 const size_t maxPrefetched = 3;
+// How long a prefetch keeps a torrent no reader has: a new one, or one still here after its
+// last reader (a replay soon after stopping then starts at once).
+const int prefetchKeepSecs = 120;
 
 // "Not enough storage space" is only for a full disk or quota; any other file error means
 // the source can't be played. (OpenOrbis' errno.h has the FreeBSD values the PS4 returns.)
@@ -769,9 +772,19 @@ void TorrentEngine::prefetch(const StreamRequest& req) {
             impl->log("prefetch failed: " + error);
             return;
         }
-        if (existed) return;
+        const int keepSecs = std::max(prefetchKeepSecs, impl->settings.graceSecs);
+        const auto keepUntil = Clock::now() + std::chrono::seconds(keepSecs);
+        if (existed) {
+            // in its grace period or prefetched before: kept for a prefetch's time from now
+            if (t->readers == 0) {
+                t->removeAt = std::max(t->removeAt, keepUntil);
+                if (t->prefetchOnly) t->addedAt = Clock::now();  // the latest looked at goes last
+                impl->log("prefetch " + req.infoHash + ": kept " + std::to_string(keepSecs) + " s");
+            }
+            return;
+        }
         t->prefetchOnly = true;
-        t->removeAt = Clock::now() + std::chrono::seconds(std::max(120, impl->settings.graceSecs));
+        t->removeAt = keepUntil;
         impl->dropOldPrefetches();
     });
 }

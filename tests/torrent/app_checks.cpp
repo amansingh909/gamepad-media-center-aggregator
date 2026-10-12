@@ -152,6 +152,24 @@ static void engineChecks() {
     CHECK(engine.stats(dead(3)).known && engine.stats(dead(4)).known && engine.stats(dead(5)).known);
     torrent::Stats waiting = engine.stats(dead(5));
     CHECK(!waiting.hasMetadata && waiting.error == torrent::Status::Ok);
+
+    // a prefetch of a torrent in its grace period keeps it for the prefetch window: a replay
+    // right after stopping finds it there
+    {
+        torrent::EngineSettings s = engineSettings("/tmp/app-checks/grace");
+        s.graceSecs = 2;
+        torrent::TorrentEngine graceEngine(s);
+        torrent::FileInfo file;
+        torrent::ReaderId reader = 0;
+        // a reader that gives up at once: the torrent stays for the 2 s grace period
+        CHECK(graceEngine.acquire(request(dead(20)), file, reader, [] { return true; }) == torrent::Status::Stopped);
+        CHECK(graceEngine.acquire(request(dead(21)), file, reader, [] { return true; }) == torrent::Status::Stopped);
+        std::this_thread::sleep_for(std::chrono::seconds(1));
+        graceEngine.prefetch(request(dead(20)));
+        std::this_thread::sleep_for(std::chrono::seconds(3));  // past the grace period
+        CHECK(graceEngine.stats(dead(20)).known && logged("prefetch " + dead(20) + ": kept 120 s"));
+        CHECK(!graceEngine.stats(dead(21)).known);  // nobody looked at this one again: gone
+    }
 }
 
 // What a warm-up's `done` was called with.

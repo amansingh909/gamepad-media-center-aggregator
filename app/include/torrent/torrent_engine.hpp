@@ -98,6 +98,8 @@ public:
     /// Starts fetching metadata and peers without downloading pieces, on few
     /// connections; dropped after two minutes unless a reader acquires it, or at once
     /// when more than three prefetched torrents are waiting for a reader (the oldest).
+    /// A torrent the engine already has with no reader (its grace period, or an earlier
+    /// prefetch) is kept two minutes from now instead.
     void prefetch(const StreamRequest& req);
 
     Stats stats(const std::string& infoHash);
