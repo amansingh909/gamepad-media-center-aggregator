@@ -22,8 +22,6 @@
 #include <libtorrent/enum_net.hpp>
 #include <orbis/NetCtl.h>
 #include <torrent/network_watch.hpp>
-
-#include <cstring>
 #endif
 
 #include <algorithm>
@@ -31,6 +29,7 @@
 #include <chrono>
 #include <condition_variable>
 #include <cstdio>
+#include <cstring>
 #include <exception>
 #include <filesystem>
 #include <map>
@@ -404,7 +403,8 @@ struct TorrentEngine::Impl {
             const std::string tmp = settings.stateFile + ".part";
             std::FILE* f = std::fopen(tmp.c_str(), "wb");
             if (!f) {
-                log("saving the DHT state: cannot write " + tmp + ": " + std::strerror(errno));
+                const int openErr = errno;
+                log("saving the DHT state: cannot write " + tmp + ": " + std::strerror(openErr));
                 return;
             }
             // errno of the step that failed (a full disk shows at the write or only at the close)
