@@ -45,10 +45,11 @@
 #include <csignal>
 #endif
 
-#if defined(USE_TORRENT) && defined(TORRENT_DEBUG_LAN)
+#ifdef USE_TORRENT
 #include <cstdio>
-#include <torrent/torrent_engine.hpp>
-#include <torrent/torrent_server.hpp>
+#include <ctime>
+#include <memory>
+#include <torrent/torrent_service.hpp>
 #endif
 
 using namespace brls::literals;  // for _i18n
@@ -92,6 +93,36 @@ static void proposeForwarderInstall() {
     dialog->addButton("hints/cancel"_i18n, []() {});
     dialog->addButton("hints/ok"_i18n, []() { brls::Application::pushActivity(new HintActivity()); });
     dialog->open();
+}
+#endif
+
+#ifdef USE_TORRENT
+/// Torrent streaming: the engine sweeps what a crash or the PS button left in its folder,
+/// and the local server waits for the player and the downloader. Its lines also go to
+/// {config}/torrent.log, the one log a console run leaves behind.
+static std::unique_ptr<torrent::TorrentService> startTorrents(AppConfig& conf) {
+    static std::FILE* torrentLog = std::fopen((conf.configDir() + "/torrent.log").c_str(), "w");
+    if (!torrentLog) brls::Logger::warning("torrent: cannot write {}/torrent.log", conf.configDir());
+    torrent::ServiceSettings settings;
+    settings.tempDir = conf.configDir() + "/torrents";
+#ifdef TORRENT_DEBUG_LAN
+    settings.lan = true;  // testing builds: tests/torrent/integration.sh --remote drives the console
+#endif
+    settings.log = [](const std::string& msg) {
+        brls::Logger::info("torrent: {}", msg);
+        if (!torrentLog) return;
+        std::time_t now = std::time(nullptr);
+        std::tm local{};
+        localtime_r(&now, &local);
+        char stamp[16];
+        std::strftime(stamp, sizeof stamp, "%H:%M:%S", &local);
+        std::fprintf(torrentLog, "[%s] %s\n", stamp, msg.c_str());
+        std::fflush(torrentLog);
+    };
+    auto service = std::make_unique<torrent::TorrentService>(std::move(settings));
+    if (!service->start()) brls::Logger::error("torrent: {}", service->startError());
+    torrent::TorrentService::setCurrent(service.get());
+    return service;
 }
 #endif
 
@@ -158,22 +189,8 @@ int main(int argc, char* argv[]) {
     ImageCache::init();
     DownloadManager::instance().init();
     OfflineLibrary::instance().init();
-#if defined(USE_TORRENT) && defined(TORRENT_DEBUG_LAN)
-    // Testing only: serve torrents to other machines so tests/torrent/integration.sh
-    // can drive a console build. Plan 2 starts the engine on demand instead.
-    static std::FILE* torrentLog = std::fopen((conf.configDir() + "/torrent.log").c_str(), "w");
-    static auto torrentLogLine = [](const std::string& msg) {
-        brls::Logger::info("torrent: {}", msg);
-        if (torrentLog) {
-            std::fprintf(torrentLog, "%s\n", msg.c_str());
-            std::fflush(torrentLog);
-        }
-    };
-    static torrent::TorrentEngine torrentEngine(
-        torrent::EngineSettings{conf.configDir() + "/torrents", 1 << 20, 30, 60, 300, torrentLogLine});
-    static torrent::TorrentServer torrentServer(torrentEngine, torrentLogLine);
-    std::string torrentError;
-    if (!torrentServer.start(11470, true, torrentError)) brls::Logger::error("torrent server: {}", torrentError);
+#ifdef USE_TORRENT
+    std::unique_ptr<torrent::TorrentService> torrents = startTorrents(conf);
 #endif
 
     // Return directly to the desktop when closing the application (only for NX)
@@ -254,7 +271,14 @@ int main(int argc, char* argv[]) {
     // Run the app
     while (brls::Application::mainLoop());
 
+    // The pool first: stop() joins its threads, so no async task can still be running (or
+    // call TorrentService::current()) once it returns. Only then is the service cleared and
+    // destroyed, which also ends any download still reading from the server.
     ThreadPool::instance().stop();
+#ifdef USE_TORRENT
+    torrent::TorrentService::setCurrent(nullptr);
+    torrents.reset();
+#endif
 
     conf.checkRestart(argv);
     // Exit
