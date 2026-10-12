@@ -174,7 +174,11 @@ PlayerView::PlayerView(const plex::Item& item, const int64_t seekMs, int version
         }
     });
 
-    this->playMedia(seekMs > 0 ? seekMs : item.viewOffset);
+    // A position from the caller wins; START_OVER plays from 0; with neither, the item's own
+    // position, or for a Stremio title the library's once the detail brings it.
+    this->resumeSaved = seekMs == 0 && item.viewOffset <= 0 &&
+                        AppConfig::instance().backend().type() == media::BackendType::Stremio;
+    this->playMedia(seekMs > 0 ? seekMs : seekMs < 0 ? 0 : item.viewOffset);
 
     // Report stop when application exit
     this->exitSubscribeID = brls::Application::getExitEvent()->subscribe([this]() {
@@ -251,6 +255,7 @@ bool PlayerView::playIndex(int index) {
     this->item = next;
     this->scrobbled = false;
     this->preferredVersion = -1;  // binge: auto-pick the best source for the new episode
+    this->resumeSaved = false;    // the next episode starts at 0
     this->playMedia(0);
     view->setTitie(next.grandparentTitle.empty()
                        ? fmt::format("S{}E{} — {}", next.parentIndex, next.index, next.title)
@@ -295,6 +300,7 @@ void PlayerView::playMedia(const int64_t seekMs) {
             accessible(this->item.media[this->preferredVersion])) {
             this->stream = this->item.media[this->preferredVersion];
             this->setChapters(this->item.chapters, this->item.duration);
+            this->resumeSaved = false;  // the caller chose the source, and the position with it
             this->startPlayback(seekMs);
             return;
         }
@@ -330,7 +336,12 @@ void PlayerView::playMedia(const int64_t seekMs) {
             }
             this->stream = *chosen;
             this->setChapters(this->item.chapters, this->item.duration);
-            this->startPlayback(seekMs);
+            // the first load of a Stremio title opened with no position: where the library says
+            // it stopped (the detail's viewOffset: 0 when finished, another episode's, or none)
+            int64_t start = seekMs;
+            if (this->resumeSaved && seekMs <= 0) start = this->item.viewOffset;
+            this->resumeSaved = false;
+            this->startPlayback(start);
         },
         [ASYNC_TOKEN](const std::string& ex) {
             ASYNC_RELEASE
@@ -551,7 +562,7 @@ void PlayerView::reportTimeline(const std::string& state, int64_t timeMs) {
     media::PlayState st = state == "paused"    ? media::PlayState::Paused
                           : state == "stopped" ? media::PlayState::Stopped
                                                : media::PlayState::Playing;
-    AppConfig::instance().backend().reportProgress(this->itemId, st, timeMs, this->item.duration, this->sessionId);
+    AppConfig::instance().backend().reportProgress(this->itemId, st, timeMs, this->durationMs(), this->sessionId);
 }
 
 void PlayerView::reportStop() {
@@ -563,10 +574,18 @@ void PlayerView::reportStop() {
 
 void PlayerView::maybeScrobble(int64_t timeMs) {
     // state=stopped is NOT enough to mark as watched: explicit scrobble required
-    if (this->scrobbled || this->item.duration <= 0) return;
-    if (double(timeMs) / double(this->item.duration) < SCROBBLE_THRESHOLD) return;
+    const int64_t duration = this->durationMs();
+    if (this->scrobbled || duration <= 0) return;
+    if (double(timeMs) / double(duration) < SCROBBLE_THRESHOLD) return;
     this->scrobbled = true;
     AppConfig::instance().backend().markWatched(this->itemId);
+}
+
+int64_t PlayerView::durationMs() const {
+    if (this->item.duration > 0) return this->item.duration;
+    // Stremio episodes carry no length: the file's, once mpv knows it
+    const int64_t mpvSecs = MPVCore::instance().duration;
+    return mpvSecs > 0 ? mpvSecs * 1000 : 0;
 }
 
 bool PlayerView::toggleQuality() {

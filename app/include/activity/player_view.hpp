@@ -28,6 +28,9 @@ public:
     PlayerView(const plex::Item& item, const int64_t seekMs = 0, int versionIndex = -1);
     ~PlayerView();
 
+    /// As `seekMs`: play from the start, whatever position the item or the server has.
+    static constexpr int64_t START_OVER = -1;
+
     /// Loads the show's episode list (previous/next navigation)
     void setSeries(const std::string& showRatingKey);
     void setTitie(const std::string& title);
@@ -121,6 +124,11 @@ private:
     /// seekMs of the last startPlayback call: a load that fails to open leaves
     /// mpv playback_time at 0, so the fallbacks resume from this instead.
     int64_t lastSeekMs = 0;
+    /// The first load of a Stremio title opened with no position: it starts where the account
+    /// library says it stopped, which the detail brings (playMedia()).
+    bool resumeSaved = false;
+    /// The item's length, or mpv's when the item has none (Stremio episodes), in ms.
+    int64_t durationMs() const;
     /// PlaybackSource::timelineOffsetMs of the current load; every position
     /// read from mpv goes through mediaTimeMs().
     int64_t timelineOffsetMs = 0;

@@ -579,7 +579,7 @@ void MediaSeries::doPlay() {
     // would otherwise resume at the episode's residual viewOffset (player_view.cpp:101)
     plex::Item item = this->onDeck;
     if (this->replay) item.viewOffset = 0;
-    PlayerView* view = new PlayerView(item);
+    PlayerView* view = new PlayerView(item, this->replay ? PlayerView::START_OVER : 0);
     view->setTitie(item.grandparentTitle.empty()
                        ? fmt::format("S{}E{} — {}", item.parentIndex, item.index, item.title)
                        : fmt::format(
