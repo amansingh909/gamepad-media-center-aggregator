@@ -554,8 +554,11 @@ void DownloadManager::doDownload(DownloadItem& item) {
 
             HTTP s;
             HTTP::set_option(s, header, cancel, progressCb);
+            // a write that fails (a full disk) stops curl, and _get throws
             s._get(url, &of);
+            // the last buffered bytes reach the disk only here, and can fail the same way
             of.close();
+            if (!of) throw std::runtime_error("Failed to write " + fileName);
 
             cancelled = cancel->load();
             if (!cancelled) success = true;

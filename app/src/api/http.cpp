@@ -1,4 +1,5 @@
 #include "api/http.hpp"
+#include "api/http_write.hpp"
 #include "utils/config.hpp"
 #include <borealis/core/logger.hpp>
 #include <curl/curl.h>
@@ -228,9 +229,8 @@ void HTTP::set_basic_auth(const std::string& user, const std::string& passwd) {
 
 size_t HTTP::easy_write_cb(char* ptr, size_t size, size_t nmemb, void* userdata) {
     std::ostream* ctx = reinterpret_cast<std::ostream*>(userdata);
-    size_t count = size * nmemb;
-    ctx->write(ptr, count);
-    return count;
+    // 0 once the stream has failed (a full disk): curl stops with CURLE_WRITE_ERROR
+    return writeChunk(*ctx, ptr, size * nmemb);
 }
 
 int HTTP::perform(std::ostream* body) {
