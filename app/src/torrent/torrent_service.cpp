@@ -131,7 +131,7 @@ struct TorrentService::Impl {
             Stats s = hash.empty() ? Stats{} : engine.stats(hash);
             publishProgress();
             lock.lock();
-            if (hash == watched) latest = s;
+            if (hash == watched) latest = keepLastError(s, latest);
         }
     }
 

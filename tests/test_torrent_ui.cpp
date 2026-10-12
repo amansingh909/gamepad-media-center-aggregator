@@ -57,6 +57,34 @@ int main() {
     CHECK_EQ(playerErrorKey("mpv -17: unrecognized file format", Status::Ok), "main/torrent/error/unplayable");
     CHECK_EQ(playerErrorKey("", Status::NoPeers), "main/torrent/error/unplayable");
 
+    // a torrent stream that broke off during playback: mpv sees the end of the file early
+    CHECK(endedEarly(888, 400.2));
+    CHECK(endedEarly(888, 882.9));
+    CHECK(!endedEarly(888, 887.96));  // it played to its end
+    CHECK(!endedEarly(888, 884));     // within a few seconds of it
+    CHECK(!endedEarly(0, 12));        // no duration known: nothing to say
+    CHECK(!endedEarly(-1, 12));
+    // and why: the engine's error, else no peers (a stall ends a stream without one)
+    CHECK_EQ(endErrorKey(Status::DiskError), "main/torrent/error/no_space");
+    CHECK_EQ(endErrorKey(Status::Failed), "main/torrent/error/unplayable");
+    CHECK_EQ(endErrorKey(Status::Ok), "main/torrent/error/no_peers");
+    CHECK_EQ(endErrorKey(Status::NoPeers), "main/torrent/error/no_peers");
+    CHECK_EQ(endErrorKey(Status::Stopped), "main/torrent/error/no_peers");
+
+    // the service's snapshot keeps the error the engine last reported for the watched torrent
+    // once the engine has dropped it (30 s after its last reader, maybe before mpv's end)
+    Stats full;
+    full.known = true;
+    full.error = Status::DiskError;
+    Stats dropped;  // the engine no longer has it
+    Stats kept = keepLastError(dropped, full);
+    CHECK(!kept.known && kept.error == Status::DiskError);
+    CHECK(keepLastError(dropped, kept).error == Status::DiskError);
+    Stats again;  // added again: what the engine says of it now
+    again.known = true;
+    CHECK(keepLastError(again, kept).error == Status::Ok);
+    CHECK(keepLastError(dropped, Stats{}).error == Status::Ok);
+
     // the loading screen's stages and bar
     Stats st;
     LoadingState l = loadingState(st, 0, 0);

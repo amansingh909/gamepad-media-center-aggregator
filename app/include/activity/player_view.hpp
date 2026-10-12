@@ -161,6 +161,10 @@ private:
     void endTorrentLoading();
     /// mpv failed on a torrent source: says why in the engine's words, and closes.
     bool explainTorrentError();
+    /// mpv reached the end of a torrent source's file: if well short of its duration, the
+    /// engine broke the stream off, so it stops, says why and closes (true). False for any
+    /// other source and for a file that played to its end.
+    bool explainTorrentEnd();
     /// The focus is on this player, not on a dialog or an activity over it.
     bool focusInPlayer();
 

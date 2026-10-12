@@ -91,6 +91,10 @@ public:
     /// Torrent sources: text added after the cache speed under the centre spinner (the
     /// peers). nullptr for none.
     void setSpeedSuffix(std::function<std::string()> suffix) { this->speedSuffix = std::move(suffix); }
+    /// Optional hook fired on END_OF_FILE before Repeat and the next item: if it returns
+    /// true the end is handled (PlayerView: a torrent stream that broke off) and the player
+    /// neither replays nor moves on. Unset, or false: the end behaves as before.
+    void registerEnd(brls::ActionListener action) { this->endAction = std::move(action); }
 #endif
 
 private:
@@ -181,6 +185,10 @@ private:
     /// fired on MPV_FILE_ERROR; returning true suppresses the error dialog
     brls::ActionListener errorAction = nullptr;
     brls::ActionListener replayAction = nullptr;
+#ifdef USE_TORRENT
+    /// fired on END_OF_FILE; returning true stops Repeat and the next item
+    brls::ActionListener endAction = nullptr;
+#endif
 
     double speed = 1.0;
     Repeat repeat = Repeat::None;

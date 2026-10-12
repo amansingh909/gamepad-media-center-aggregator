@@ -658,6 +658,10 @@ void VideoView::registerMpvEvent() {
             // 播放结束
             disableDimming(false);
             this->toggleIcon->setImageFromSVGRes("icon/ico-play.svg");
+#ifdef USE_TORRENT
+            // an owner (PlayerView) may say this end was a failure: then no replay, no next item
+            if (this->endAction && this->endAction(this)) break;
+#endif
             if (this->repeat == Repeat::One && this->replayAction && this->replayAction(this)) break;
             if (this->repeat == Repeat::All && this->hasList() && this->playIndex + 1 >= this->listSize)
                 this->playIndex = -1;

@@ -16,6 +16,16 @@ namespace torrent {
 /// Bytes at the start of a file buffered before the player opens it.
 constexpr int64_t startBufferBytes = 4ll << 20;
 
+/// The watched torrent's stats as snapshot() reports them, from a fresh engine reading and the
+/// last report: the engine's word while it has the torrent, and once it has dropped it (30 s
+/// after its last reader) the error it last reported. A stream the engine broke off (a full
+/// disk) reaches the player as an early end of the file only after mpv has played its cache,
+/// which can be later than that.
+inline Stats keepLastError(Stats fresh, const Stats& last) {
+    if (!fresh.known) fresh.error = last.error;
+    return fresh;
+}
+
 /// Whether torrent rows can play right now.
 enum class Availability {
     Ready,       // they play
@@ -96,7 +106,8 @@ public:
     void prefetch(const StreamRequest& req);
 
     /// Keeps a Stats for one torrent ("" for none), refreshed every half second by the
-    /// worker; snapshot() returns the latest without waiting.
+    /// worker; snapshot() returns the latest without waiting. Its error outlives the
+    /// engine's copy of the torrent (keepLastError()) until another watch() changes the hash.
     void watch(const std::string& infoHash);
     Stats snapshot() const;
 

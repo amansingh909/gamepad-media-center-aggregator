@@ -6,7 +6,11 @@
 //     bash -c 'cmake -S tests/torrent -B build-torrent && cmake --build build-torrent -j$(nproc)'
 //   docker run --rm --user "$(id -u):$(id -g)" -v "$PWD:/src" -w /src
 //     gmca-torrent-harness build-torrent/app_checks [--online]
-// The checks listen on ports 11481 to 11484 of the container's own 127.0.0.1.
+// With --online, `--full-disk DIR` also fills a small tmpfs (about a minute more):
+//   docker run --rm --user "$(id -u):$(id -g)" -v "$PWD:/src" -w /src
+//     --tmpfs /tmp/full:size=8m,uid=$(id -u),gid=$(id -g)
+//     gmca-torrent-harness build-torrent/app_checks --online --full-disk /tmp/full
+// The checks listen on ports 11481 to 11485 of the container's own 127.0.0.1.
 
 #include <torrent/stream_url.hpp>
 #include <torrent/torrent_engine.hpp>
@@ -311,13 +315,58 @@ static void onlineChecks() {
     service.stop();
 }
 
+// A full disk: `dir` is a small tmpfs (8 MB), less than the 32 MiB a reader's window asks for.
+// The engine fails the torrent with DiskError, and the service keeps reporting that error for
+// the watched torrent after the engine has dropped it (30 s after its last reader): a player
+// whose stream broke off asks why only once mpv has played its cache, which can be later.
+static void fullDiskChecks(const std::string& dir) {
+    std::printf("full disk\n");
+    const std::string sintel = "08ada5a7a6183aae1e09d831df6748d566095a10";
+    torrent::TorrentService service(serviceSettings(dir, 11485));
+    CHECK(service.start());
+    service.watch(sintel);
+    Calls calls;
+    auto w = service.warmUp(request(sintel, 5), torrent::startBufferBytes, calls.recorder());
+    torrent::Status seen = torrent::Status::Ok;
+    for (int i = 0; i < 360 && seen != torrent::Status::DiskError; ++i) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(500));
+        seen = service.snapshot().error;
+    }
+    std::printf("  engine error %s, warm-up %s\n", torrent::statusName(seen),
+                calls.count() ? torrent::statusName(calls.last()) : "still waiting");
+    CHECK(seen == torrent::Status::DiskError && service.snapshot().known);
+    // the warm-up's reader goes: the engine drops the torrent and deletes its folder
+    w->cancel();
+    using Clock = std::chrono::steady_clock;
+    const Clock::time_point left = Clock::now();
+    while (service.snapshot().known && Clock::now() - left < std::chrono::seconds(60))
+        std::this_thread::sleep_for(std::chrono::milliseconds(500));
+    torrent::Stats after = service.snapshot();
+    std::printf("  dropped after %d s: known %d, error %s\n",
+                int(std::chrono::duration_cast<std::chrono::seconds>(Clock::now() - left).count()), int(after.known),
+                torrent::statusName(after.error));
+    CHECK(!after.known && after.error == torrent::Status::DiskError);
+    // watching it afresh starts with no error
+    service.watch("");
+    service.watch(sintel);
+    CHECK(service.snapshot().error == torrent::Status::Ok);
+    service.stop();
+}
+
 int main(int argc, char** argv) {
-    const bool online = argc > 1 && std::string(argv[1]) == "--online";
+    bool online = false;
+    std::string fullDisk;
+    for (int i = 1; i < argc; ++i) {
+        const std::string a = argv[i];
+        if (a == "--online") online = true;
+        else if (a == "--full-disk" && i + 1 < argc) fullDisk = argv[++i];
+    }
     std::signal(SIGPIPE, SIG_IGN);
     serverChecks();
     engineChecks();
     serviceChecks();
     if (online) onlineChecks();
+    if (online && !fullDisk.empty()) fullDiskChecks(fullDisk);
     if (failures == 0) std::printf("app_checks: all passed\n");
     return failures ? 1 : 0;
 }

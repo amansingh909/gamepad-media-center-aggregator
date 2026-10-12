@@ -72,6 +72,12 @@ PlayerView::PlayerView(const plex::Item& item, const int64_t seekMs, int version
 #endif
         return this->tryDirectPlayFallback() || this->tryPlainUrlFallback() || this->tryTranscodeFallback();
     });
+#ifdef USE_TORRENT
+    // a torrent stream the engine gave up on during playback (no data for 60 s, a full disk)
+    // reaches mpv as an early end of the file: say why, instead of the next episode or a
+    // Repeat One reload of a dead torrent. Any other source, or a real end: false, as before.
+    view->registerEnd([this](...) { return this->explainTorrentEnd(); });
+#endif
 
     // Repeat::One: reload from 0 rather than mpv loop-file, which would restart
     // a transcode resumed mid-file at its offset
@@ -732,6 +738,27 @@ bool PlayerView::explainTorrentError() {
     const std::string reason = MPVCore::instance().getError();
     brls::Logger::error("PlayerView: torrent playback failed ({})", reason);
     auto dialog = new brls::Dialog(brls::getStr(torrent::playerErrorKey(reason, engineError)));
+    dialog->addButton("hints/back"_i18n, []() { VideoView::close(true); });
+    dialog->open();
+    return true;
+}
+
+bool PlayerView::explainTorrentEnd() {
+    torrent::StreamRequest req;
+    if (this->stream.parts.empty() || !torrent::parseLocalStreamUrl(this->stream.parts.front().key, req))
+        return false;
+    auto& mpv = MPVCore::instance();
+    // mpv's clock and the file's length are still those of the file that ended
+    if (!torrent::endedEarly(mpv.duration, mpv.playback_time)) return false;  // it played to its end
+    this->endTorrentLoading();
+    mpv.stop();
+    // the engine's error for this torrent, kept by the service after the engine dropped it;
+    // none means the stream stalled
+    auto* service = torrent::TorrentService::current();
+    const torrent::Status engineError = service ? service->snapshot().error : torrent::Status::Ok;
+    brls::Logger::error("PlayerView: torrent stream ended at {:.0f} s of {} s (engine: {})", mpv.playback_time,
+        mpv.duration, torrent::statusName(engineError));
+    auto dialog = new brls::Dialog(brls::getStr(torrent::endErrorKey(engineError)));
     dialog->addButton("hints/back"_i18n, []() { VideoView::close(true); });
     dialog->open();
     return true;
