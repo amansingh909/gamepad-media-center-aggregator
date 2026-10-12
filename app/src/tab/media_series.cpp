@@ -871,7 +871,7 @@ void MediaSeries::doNextup() {
                 bool fs = fromStart;
                 this->nextPlayable = false;
                 this->btnPlay->setMuted(true);
-                this->btnPlay->setText("main/stremio/source/unavailable"_i18n);
+                this->btnPlay->setText("main/sources/finding"_i18n);
                 std::string epId = item.ratingKey;
                 ASYNC_RETAIN
                 be.getItemDetail(
@@ -891,7 +891,11 @@ void MediaSeries::doNextup() {
                                 ? (fs ? "main/media/replay"_i18n : "main/media/play"_i18n)
                                 : "main/stremio/source/unavailable"_i18n);
                     },
-                    nullptr);
+                    [ASYNC_TOKEN](const std::string& ex) {
+                        ASYNC_RELEASE
+                        brls::Logger::warning("MediaSeries next episode sources: {}", ex);
+                        this->btnPlay->setText("main/stremio/source/unavailable"_i18n);
+                    });
             } else {
                 this->nextPlayable = true;
                 this->btnPlay->setMuted(false);

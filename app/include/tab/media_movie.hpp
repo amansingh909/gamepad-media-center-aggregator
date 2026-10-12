@@ -62,6 +62,9 @@ private:
     /// Builds the inline Stremio source list (one row per source) and wires the
     /// Play button's enabled/muted state. No-op for single-file backends.
     void buildSources(const media::Item& item);
+    /// Stremio: a spinner and "Finding streams..." where the source list will be, until
+    /// buildSources() replaces it.
+    void showFindingStreams();
     /// Opens the player on a specific source row (item.media[mediaIndex]).
     void playSource(int mediaIndex);
     /// Queues a download of a specific source row (Stremio: X on a release line).

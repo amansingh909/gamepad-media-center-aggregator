@@ -315,6 +315,9 @@ void MediaMovie::doMovie() {
         }
     }
 
+    // the source list fills only once every stream addon has answered: say so meanwhile
+    const bool stremio = AppConfig::instance().backend().type() == media::BackendType::Stremio;
+    if (stremio) this->showFindingStreams();
     ASYNC_RETAIN
     // detail (full: streams/chapters/markers)
     AppConfig::instance().backend().getItemDetail(
@@ -323,10 +326,15 @@ void MediaMovie::doMovie() {
             ASYNC_RELEASE
             this->applyMovie(item);
         },
-        [ASYNC_TOKEN](const std::string& ex) {
+        [ASYNC_TOKEN, stremio](const std::string& ex) {
             ASYNC_RELEASE
             this->peopleHeader->setVisibility(brls::Visibility::GONE);
             this->people->setVisibility(brls::Visibility::GONE);
+            if (!stremio) return;
+            // no detail, so no streams: the "No streams found" notice instead of the spinner
+            brls::Logger::warning("MediaMovie detail: {}", ex);
+            this->buildSources(media::Item{});
+            if (this->firstSourceRow) brls::Application::giveFocus(this->firstSourceRow);
         });
 }
 
@@ -375,6 +383,24 @@ void MediaMovie::torrentRowFocus(const std::string& url, bool focused) {
     this->prefetchTimer.start(1000);
 }
 #endif
+
+void MediaMovie::showFindingStreams() {
+    this->sourcesBox->clearViews();
+    auto* row = new brls::Box();
+    row->setAxis(brls::Axis::ROW);
+    row->setAlignItems(brls::AlignItems::CENTER);
+    row->setHeight(46);
+    row->setPaddingLeft(12);
+    auto* spinner = new brls::ProgressSpinner();
+    spinner->setWidth(24);
+    spinner->setHeight(24);
+    spinner->setMarginRight(12);
+    spinner->animate(true);
+    row->addView(spinner);
+    row->addView(sourceLabel("main/sources/finding"_i18n, 15, brls::Application::getTheme().getColor("font/grey")));
+    this->sourcesBox->addView(row);
+    this->sourcesBox->setVisibility(brls::Visibility::VISIBLE);
+}
 
 void MediaMovie::buildSources(const media::Item& item) {
     this->sourcesBox->clearViews();
@@ -444,6 +470,12 @@ void MediaMovie::buildSources(const media::Item& item) {
         icon->setHeight(22);
         icon->setMarginBottom(10);
         notice->addView(icon);
+
+        auto* noneFound = sourceLabel("main/sources/none_found"_i18n, 17, textCol);
+        noneFound->setWidthPercentage(100);
+        noneFound->setHorizontalAlign(brls::HorizontalAlign::CENTER);
+        noneFound->setMarginBottom(6);
+        notice->addView(noneFound);
 
         auto* msg = sourceLabel("main/stremio/source/none"_i18n, 14, textCol);
         msg->setSingleLine(false);
