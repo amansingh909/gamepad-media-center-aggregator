@@ -5,6 +5,7 @@
     transcoder offset in whole seconds.
 */
 
+#include <algorithm>
 #include <cstdlib>
 
 #include "activity/player_view.hpp"
@@ -72,12 +73,25 @@ PlayerView::PlayerView(const plex::Item& item, const int64_t seekMs, int version
 #endif
         return this->tryDirectPlayFallback() || this->tryPlainUrlFallback() || this->tryTranscodeFallback();
     });
+    // An end of file reports no stop (mpv's END_FILE with reason EOF, not MPV_STOP), so the
+    // final position goes here, while itemId is still what ended: the next episode or the close
+    // comes after. A torrent stream the engine gave up on during playback (no data for 60 s, a
+    // full disk) reaches mpv as an early end of the file: its last position, and the player
+    // says why instead of the next episode or a Repeat One reload of a dead torrent.
+    view->registerEnd([this](...) {
+        // mpv's clock and the file's length are still those of the file that ended
+        const int64_t lastMs = this->mediaTimeMs(MPVCore::instance().playback_time);
 #ifdef USE_TORRENT
-    // a torrent stream the engine gave up on during playback (no data for 60 s, a full disk)
-    // reaches mpv as an early end of the file: say why, instead of the next episode or a
-    // Repeat One reload of a dead torrent. Any other source, or a real end: false, as before.
-    view->registerEnd([this](...) { return this->explainTorrentEnd(); });
+        if (this->explainTorrentEnd()) {
+            this->reportEnd(lastMs);
+            return true;
+        }
 #endif
+        // played to its end: the item's length when it is longer (a server's length can
+        // differ a little from the file's), so the end always counts as watched to the end
+        this->reportEnd(std::max(lastMs, this->durationMs()));
+        return false;
+    });
 
     // Repeat::One: reload from 0 rather than mpv loop-file, which would restart
     // a transcode resumed mid-file at its offset
@@ -182,7 +196,7 @@ PlayerView::PlayerView(const plex::Item& item, const int64_t seekMs, int version
 
     // Report stop when application exit
     this->exitSubscribeID = brls::Application::getExitEvent()->subscribe([this]() {
-        if (!MPVCore::instance().isStopped()) this->reportStop();
+        if (!MPVCore::instance().isStopped() && !this->endReported) this->reportStop();
     });
 }
 
@@ -198,7 +212,7 @@ PlayerView::~PlayerView() {
     PlayerSetting::selectedSubtitle = 0;
     PlayerSetting::selectedAudio = 0;
 
-    if (!mpv.isStopped()) this->reportStop();
+    if (!mpv.isStopped() && !this->endReported) this->reportStop();
     // Free the server-side transcode session on exit (else it lingers orphaned).
     this->stopTranscode();
 #ifdef USE_TORRENT
@@ -271,6 +285,7 @@ void PlayerView::playMedia(const int64_t seekMs) {
     // can change under its answer (its generation moves on, it's cancelled or released).
     this->endTorrentLoading();
 #endif
+    this->endReported = false;  // a new load: its own end gets its own report
     // Capture/automation guard: in GMCA_NAV_PIPE mode a stray "Play" from the
     // screenshot harness must never actually start playback — doing so pushes a
     // watch-progress report to the server and pollutes Continue Watching. Bail
@@ -570,6 +585,14 @@ void PlayerView::reportStop() {
     this->reportTimeline("stopped", timeMs);
     this->maybeScrobble(timeMs);
     brls::Logger::debug("PlayerView reportStop {}", this->sessionId);
+}
+
+void PlayerView::reportEnd(int64_t timeMs) {
+    if (this->endReported) return;
+    this->endReported = true;
+    brls::Logger::info("PlayerView: {} ended at {} ms", this->itemId, timeMs);
+    this->reportTimeline("stopped", timeMs);
+    this->maybeScrobble(timeMs);
 }
 
 void PlayerView::maybeScrobble(int64_t timeMs) {

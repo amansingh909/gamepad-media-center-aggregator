@@ -95,6 +95,9 @@ private:
     /// POST /:/timeline report (time/duration in ms)
     void reportTimeline(const std::string& state, int64_t timeMs);
     void reportStop();
+    /// A file that ended (mpv's end of file, which reports no stop): its final position, once
+    /// per load, before the next item or the close moves on.
+    void reportEnd(int64_t timeMs);
     /// Marks as watched via /:/scrobble beyond the threshold (90%)
     void maybeScrobble(int64_t timeMs);
     bool toggleQuality();
@@ -127,6 +130,8 @@ private:
     /// The first load of a Stremio title opened with no position: it starts where the account
     /// library says it stopped, which the detail brings (playMedia()).
     bool resumeSaved = false;
+    /// reportEnd() ran for the current load (playMedia() starts a new one).
+    bool endReported = false;
     /// The item's length, or mpv's when the item has none (Stremio episodes), in ms.
     int64_t durationMs() const;
     /// PlaybackSource::timelineOffsetMs of the current load; every position
