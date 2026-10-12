@@ -489,5 +489,29 @@
       "torrents_help": "Estas fontes são torrents brutos. Esta plataforma não tem cliente torrent: instale um addon com debrid (Torrentio + Real-Debrid, Comet, MediaFusion…) na sua conta Stremio para obter ligações reproduzíveis.",
       "links_help": "Estas fontes são ligações externas (navegador ou serviço de terceiros) que não podem ser reproduzidas diretamente na aplicação nesta plataforma."
     }
+  },
+  "torrent": {
+    "setting": {
+      "header": "Torrents",
+      "streaming": "Streaming de torrents",
+      "upload_limit": "Limite de envio"
+    },
+    "loading": {
+      "finding_peers": "A procurar pares",
+      "getting_info": "A obter informações do torrent",
+      "buffering": "A carregar {}%",
+      "peers": "{} pares"
+    },
+    "source": {
+      "seeders": "{} seeders",
+      "unavailable": "{} fonte(s) torrent não podem ser reproduzidas agora"
+    },
+    "error": {
+      "no_peers": "Nenhum par encontrado para esta fonte, experimente outra",
+      "no_space": "Espaço de armazenamento insuficiente",
+      "unplayable": "Esta fonte não pode ser reproduzida",
+      "off": "O streaming de torrents está desligado. Ligue-o nas Definições.",
+      "start": "Não foi possível iniciar o streaming de torrents: a porta 11470 está em uso."
+    }
   }
 }

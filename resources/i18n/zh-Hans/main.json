@@ -489,5 +489,29 @@
       "torrents_help": "这些是原始 Torrent 源。此平台没有 Torrent 客户端：请在 Stremio 账户中安装带 debrid 的插件（Torrentio + Real-Debrid、Comet、MediaFusion 等）以获得可播放的链接。",
       "links_help": "这些是外部链接（浏览器或第三方服务），在此平台的应用中无法直接播放。"
     }
+  },
+  "torrent": {
+    "setting": {
+      "header": "种子",
+      "streaming": "种子串流",
+      "upload_limit": "上传限速"
+    },
+    "loading": {
+      "finding_peers": "正在寻找节点",
+      "getting_info": "正在获取种子信息",
+      "buffering": "正在缓冲 {}%",
+      "peers": "{} 个节点"
+    },
+    "source": {
+      "seeders": "{} 个做种",
+      "unavailable": "{} 个种子来源暂时无法播放"
+    },
+    "error": {
+      "no_peers": "未找到此来源的节点，请尝试其他来源",
+      "no_space": "存储空间不足",
+      "unplayable": "无法播放此来源",
+      "off": "种子串流已关闭，可在设置中开启。",
+      "start": "种子串流无法启动：端口 11470 已被占用。"
+    }
   }
 }

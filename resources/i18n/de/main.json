@@ -489,5 +489,29 @@
       "torrents_help": "Diese Quellen sind reine Torrents. Diese Plattform hat keinen Torrent-Client: Installiere ein Add-on mit Debrid-Dienst (Torrentio + Real-Debrid, Comet, MediaFusion…) in deinem Stremio-Konto, um abspielbare Links zu erhalten.",
       "links_help": "Diese Quellen sind externe Links (Browser oder Drittanbieterdienst), die in der App auf dieser Plattform nicht direkt abgespielt werden können."
     }
+  },
+  "torrent": {
+    "setting": {
+      "header": "Torrents",
+      "streaming": "Torrent-Streaming",
+      "upload_limit": "Upload-Limit"
+    },
+    "loading": {
+      "finding_peers": "Suche nach Peers",
+      "getting_info": "Lade Torrent-Infos",
+      "buffering": "Puffern {} %",
+      "peers": "{} Peers"
+    },
+    "source": {
+      "seeders": "{} Seeder",
+      "unavailable": "{} Torrent-Quelle(n) gerade nicht abspielbar"
+    },
+    "error": {
+      "no_peers": "Keine Peers für diese Quelle gefunden, versuche eine andere",
+      "no_space": "Nicht genug Speicherplatz",
+      "unplayable": "Diese Quelle kann nicht abgespielt werden",
+      "off": "Torrent-Streaming ist aus. Schalte es in den Einstellungen ein.",
+      "start": "Torrent-Streaming konnte nicht starten: Port 11470 ist belegt."
+    }
   }
 }

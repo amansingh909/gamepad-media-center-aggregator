@@ -488,5 +488,29 @@
       "torrents_help": "Ces sources sont des torrents bruts. Sur cette plateforme il n'y a pas de client torrent : installez un addon avec débrideur (Torrentio + Real-Debrid, Comet, MediaFusion…) dans votre compte Stremio pour obtenir des liens lisibles.",
       "links_help": "Ces sources sont des liens externes (navigateur ou service tiers) qui ne peuvent pas être lus directement dans l'application sur cette plateforme."
     }
+  },
+  "torrent": {
+    "setting": {
+      "header": "Torrents",
+      "streaming": "Streaming de torrents",
+      "upload_limit": "Limite d'envoi"
+    },
+    "loading": {
+      "finding_peers": "Recherche de pairs",
+      "getting_info": "Récupération des infos du torrent",
+      "buffering": "Mise en mémoire tampon {} %",
+      "peers": "{} pairs"
+    },
+    "source": {
+      "seeders": "{} seeders",
+      "unavailable": "{} source(s) torrent non lisible(s) pour le moment"
+    },
+    "error": {
+      "no_peers": "Aucun pair trouvé pour cette source, essayez-en une autre",
+      "no_space": "Espace de stockage insuffisant",
+      "unplayable": "Cette source ne peut pas être lue",
+      "off": "Le streaming de torrents est désactivé. Activez-le dans les Paramètres.",
+      "start": "Le streaming de torrents n'a pas pu démarrer : le port 11470 est occupé."
+    }
   }
 }

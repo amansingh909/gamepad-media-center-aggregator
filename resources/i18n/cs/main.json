@@ -489,5 +489,29 @@
       "torrents_help": "Tyto zdroje jsou čisté torrenty. Na této platformě není k dispozici žádný torrentový klient: nainstalujte si addon s podporou debrid služby (Torrentio + Real-Debrid, Comet, MediaFusion…) do svého účtu Stremio, abyste získali přehratelné odkazy.",
       "links_help": "Tyto zdroje jsou externí odkazy (prohlížeč nebo služba třetí strany), které nelze přehrát přímo v aplikaci na této platformě."
     }
+  },
+  "torrent": {
+    "setting": {
+      "header": "Torrenty",
+      "streaming": "Streamování torrentů",
+      "upload_limit": "Limit odesílání"
+    },
+    "loading": {
+      "finding_peers": "Hledání peerů",
+      "getting_info": "Načítání informací o torrentu",
+      "buffering": "Načítání {} %",
+      "peers": "Peery: {}"
+    },
+    "source": {
+      "seeders": "Seedy: {}",
+      "unavailable": "Torrentové zdroje ({}) teď nelze přehrát"
+    },
+    "error": {
+      "no_peers": "Pro tento zdroj se nenašly žádné peery, zkuste jiný",
+      "no_space": "Nedostatek místa v úložišti",
+      "unplayable": "Tento zdroj nelze přehrát",
+      "off": "Streamování torrentů je vypnuté. Zapněte ho v Nastavení.",
+      "start": "Streamování torrentů se nepodařilo spustit: port 11470 je obsazený."
+    }
   }
 }

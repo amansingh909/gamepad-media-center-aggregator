@@ -489,5 +489,29 @@
       "torrents_help": "Những nguồn này là torrent thô. Nền tảng này không có ứng dụng torrent: hãy cài một addon hỗ trợ debrid (Torrentio + Real-Debrid, Comet, MediaFusion…) trong tài khoản Stremio của bạn để có các liên kết phát được.",
       "links_help": "Những nguồn này là liên kết bên ngoài (trình duyệt hoặc dịch vụ của bên thứ ba) không thể phát trực tiếp trong ứng dụng trên nền tảng này."
     }
+  },
+  "torrent": {
+    "setting": {
+      "header": "Torrent",
+      "streaming": "Phát trực tuyến torrent",
+      "upload_limit": "Giới hạn tải lên"
+    },
+    "loading": {
+      "finding_peers": "Đang tìm peer",
+      "getting_info": "Đang lấy thông tin torrent",
+      "buffering": "Đang tải bộ đệm {}%",
+      "peers": "{} peer"
+    },
+    "source": {
+      "seeders": "{} seeder",
+      "unavailable": "{} nguồn torrent hiện không phát được"
+    },
+    "error": {
+      "no_peers": "Không tìm thấy peer cho nguồn này, hãy thử nguồn khác",
+      "no_space": "Không đủ dung lượng lưu trữ",
+      "unplayable": "Không thể phát nguồn này",
+      "off": "Phát trực tuyến torrent đang tắt. Hãy bật trong Cài đặt.",
+      "start": "Không thể khởi động phát trực tuyến torrent: cổng 11470 đang được sử dụng."
+    }
   }
 }

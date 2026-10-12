@@ -488,5 +488,29 @@
       "torrents_help": "These sources are raw torrents. This platform has no torrent client: install a debrid-enabled addon (Torrentio + Real-Debrid, Comet, MediaFusion…) in your Stremio account to get playable links.",
       "links_help": "These sources are external links (browser or third-party service) that cannot be played directly in the app on this platform."
     }
+  },
+  "torrent": {
+    "setting": {
+      "header": "Torrents",
+      "streaming": "Torrent streaming",
+      "upload_limit": "Upload limit"
+    },
+    "loading": {
+      "finding_peers": "Finding peers",
+      "getting_info": "Getting torrent info",
+      "buffering": "Buffering {}%",
+      "peers": "{} peers"
+    },
+    "source": {
+      "seeders": "{} seeders",
+      "unavailable": "{} torrent source(s) can't be played right now"
+    },
+    "error": {
+      "no_peers": "No peers found for this source, try another one",
+      "no_space": "Not enough storage space",
+      "unplayable": "This source can't be played",
+      "off": "Torrent streaming is off. Turn it on in Settings.",
+      "start": "Torrent streaming couldn't start: port 11470 is in use."
+    }
   }
 }

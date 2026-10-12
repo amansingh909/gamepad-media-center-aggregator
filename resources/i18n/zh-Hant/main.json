@@ -489,5 +489,29 @@
       "torrents_help": "這些來源為原始種子檔案。此平台沒有種子用戶端：請在你的 Stremio 帳號安裝支援解除限制服務的附加元件（Torrentio + Real-Debrid、Comet、MediaFusion…），以獲得可播放的連結。",
       "links_help": "這些來源是外部連結（瀏覽器或第三方服務），在此平台的應用程式中無法直接播放。"
     }
+  },
+  "torrent": {
+    "setting": {
+      "header": "種子",
+      "streaming": "種子串流",
+      "upload_limit": "上傳速度上限"
+    },
+    "loading": {
+      "finding_peers": "正在尋找節點",
+      "getting_info": "正在取得種子資訊",
+      "buffering": "正在緩衝 {}%",
+      "peers": "{} 個節點"
+    },
+    "source": {
+      "seeders": "{} 個做種",
+      "unavailable": "{} 個種子來源目前無法播放"
+    },
+    "error": {
+      "no_peers": "找不到此來源的節點，請嘗試其他來源",
+      "no_space": "儲存空間不足",
+      "unplayable": "無法播放此來源",
+      "off": "種子串流已關閉，可在設定中開啟。",
+      "start": "種子串流無法啟動：連接埠 11470 已被佔用。"
+    }
   }
 }

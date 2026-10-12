@@ -489,5 +489,29 @@
       "torrents_help": "Bu kaynaklar ham torrentlerdir. Bu platformda torrent istemcisi yok: oynatılabilir bağlantılar elde etmek için Stremio hesabınıza debrid destekli bir eklenti (Torrentio + Real-Debrid, Comet, MediaFusion…) yükleyin.",
       "links_help": "Bu kaynaklar, bu platformda uygulama içinde doğrudan oynatılamayan harici bağlantılardır (tarayıcı veya üçüncü taraf hizmeti)."
     }
+  },
+  "torrent": {
+    "setting": {
+      "header": "Torrentler",
+      "streaming": "Torrent akışı",
+      "upload_limit": "Yükleme sınırı"
+    },
+    "loading": {
+      "finding_peers": "Eşler aranıyor",
+      "getting_info": "Torrent bilgisi alınıyor",
+      "buffering": "Arabelleğe alınıyor %{}",
+      "peers": "{} eş"
+    },
+    "source": {
+      "seeders": "{} seeder",
+      "unavailable": "{} torrent kaynağı şu anda oynatılamıyor"
+    },
+    "error": {
+      "no_peers": "Bu kaynak için eş bulunamadı, başka birini deneyin",
+      "no_space": "Yeterli depolama alanı yok",
+      "unplayable": "Bu kaynak oynatılamıyor",
+      "off": "Torrent akışı kapalı. Ayarlar'dan açabilirsiniz.",
+      "start": "Torrent akışı başlatılamadı: 11470 numaralı port kullanımda."
+    }
   }
 }
