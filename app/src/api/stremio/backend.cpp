@@ -23,6 +23,10 @@
 #include "api/stremio/auth.hpp"
 #include "api/media/langs.hpp"
 #include "utils/config.hpp"
+#ifdef USE_TORRENT
+#include <torrent/stremio_source.hpp>
+#include <torrent/torrent_service.hpp>
+#endif
 #include <borealis/core/logger.hpp>
 #include <borealis/core/thread.hpp>
 #include <borealis/core/i18n.hpp>
@@ -213,6 +217,13 @@ std::string buildCatalogUrl(const std::string& base, const std::string& type, co
 std::vector<media::Media> resolveAllStreams(
     AddonEngine& engine, const std::string& stremioType, const std::string& stremioId) {
     std::vector<media::Media> all;
+#ifdef USE_TORRENT
+    // the local server can serve right now: torrent rows play through it
+    auto* torrents = torrent::TorrentService::current();
+    const bool torrentsPlayable = torrents && torrents->availability() == torrent::Availability::Ready;
+#else
+    const bool torrentsPlayable = false;
+#endif
     for (auto& a : engine.addonsFor("stream", stremioType, stremioId)) {
         std::string url = engine.resourceUrl(a, "stream", stremioType, stremioId);
         std::vector<StreamOption> streams;
@@ -222,7 +233,7 @@ std::vector<media::Media> resolveAllStreams(
             brls::Logger::warning("stremio stream {}: {}", url, ex.what());
             continue;
         }
-        for (auto& s : streams) all.push_back(streamToMedia(s, a.manifest.name));
+        for (auto& s : streams) all.push_back(streamToMedia(s, a.manifest.name, torrentsPlayable));
     }
 #if defined(__PSV__)
     // PS Vita: >1080p exceeds the hardware H.264 decoder (level 4.x) and
@@ -257,6 +268,14 @@ std::vector<media::Media> resolveAllStreams(
         int qx = qualityRank(x.videoResolution), qy = qualityRank(y.videoResolution);
 #endif
         if (qx != qy) return qx > qy;                           // then best quality
+#ifdef USE_TORRENT
+        // same quality: a link before a torrent, then the better seeded torrent
+        if (x.playable() && y.playable()) {
+            int order = torrent::torrentOrder(x.kind == media::SourceKind::Torrent, x.seeders,
+                                              y.kind == media::SourceKind::Torrent, y.seeders);
+            if (order != 0) return order < 0;
+        }
+#endif
         if (x.playable() && x.cached != y.cached) return x.cached;  // then cached debrid first
         return false;
     });
@@ -957,6 +976,15 @@ media::PlaybackSource StremioBackend::resolvePlayback(
     // dialog. We never throw: a cross-TU throw on the borealis async task loop
     // (which does not wrap tasks in try/catch) would abort the app.
     if (version.parts.empty() || version.parts.front().key.empty()) return {};
+#ifdef USE_TORRENT
+    torrent::StreamRequest torrentRequest;
+    if (torrent::parseLocalStreamUrl(version.parts.front().key, torrentRequest)) {
+        // the engine answers or gives up within its stall timeout and the loading screen
+        // says why; mpv waits longer. No proxy: the server is this machine.
+        std::string torrentExtra = "network-timeout=" + std::to_string(torrent::playerNetworkTimeoutSecs);
+        return {version.parts.front().key, torrentExtra, false, "directplay"};
+    }
+#endif
     std::string extra = "network-timeout=" + std::to_string(HTTP::TIMEOUT / 100);
     if (HTTP::PROXY_STATUS) extra += ",http-proxy=\"" + HTTP::PROXY + "\"";
     return {version.parts.front().key, extra, false, "directplay"};

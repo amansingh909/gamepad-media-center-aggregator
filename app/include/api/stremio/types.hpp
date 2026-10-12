@@ -40,6 +40,9 @@
 #include <vector>
 #include "api/http.hpp"
 #include "api/media/types.hpp"
+#ifdef USE_TORRENT
+#include <torrent/stremio_source.hpp>
+#endif
 
 namespace stremio {
 
@@ -479,6 +482,10 @@ struct StreamOption {
     std::string externalUrl;  // open in browser / external app
     std::string infoHash;     // torrent
     int fileIdx = -1;         // torrent file index
+#ifdef USE_TORRENT
+    std::vector<std::string> sources;  // torrent peer hints: "tracker:<url>", "dht:<info hash>"
+    std::string filename;              // behaviorHints.filename: the torrent file's name
+#endif
     bool notWebReady = false;
     std::string bingeGroup;
 };
@@ -496,10 +503,16 @@ inline std::vector<StreamOption> parseStreams(const nlohmann::json& j) {
         so.externalUrl = jstr(s, "externalUrl");
         so.infoHash = jstr(s, "infoHash");
         so.fileIdx = (int)jint(s, "fileIdx", -1);
+#ifdef USE_TORRENT
+        so.sources = stringArray(s, "sources");
+#endif
         auto bh = s.find("behaviorHints");
         if (bh != s.end() && bh->is_object()) {
             so.notWebReady = jbool(*bh, "notWebReady");
             so.bingeGroup = jstr(*bh, "bingeGroup");
+#ifdef USE_TORRENT
+            so.filename = jstr(*bh, "filename");
+#endif
         }
         out.push_back(std::move(so));
     }
@@ -673,9 +686,13 @@ inline bool detectDebrid(const std::string& name, bool& cached) {
 
 /// Map one Stremio stream to a neutral source row. `addonName` (manifest name)
 /// is the reliable provenance label (the addon brand inside `name` is not always
-/// present). Only `url` streams are playable here; infoHash/ytId/externalUrl are
-/// classified as non-playable (no torrent engine / no browser on console).
-inline media::Media streamToMedia(const StreamOption& s, const std::string& addonName) {
+/// present). `url` streams are playable. An infoHash stream is playable when the build
+/// has the torrent engine and it can serve right now (`torrentsPlayable`): its part key is
+/// then the local server's URL for it. ytId/externalUrl are never playable here.
+inline media::Media streamToMedia(const StreamOption& s, const std::string& addonName, bool torrentsPlayable = false) {
+#ifndef USE_TORRENT
+    (void)torrentsPlayable;
+#endif
     media::Media m;
     std::string blob = s.name + " " + s.title;
     m.videoResolution = qualityLabel(blob);
@@ -702,6 +719,24 @@ inline media::Media streamToMedia(const StreamOption& s, const std::string& addo
         m.detail = detail;
     } else if (!s.infoHash.empty()) {
         m.kind = media::SourceKind::Torrent;
+#ifdef USE_TORRENT
+        // the same codec, size and seeders a link's row shows
+        m.videoCodec = parseCodecLabel(blob);
+        m.audioCodec = parseAudioLabel(blob);
+        std::string size = parseSizeLabel(s.title.empty() ? s.name : s.title);
+        std::string detail = m.videoCodec;
+        if (!size.empty()) detail += (detail.empty() ? "" : "  ·  ") + size;
+        m.detail = detail;
+        m.seeders = torrent::parseSeeders(blob);
+        std::string url = torrentsPlayable ? torrent::localStreamUrl(s.infoHash, s.fileIdx, s.sources, s.filename) : "";
+        if (!url.empty()) {
+            media::Part p;
+            p.key = url;
+            p.accessible = true;
+            p.exists = true;
+            m.parts.push_back(std::move(p));
+        }
+#endif
     } else if (!s.ytId.empty()) {
         m.kind = media::SourceKind::Youtube;
     } else {

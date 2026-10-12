@@ -19,6 +19,10 @@
 #include "utils/network_state.hpp"
 #include "tab/remote_view.hpp"
 #include <fmt/ranges.h>
+#ifdef USE_TORRENT
+#include <torrent/torrent_service.hpp>
+#include <torrent/ui_model.hpp>
+#endif
 
 using namespace brls::literals;  // for _i18n
 
@@ -430,12 +434,23 @@ void MediaMovie::buildSources(const media::Item& item) {
         std::vector<brls::View*> cells;
         // quality chip
         cells.push_back(sourcePill(m.videoResolution.empty() ? "SD" : m.videoResolution, pillBg, textCol));
-        // status chip: cached debrid (gold) / uncached debrid / direct
+        // status chip: torrent (gold) / cached debrid (gold) / uncached debrid / direct
+#ifdef USE_TORRENT
+        const bool torrentRow = m.kind == media::SourceKind::Torrent;
+        if (torrentRow)
+            cells.push_back(sourcePill("main/stremio/source/torrent_badge"_i18n, goldBg, goldFg));
+        else
+#endif
         if (m.kind == media::SourceKind::Debrid)
             cells.push_back(m.cached ? sourcePill("main/stremio/source/cached"_i18n, goldBg, goldFg)
                                      : sourcePill("main/stremio/source/uncached"_i18n, pillBg, greyCol));
         else
             cells.push_back(sourcePill("main/stremio/source/direct"_i18n, pillBg, textCol));
+#ifdef USE_TORRENT
+        // the seeders the addon printed: a torrent with none rarely starts
+        if (torrentRow && m.seeders >= 0)
+            cells.push_back(sourcePill(brls::getStr("main/torrent/source/seeders", m.seeders), pillBg, textCol));
+#endif
         // source name (grows) + meta (codec · size)
         cells.push_back(sourceLabel(m.label, 15, textCol, true));
         if (!m.detail.empty()) cells.push_back(sourceLabel(m.detail, 13, greyCol));
@@ -470,10 +485,22 @@ void MediaMovie::buildSources(const media::Item& item) {
 
     // Non-playable groups: one explanatory, selectable summary row each (A = why).
     if (torrents > 0) {
+        // with the engine built in, the grey row says why torrents can't play right now
+#ifdef USE_TORRENT
+        const std::string torrentsLabel = brls::getStr("main/torrent/source/unavailable", torrents);
+#else
+        const std::string torrentsLabel = fmt::format(fmt::runtime("main/stremio/source/torrents"_i18n), torrents);
+#endif
         SourceRow* row = makeRow({sourcePill("main/stremio/source/torrent_badge"_i18n, pillBg, greyCol),
-            sourceLabel(fmt::format(fmt::runtime("main/stremio/source/torrents"_i18n), torrents), 14, greyCol, true)});
+            sourceLabel(torrentsLabel, 14, greyCol, true)});
         row->registerClickAction([](brls::View*) {
+#ifdef USE_TORRENT
+            auto* service = torrent::TorrentService::current();
+            Dialog::show(brls::getStr(
+                torrent::availabilityKey(service ? service->availability() : torrent::Availability::Stopped)));
+#else
             Dialog::show("main/stremio/source/torrents_help"_i18n);
+#endif
             return true;
         });
     }

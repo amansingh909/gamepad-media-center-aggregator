@@ -181,7 +181,7 @@ inline void from_json(const nlohmann::json& j, Part& r) {
 enum class SourceKind {
     Direct,    // plain HTTP(S) file — playable
     Debrid,    // HTTP(S) link served by a debrid (RealDebrid/AllDebrid…) — playable
-    Torrent,   // raw infoHash (no url) — NOT playable here (no local torrent client)
+    Torrent,   // raw infoHash: playable only through the local torrent server (USE_TORRENT builds)
     External,  // externalUrl (browser link) — NOT playable here
     Youtube,   // ytId — NOT playable here on console
 };
@@ -203,6 +203,9 @@ struct Media {
     std::string detail;  // secondary line: codec · size · seeders (our own re-render)
     SourceKind kind = SourceKind::Direct;
     bool cached = true;  // debrid cache hint (best-effort; ⚡ vs pending). false = uncached
+#ifdef USE_TORRENT
+    int seeders = -1;  // torrent rows: the seeders the addon printed, -1 when it didn't
+#endif
     // A source is directly playable iff it carries a real URL (parts[0].key).
     bool playable() const { return !parts.empty() && !parts.front().key.empty(); }
 };
