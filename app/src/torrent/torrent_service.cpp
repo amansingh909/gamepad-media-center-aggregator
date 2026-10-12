@@ -278,18 +278,29 @@ std::shared_ptr<Warmup> TorrentService::warmUp(const StreamRequest& req, int64_t
         done(Status::Stopped);
         return handle;
     }
-    std::lock_guard<std::mutex> lock(impl->warmMutex);
-    impl->reap();
-    impl->warmups.emplace_back();
-    Impl::Running& running = impl->warmups.back();
-    running.state = state;
-    try {
-        running.thread = std::thread([this, req, bytes, state, done] { impl->runWarmup(req, bytes, state, done); });
-    } catch (const std::system_error& e) {
-        impl->warmups.pop_back();
-        impl->log(std::string("no thread for a warm-up: ") + e.what());
-        done(Status::Failed);
+    Status refused = Status::Ok;  // set when no thread was made; `done` runs after the lock is released
+    {
+        std::lock_guard<std::mutex> lock(impl->warmMutex);
+        // stop() sets `stopped` before it takes this mutex, so a thread added here is
+        // either seen by stop() or never made: none is left unjoined
+        if (impl->stopped) {
+            refused = Status::Stopped;
+        } else {
+            impl->reap();
+            impl->warmups.emplace_back();
+            Impl::Running& running = impl->warmups.back();
+            running.state = state;
+            try {
+                running.thread =
+                    std::thread([this, req, bytes, state, done] { impl->runWarmup(req, bytes, state, done); });
+            } catch (const std::system_error& e) {
+                impl->warmups.pop_back();
+                impl->log(std::string("no thread for a warm-up: ") + e.what());
+                refused = Status::Failed;
+            }
+        }
     }
+    if (refused != Status::Ok) done(refused);
     return handle;
 }
 
