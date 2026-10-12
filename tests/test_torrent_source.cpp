@@ -119,7 +119,8 @@ int main() {
     CHECK(playerNetworkTimeoutSecs > EngineSettings{}.stallSecs);
     // and never retries a body the server ended (each retry of a stalled torrent waited the
     // stall timeout again): mpv's options for a local stream URL
-    CHECK(playerOptions() == "network-timeout=120,stream-lavf-o=reconnect=0");
+    CHECK(playerOptions() == "network-timeout=120,stream-lavf-o=reconnect=0,cache=yes,demuxer-max-bytes=64MiB,"
+                             "demuxer-max-back-bytes=16MiB,demuxer-readahead-secs=60,cache-pause-wait=5");
 
     // the default trackers: 15, no duplicates, UDP or plain HTTP (the PS4 build has no TLS)
     {

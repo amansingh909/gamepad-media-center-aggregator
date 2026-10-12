@@ -40,6 +40,7 @@ struct Stats {
     bool hasMetadata = false;
     int peers = 0;
     int downloadBytesPerSec = 0;
+    bool reading = false;  // a reader (the player, a download, a warm-up) has it open right now
     Status error = Status::Ok;  // DiskError (no space left) or Failed (any other file or torrent error)
 };
 

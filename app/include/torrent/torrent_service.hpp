@@ -115,6 +115,10 @@ public:
     /// engine's copy of the torrent (keepLastError()) until another watch() changes the hash.
     void watch(const std::string& infoHash);
     Stats snapshot() const;
+    /// The download speed the watched torrents have had while they moved data, in bytes per
+    /// second (a slow average, buffer_hint.hpp); 0 until one did in this app session. Only
+    /// samples taken while a reader has the torrent open count. Any thread.
+    int64_t recentDownloadRate() const;
 
     /// Buffers bytes [0, min(bytes, file size)) of the request's file on a thread of its
     /// own. `done` runs once, on that thread: Ok once the bytes are in (the reader stays

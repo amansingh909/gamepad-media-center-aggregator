@@ -1,5 +1,6 @@
 #include <torrent/torrent_service.hpp>
 
+#include <torrent/buffer_hint.hpp>
 #include <torrent/torrent_server.hpp>
 
 #include <algorithm>
@@ -88,6 +89,7 @@ struct TorrentService::Impl {
     int portMapping = -1;  // UPnP and NAT-PMP on (1) or off (0), -1 for no change
     std::string watched;
     Stats latest;
+    int64_t recentRate = 0;  // nextRecentRate() of the watched torrent's speed while a reader has it
     bool quit = false;
     std::thread worker;
 
@@ -145,7 +147,11 @@ struct TorrentService::Impl {
             Stats s = hash.empty() ? Stats{} : engine.stats(hash);
             publishProgress();
             lock.lock();
-            if (hash == watched) latest = keepLastError(s, latest);
+            if (hash == watched) {
+                latest = keepLastError(s, latest);
+                // only while something reads it: a prefetched or grace torrent is throttled or idle
+                if (s.known && s.reading) recentRate = nextRecentRate(recentRate, s.downloadBytesPerSec);
+            }
         }
     }
 
@@ -343,6 +349,11 @@ void TorrentService::watch(const std::string& infoHash) {
 Stats TorrentService::snapshot() const {
     std::lock_guard<std::mutex> lock(impl->mutex);
     return impl->latest;
+}
+
+int64_t TorrentService::recentDownloadRate() const {
+    std::lock_guard<std::mutex> lock(impl->mutex);
+    return impl->recentRate;
 }
 
 std::shared_ptr<Warmup> TorrentService::warmUp(const StreamRequest& req, int64_t bytes,

@@ -23,6 +23,7 @@
 #include <fmt/ranges.h>
 #ifdef USE_TORRENT
 #include <chrono>
+#include <torrent/buffer_hint.hpp>
 #include <torrent/stremio_source.hpp>
 #include <torrent/torrent_service.hpp>
 #include <torrent/ui_model.hpp>
@@ -579,6 +580,10 @@ void MediaMovie::buildSources(const media::Item& item) {
             peersLabel = static_cast<brls::Label*>(pill->getChildren().front());
             if (m.seeders < 0) pill->setVisibility(brls::Visibility::GONE);
             cells.push_back(pill);
+            // its bitrate clearly above what the downloads have been giving: it would stop to buffer
+            auto* service = torrent::TorrentService::current();
+            if (service && torrent::mayBuffer(m.sizeBytes, item.duration, service->recentDownloadRate()))
+                cells.push_back(sourcePill("main/sources/may_buffer"_i18n, pillBg, greyCol));
         }
 #endif
 #ifdef __PS4__

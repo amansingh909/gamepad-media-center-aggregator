@@ -963,6 +963,7 @@ Stats TorrentEngine::stats(const std::string& infoHash) {
         s.hasMetadata = t->metadata;
         s.peers = st.num_peers;
         s.downloadBytesPerSec = st.download_payload_rate;
+        s.reading = t->readers > 0;
         if (!t->error.empty()) s.error = Impl::failure(*t);
     });
     return ok ? s : Stats{};

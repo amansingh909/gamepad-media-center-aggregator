@@ -26,8 +26,17 @@ constexpr int playerNetworkTimeoutSecs = 120;
 /// "No peers" came five minutes after the data stopped, not one. The server ends a body early
 /// only when the engine gives up on the torrent or the app stops, where a retry can't help.
 /// Seeks open their own connections and don't depend on it.
+/// mpv's read-ahead for a local stream URL, in MiB: about a minute of a 1080p file, so a gap in
+/// the download doesn't reach the picture. The console has room for it.
+constexpr int torrentCacheMiB = 64;
+
+/// And mpv's cache: on (GMCA's in-memory cache setting is 10 MB by default), torrentCacheMiB
+/// ahead and 16 MiB behind, 60 s read ahead, and after a stall 5 s buffered before playing on
+/// instead of stuttering.
 inline std::string playerOptions() {
-    return "network-timeout=" + std::to_string(playerNetworkTimeoutSecs) + ",stream-lavf-o=reconnect=0";
+    return "network-timeout=" + std::to_string(playerNetworkTimeoutSecs) + ",stream-lavf-o=reconnect=0" +
+           ",cache=yes,demuxer-max-bytes=" + std::to_string(torrentCacheMiB) +
+           "MiB,demuxer-max-back-bytes=16MiB,demuxer-readahead-secs=60,cache-pause-wait=5";
 }
 
 /// More trackers than this in one stream is an addon bug, not more peers.
