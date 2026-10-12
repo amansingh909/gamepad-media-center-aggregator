@@ -135,16 +135,21 @@ void DownloadManager::addDownload(const std::string& itemId) {
             dl.thumb = item.type == plex::mediaTypeEpisode
                            ? (!item.parentThumb.empty() ? item.parentThumb : item.grandparentThumb)
                            : item.thumb;
-            // first accessible Part: original quality (PLEX_MIGRATION.md D2)
+            // first accessible Part: original quality (PLEX_MIGRATION.md D2). The medias after
+            // the chosen one, in the detail's order, are the fallbacks (3 sources in all).
+            std::vector<std::string> mediaKeys;  // each media's first accessible part key, or ""
             for (auto& media : item.media) {
-                for (auto& part : media.parts) {
+                std::string key;
+                for (auto& part : media.parts)
                     if (!part.key.empty()) {
-                        dl.partKey = part.key;
+                        key = part.key;
                         break;
                     }
-                }
-                if (!dl.partKey.empty()) break;
+                mediaKeys.push_back(key);
             }
+            const SourcePick pick = pickSources(mediaKeys);
+            dl.partKey = pick.first;
+            dl.fallbackKeys = pick.fallbacks;
             if (dl.partKey.empty()) {
                 brls::Application::notify("main/download/failed"_i18n);
                 return;

@@ -3,6 +3,7 @@
 //   c++ -std=gnu++17 -Wall -Iapp/include tests/test_download_end.cpp -o /tmp/t && /tmp/t
 
 #include <cstdio>
+#include <string>
 #include <utils/download_end.hpp>
 
 static int fails = 0;
@@ -40,6 +41,16 @@ int main() {
     CHECK((fallbackSources({true, true, true}, 1) == std::vector<size_t>{2}));
     CHECK(fallbackSources({true, true, true}, 2).empty());
     CHECK(fallbackSources({}, 0).empty());
+    // from a detail's medias (the first part key of each, "" when none): the first with a key,
+    // then the fallbacks after it
+    {
+        const SourcePick p = pickSources({"", "a", "", "b", "c", "d"});
+        CHECK(p.first == "a");
+        CHECK((p.fallbacks == std::vector<std::string>{"b", "c"}));
+        CHECK(pickSources({"x"}).fallbacks.empty());
+        CHECK(pickSources({"", ""}).first.empty());
+        CHECK(pickSources({}).first.empty());
+    }
     if (fails) return 1;
     std::printf("test_download_end: all passed\n");
     return 0;

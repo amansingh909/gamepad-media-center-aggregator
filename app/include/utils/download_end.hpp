@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstddef>
+#include <string>
 #include <vector>
 
 /*
@@ -50,4 +51,27 @@ inline std::vector<size_t> fallbackSources(const std::vector<bool>& playable, si
     for (size_t i = chosen + 1; i < playable.size() && out.size() + 1 < maxDownloadSources; ++i)
         if (playable[i]) out.push_back(i);
     return out;
+}
+
+/// The source a download takes from a detail's medias (`mediaKeys[i]`: media i's first
+/// accessible part key, or "" when it has none), and the keys it falls back to.
+struct SourcePick {
+    std::string first;
+    std::vector<std::string> fallbacks;
+};
+
+inline SourcePick pickSources(const std::vector<std::string>& mediaKeys) {
+    SourcePick pick;
+    std::vector<bool> playable;
+    size_t chosen = 0;
+    for (size_t i = 0; i < mediaKeys.size(); ++i) {
+        playable.push_back(!mediaKeys[i].empty());
+        if (pick.first.empty() && !mediaKeys[i].empty()) {
+            pick.first = mediaKeys[i];
+            chosen = i;
+        }
+    }
+    if (!pick.first.empty())
+        for (size_t f : fallbackSources(playable, chosen)) pick.fallbacks.push_back(mediaKeys[f]);
+    return pick;
 }
