@@ -196,6 +196,19 @@ void SettingTab::onCreate() {
             const std::string alang = media::audioLangList(MPVCore::AUDIO_LANG, brls::Application::getLocale());
             MPVCore::instance().command("set", "alang", alang.c_str());
         });
+#ifdef MPV_DIAG_LOG
+    // diag builds only, never shipped: the HEVC test switch (English on purpose)
+    {
+        auto* diagVideo = new brls::SelectorCell();
+        diagVideo->init("HEVC test (diag build)",
+            {"Off", "10-bit to 8-bit", "rgba8 framebuffer", "Simple rendering", "All three"},
+            MPVCore::DIAG_VIDEO_TEST, [](int selected) {
+                MPVCore::DIAG_VIDEO_TEST = selected;
+                MPVCore::instance().restart();
+            });
+        selectorSubLang->getParent()->addView(diagVideo);
+    }
+#endif
 
     btnDirectPlay->init("main/setting/playback/force_directplay"_i18n, MPVCore::FORCE_DIRECTPLAY, [&conf](bool value) {
         if (MPVCore::FORCE_DIRECTPLAY == value) return;

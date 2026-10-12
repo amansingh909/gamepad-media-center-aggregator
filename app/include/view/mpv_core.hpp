@@ -140,6 +140,12 @@ public:
     inline static bool SUBS_FALLBACK = true;
     // Settings, Playback, Audio language: "auto" (the app language), "file" (none) or a 2-letter code
     inline static std::string AUDIO_LANG = "auto";
+#ifdef MPV_DIAG_LOG
+    // diag builds: the HEVC test switch (0 off, 1 10-bit to 8-bit, 2 rgba8 framebuffer, 3 simple
+    // rendering, 4 all three), and what the decoder and the video output do, in mpv.log
+    inline static int DIAG_VIDEO_TEST = 0;
+    void diagVideoStats();
+#endif
 
     // 视频缓存（是否使用内存缓存视频，值为缓存的大小，单位MB）
     inline static int INMEMORY_CACHE = 0;

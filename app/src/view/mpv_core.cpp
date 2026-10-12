@@ -15,6 +15,50 @@ static inline void check_error(int status) {
     if (status < 0) brls::Logger::error("MPV ERROR => {}", mpv_error_string(status));
 }
 
+#ifdef MPV_DIAG_LOG
+#include <ctime>
+// Diag builds only (CMake MPV_DIAG_LOG): mpv's own log in {config}/mpv.log, written like
+// torrent.log, the kind of file a console run is known to leave readable over FTP. Opened once,
+// flushed per line (a crash or a PS-button close keeps what was written), capped so a long
+// session cannot fill the disk, and every line goes through redactLogLine (stream and addon URLs
+// can carry keys; it also cuts a line at 200 bytes).
+static std::FILE* mpvDiagFile() {
+    static std::FILE* f = std::fopen((AppConfig::instance().configDir() + "/mpv.log").c_str(), "w");
+    return f;
+}
+static void mpvDiagLine(const std::string& raw) {
+    constexpr long maxFileBytes = 8L * 1024 * 1024;
+    static long written = 0;
+    std::FILE* f = mpvDiagFile();
+    if (!f || written > maxFileBytes) return;
+    std::time_t now = std::time(nullptr);
+    std::tm local{};
+    localtime_r(&now, &local);
+    char stamp[16];
+    std::strftime(stamp, sizeof stamp, "%H:%M:%S", &local);
+    std::string line = std::string("[") + stamp + "] " + misc::redactLogLine(raw);
+    if (written + (long)line.size() > maxFileBytes) line = std::string("[") + stamp + "] log full, no more lines";
+    written += (long)line.size() + 1;
+    std::fprintf(f, "%s\n", line.c_str());
+    std::fflush(f);
+}
+
+// Three lines, each under redactLogLine's 200 bytes
+void MPVCore::diagVideoStats() {
+    auto collect = [this](const std::string& head, std::initializer_list<const char*> props) {
+        std::string line = head;
+        for (const char* p : props) line += std::string(" ") + p + "=" + this->getString(p);
+        mpvDiagLine(line);
+    };
+    const std::string at = "stats at " + std::to_string(this->video_progress) + " s";
+    collect(at + ":", {"video-params/pixelformat", "video-params/hw-pixelformat", "video-params/w", "video-params/h",
+                          "video-out-params/pixelformat", "hwdec-current", "current-vo"});
+    collect(at + " (2):", {"video-codec", "container-fps", "estimated-vf-fps"});
+    collect(at + " (3):", {"decoder-frame-drop-count", "frame-drop-count", "vo-delayed-frame-count", "avsync",
+                              "demuxer-cache-duration"});
+}
+#endif
+
 #ifndef MPV_SW_RENDER
 #ifdef BOREALIS_USE_D3D11
 #include <borealis/platforms/driver/d3d11.hpp>
@@ -225,6 +269,15 @@ void MPVCore::init() {
     } else {
         mpv_request_log_messages(mpv, brls::Application::isDebuggingViewEnabled() ? "info" : "warn");
     }
+#ifdef MPV_DIAG_LOG
+    // diag builds: the HEVC test switch, and mpv's verbose log (decoder, video output, formats)
+    if (DIAG_VIDEO_TEST == 1 || DIAG_VIDEO_TEST == 4) mpv_set_option_string(mpv, "vf", "format=yuv420p");
+    if (DIAG_VIDEO_TEST == 2 || DIAG_VIDEO_TEST == 4) mpv_set_option_string(mpv, "fbo-format", "rgba8");
+    if (DIAG_VIDEO_TEST == 3 || DIAG_VIDEO_TEST == 4) mpv_set_option_string(mpv, "gpu-dumb-mode", "yes");
+    mpv_request_log_messages(mpv, "v");
+    mpvDiagLine("mpv start: HEVC test " + std::to_string(DIAG_VIDEO_TEST) + ", alang " +
+                media::audioLangList(AUDIO_LANG, brls::Application::getLocale()));
+#endif
 
 #if (defined(__APPLE__) || defined(__linux__) || defined(_WIN32)) && !defined(ANDROID)
     if (conf.getItem(AppConfig::SINGLE, false)) {
@@ -615,6 +668,13 @@ void MPVCore::eventMainLoop() {
             return;
         case MPV_EVENT_LOG_MESSAGE: {
             auto log = (mpv_event_log_message *)event->data;
+#ifdef MPV_DIAG_LOG
+            {
+                std::string text = log->text ? log->text : "";
+                while (!text.empty() && text.back() == '\n') text.pop_back();
+                mpvDiagLine(std::string("[") + log->level + "] " + log->prefix + ": " + text);
+            }
+#endif
             // keep the FIRST lines since the load or the last restart: with a
             // network failure the root cause comes first, then generic wrappers
             if (log->log_level <= MPV_LOG_LEVEL_ERROR) {
@@ -641,6 +701,9 @@ void MPVCore::eventMainLoop() {
             return;
         case MPV_EVENT_FILE_LOADED:
             brls::Logger::info("MPVCore => EVENT_FILE_LOADED");
+#ifdef MPV_DIAG_LOG
+            this->diagVideoStats();
+#endif
             // event 8: 文件预加载结束，准备解码
             mpvCoreEvent.fire(MpvEventEnum::MPV_LOADED);
             break;
@@ -740,6 +803,10 @@ void MPVCore::eventMainLoop() {
                 if (video_progress != (int64_t)playback_time) {
                     video_progress = (int64_t)playback_time;
                     mpvCoreEvent.fire(MpvEventEnum::UPDATE_PROGRESS);
+#ifdef MPV_DIAG_LOG
+                    // every 10 s of playback: what the decoder and the video output are doing
+                    if (video_progress % 10 == 0) this->diagVideoStats();
+#endif
                 }
                 break;
             case 5:  // cache-speed
