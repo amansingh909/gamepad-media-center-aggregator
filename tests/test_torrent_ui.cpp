@@ -128,6 +128,21 @@ int main() {
     CHECK(pulseAlpha(0.6) < pulseAlpha(0.3) && pulseAlpha(1.8) > pulseAlpha(1.5));
     CHECK(pulseAlpha(-1) > 0.999f);
 
+    // the focused torrent row's pill: live peers once the engine has some, else the seeders
+    {
+        Stats live;
+        live.known = true;
+        live.peers = 23;
+        CHECK_EQ(rowPeers(45, live).key, "main/torrent/loading/peers");
+        CHECK(rowPeers(45, live).count == 23);
+        CHECK(rowPeers(-1, live).count == 23);
+        live.peers = 0;  // the engine has it, still connecting
+        CHECK_EQ(rowPeers(45, live).key, "main/torrent/source/seeders");
+        CHECK(rowPeers(45, live).count == 45);
+        CHECK_EQ(rowPeers(45, Stats{}).key, "main/torrent/source/seeders");
+        CHECK_EQ(rowPeers(-1, Stats{}).key, "");
+    }
+
     if (failures == 0) printf("test_torrent_ui: all passed\n");
     return failures ? 1 : 0;
 }

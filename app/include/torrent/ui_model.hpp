@@ -112,6 +112,19 @@ inline std::string formatRate(int bytesPerSec) {
     return text;
 }
 
+/// What a torrent row's pill says, as an i18n key and its number: the peers the engine is
+/// connected to once it has some for this torrent (its prefetch connected), else the seeders
+/// the addon printed. An empty key: no pill.
+struct RowPeers {
+    const char* key;
+    int count;
+};
+inline RowPeers rowPeers(int addonSeeders, const Stats& live) {
+    if (live.known && live.peers > 0) return {"main/torrent/loading/peers", live.peers};
+    if (addonSeeders >= 0) return {"main/torrent/source/seeders", addonSeeders};
+    return {"", -1};
+}
+
 /// The logo's slow pulse: alpha from 1 down to 0.45 and back, every 2.4 seconds.
 inline float pulseAlpha(double seconds) {
     const double period = 2.4, pi = 3.14159265358979323846;

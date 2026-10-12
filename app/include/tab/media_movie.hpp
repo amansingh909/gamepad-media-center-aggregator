@@ -77,8 +77,12 @@ private:
     /// A torrent row got or lost the focus: after a second on it, the engine starts
     /// fetching that torrent's info and peers, so A starts faster.
     void torrentRowFocus(const std::string& url, bool focused);
+    /// While a torrent row has the focus, its pill (`label`) shows the engine's peers once it
+    /// has some, refreshed every second; the addon's `seeders` again when the focus leaves.
+    void torrentRowPeers(const std::string& url, brls::Label* label, int seeders, bool focused);
     torrent::PrefetchGate prefetchGate;
     brls::Timer prefetchTimer;
+    brls::RepeatingTimer peersTimer;
 #endif
 
     DownloadManager::ProgressEvent::Subscription progressSub;

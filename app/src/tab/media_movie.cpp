@@ -211,6 +211,7 @@ MediaMovie::~MediaMovie() {
     Image::cancel(this->imageBackdrop);
 #ifdef USE_TORRENT
     this->prefetchTimer.stop();
+    this->peersTimer.stop();
 #endif
 }
 
@@ -382,6 +383,35 @@ void MediaMovie::torrentRowFocus(const std::string& url, bool focused) {
     });
     this->prefetchTimer.start(1000);
 }
+
+void MediaMovie::torrentRowPeers(const std::string& url, brls::Label* label, int seeders, bool focused) {
+    this->peersTimer.stop();
+    auto show = [label, seeders](const torrent::Stats& live) {
+        const torrent::RowPeers p = torrent::rowPeers(seeders, live);
+        brls::View* pill = label->getParent();
+        if (!p.key[0]) {
+            pill->setVisibility(brls::Visibility::GONE);
+            return;
+        }
+        label->setText(brls::getStr(p.key, p.count));
+        pill->setVisibility(brls::Visibility::VISIBLE);
+    };
+    torrent::StreamRequest req;
+    if (!focused || !torrent::TorrentService::current() || !torrent::parseLocalStreamUrl(url, req)) {
+        show(torrent::Stats{});  // the addon's seeders again
+        return;
+    }
+    const std::string hash = req.infoHash;
+    this->peersTimer.setCallback([show, hash]() {
+        auto* service = torrent::TorrentService::current();
+        if (!service) return;
+        // the player watches its own torrent while it plays: ask for this one again each time
+        // (watch() of the same hash costs nothing), then read what the worker last saw
+        service->watch(hash);
+        show(service->snapshot());
+    });
+    this->peersTimer.start(1000);
+}
 #endif
 
 void MediaMovie::showFindingStreams() {
@@ -404,8 +434,9 @@ void MediaMovie::showFindingStreams() {
 
 void MediaMovie::buildSources(const media::Item& item) {
 #ifdef USE_TORRENT
-    // the rows go: a pending prefetch must not fire for a row that no longer exists
+    // the rows go: a pending prefetch, or a peers refresh, must not reach a row that no longer exists
     this->prefetchTimer.stop();
+    this->peersTimer.stop();
 #endif
     this->expandFocus = nullptr;
     this->sourcesBox->clearViews();
@@ -526,9 +557,15 @@ void MediaMovie::buildSources(const media::Item& item) {
         else
             cells.push_back(sourcePill("main/stremio/source/direct"_i18n, pillBg, textCol));
 #ifdef USE_TORRENT
-        // the seeders the addon printed: a torrent with none rarely starts
-        if (torrentRow && m.seeders >= 0)
-            cells.push_back(sourcePill(brls::getStr("main/torrent/source/seeders", m.seeders), pillBg, textCol));
+        // the seeders the addon printed (a torrent with none rarely starts); while the row has the
+        // focus, the engine's peers once it has some (torrentRowPeers)
+        brls::Label* peersLabel = nullptr;
+        if (torrentRow) {
+            brls::Box* pill = sourcePill(brls::getStr("main/torrent/source/seeders", m.seeders), pillBg, textCol);
+            peersLabel = static_cast<brls::Label*>(pill->getChildren().front());
+            if (m.seeders < 0) pill->setVisibility(brls::Visibility::GONE);
+            cells.push_back(pill);
+        }
 #endif
 #ifdef __PS4__
         // HEVC, AV1 and 10-bit decode in software on the console and are often not drawn
@@ -552,7 +589,11 @@ void MediaMovie::buildSources(const media::Item& item) {
 #ifdef USE_TORRENT
         if (torrentRow) {
             std::string url = m.parts.front().key;
-            row->focusChanged = [this, url](bool focused) { this->torrentRowFocus(url, focused); };
+            const int seeders = m.seeders;
+            row->focusChanged = [this, url, peersLabel, seeders](bool focused) {
+                this->torrentRowFocus(url, focused);
+                this->torrentRowPeers(url, peersLabel, seeders, focused);
+            };
         }
 #endif
         row->registerClickAction([this, idx](brls::View*) {
