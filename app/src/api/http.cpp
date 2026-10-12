@@ -237,6 +237,10 @@ int HTTP::perform(std::ostream* body) {
     curl_easy_setopt(this->easy, CURLOPT_WRITEFUNCTION, easy_write_cb);
     curl_easy_setopt(this->easy, CURLOPT_WRITEDATA, body);
     curl_easy_setopt(this->easy, CURLOPT_PROXY, PROXY_STATUS ? PROXY.c_str() : nullptr);
+#ifdef USE_TORRENT
+    // torrent downloads read from this machine's own server, never through the proxy
+    curl_easy_setopt(this->easy, CURLOPT_NOPROXY, "127.0.0.1,localhost");
+#endif
 
     CURLcode res = curl_easy_perform(this->easy);
     if (res != CURLE_OK) throw curl_error(res);

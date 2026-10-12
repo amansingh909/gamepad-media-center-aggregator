@@ -13,9 +13,32 @@
 
 #include <optional>
 
+#ifdef __PS4__
+#include <torrent/posix_tree.hpp>
+#endif
+#ifdef USE_TORRENT
+#include <torrent/stremio_source.hpp>
+#endif
+
 using namespace brls::literals;  // for _i18n
 
 std::string DownloadManager::downloadDir() const { return AppConfig::instance().configDir() + "/downloads"; }
+
+// Deletes a download's folder. On the PS4, std::filesystem::remove_all fails with ENOSYS
+// (OpenOrbis musl's lstat is a stub), so it goes through the POSIX remover the torrent
+// engine uses there.
+static void removeDownloadDir(const std::string& dir) {
+#ifdef __PS4__
+    std::string error;
+    if (!torrent::removeTree(dir, error)) brls::Logger::error("Failed to remove download dir: {}", error);
+#else
+    try {
+        if (fs::exists(dir)) fs::remove_all(dir);
+    } catch (const std::exception& e) {
+        brls::Logger::error("Failed to remove download dir: {}", e.what());
+    }
+#endif
+}
 
 void DownloadManager::init() {
     auto dir = this->downloadDir();
@@ -212,13 +235,7 @@ void DownloadManager::removeDownload(const std::string& itemId) {
 
     if (!wasActive) {
         std::string dir = this->downloadDir() + "/" + itemId;
-        brls::async([dir]() {
-            try {
-                if (fs::exists(dir)) fs::remove_all(dir);
-            } catch (const std::exception& e) {
-                brls::Logger::error("Failed to remove download dir: {}", e.what());
-            }
-        });
+        brls::async([dir]() { removeDownloadDir(dir); });
     }
 
     if (erased) {
@@ -437,6 +454,12 @@ void DownloadManager::doDownload(DownloadItem& item) {
                 std::all_of(cand.begin(), cand.end(), [](unsigned char c) { return std::isalnum(c) != 0; }))
                 ext = cand;
         }
+#ifdef USE_TORRENT
+        // a torrent's local URL has no extension in its path; its file name hint (f=) does.
+        // No hint (name over 200 bytes, or none) keeps the default above.
+        std::string hinted = torrent::localStreamExtension(partKey);
+        if (!hinted.empty()) ext = hinted;
+#endif
 
         std::string fileName = "video." + ext;
         std::string filePath = itemDir + "/" + fileName;
@@ -566,13 +589,7 @@ void DownloadManager::doDownload(DownloadItem& item) {
                     this->saveIndex();
                     if (removed) {
                         std::string dir = this->downloadDir() + "/" + itemId;
-                        brls::async([dir]() {
-                            try {
-                                if (fs::exists(dir)) fs::remove_all(dir);
-                            } catch (const std::exception& e) {
-                                brls::Logger::error("Failed to remove download dir: {}", e.what());
-                            }
-                        });
+                        brls::async([dir]() { removeDownloadDir(dir); });
                     }
                 } else if (success) {
                     finalStatus = DownloadStatus::Completed;
