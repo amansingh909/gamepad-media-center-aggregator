@@ -1050,7 +1050,8 @@ void StremioBackend::markWatched(const std::string& id) {
             if (pid.stremioType == "series" && pid.episode >= 0) {
                 // one episode, not the whole show, as Stremio's clients do: the show moves on to
                 // the next episode and stays in Continue Watching with it, leaves the row after
-                // its last one, and an episode before the saved one changes nothing
+                // its last one; an episode before the saved one changes nothing, and neither
+                // does one whose show's episodes couldn't be fetched
                 const std::vector<media::Item> eps = seriesEpisodes(engine, pid.baseId);
                 std::vector<EpisodeRef> refs;
                 for (auto& e : eps) refs.push_back({e.parentIndex, e.index});

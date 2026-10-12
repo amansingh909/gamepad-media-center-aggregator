@@ -181,9 +181,12 @@ inline int showNextUp(const std::vector<EpisodeRef>& eps, const LibraryState& s,
 /// What "Mark as watched" on one episode does to its show's saved state, as stremio-core does:
 /// Advance to the next episode (its advance_to_video: position 1 ms, length unknown), so the
 /// show stays in Continue Watching with that one; Clear the position when it was the last one or
-/// the show's episodes aren't known (its mark_as_watched), so the show leaves the row; Keep the
-/// state when the episode comes before the saved one, so marking an old episode never loses a
-/// later one in progress.
+/// the show doesn't list it (its mark_as_watched), so the show leaves the row; Keep the state
+/// when the episode comes before the saved one, so marking an old episode never loses a later
+/// one in progress; when it is the saved one, already watched to its end (the player's last
+/// save, at an end of file or a stop near it), so a mark that lands after that save never undoes
+/// it; and when the show's episodes couldn't be fetched, so a network error never wipes a
+/// position.
 struct EpisodeWatched {
     enum Kind { Keep, Advance, Clear };
     Kind kind;
@@ -193,9 +196,13 @@ struct EpisodeWatched {
 inline EpisodeWatched episodeWatched(
     const std::vector<EpisodeRef>& eps, const LibraryState& s, int64_t season, int64_t episode) {
     int64_t savedSeason = 0, savedEpisode = 0;
-    if (parseEpisodeId(s.videoId, savedSeason, savedEpisode) &&
-        (season < savedSeason || (season == savedSeason && episode < savedEpisode)))
-        return {EpisodeWatched::Keep, -1};
+    if (parseEpisodeId(s.videoId, savedSeason, savedEpisode)) {
+        if (season < savedSeason || (season == savedSeason && episode < savedEpisode))
+            return {EpisodeWatched::Keep, -1};
+        if (season == savedSeason && episode == savedEpisode && isFinished(s.timeOffsetMs, s.durationMs))
+            return {EpisodeWatched::Keep, -1};
+    }
+    if (eps.empty()) return {EpisodeWatched::Keep, -1};
     const int next = nextEpisodeIndex(eps, season, episode);
     if (next >= 0) return {EpisodeWatched::Advance, next};
     return {EpisodeWatched::Clear, -1};

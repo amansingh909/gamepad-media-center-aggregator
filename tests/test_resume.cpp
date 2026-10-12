@@ -182,8 +182,17 @@ int main() {
     CHECK(w.kind == EpisodeWatched::Keep);  // a special sorts first: kept too
     w = episodeWatched(eps, saved, 5, 5);
     CHECK(w.kind == EpisodeWatched::Clear);  // an episode the show doesn't list
+    LibraryState done = saved;  // the player already saved S1E2 as watched to its end
+    done.timeOffsetMs = 44 * 60000;
+    w = episodeWatched(eps, done, 1, 2);
+    CHECK(w.kind == EpisodeWatched::Keep);  // a mark landing after that save never undoes it
+    done.videoId = "tt1:2:1";
+    w = episodeWatched(eps, done, 2, 1);
+    CHECK(w.kind == EpisodeWatched::Keep);  // the last one, finished: stays in the row
     w = episodeWatched({}, saved, 2, 1);
-    CHECK(w.kind == EpisodeWatched::Clear);  // the show's episodes unknown
+    CHECK(w.kind == EpisodeWatched::Keep && w.next == -1);  // the show's episodes unknown: no change
+    w = episodeWatched({}, LibraryState{}, 1, 1);
+    CHECK(w.kind == EpisodeWatched::Keep);  // a network error never wipes a position
 
     if (failures == 0) printf("test_resume: all passed\n");
     return failures ? 1 : 0;
