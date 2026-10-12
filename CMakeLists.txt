@@ -403,10 +403,13 @@ elseif (PLATFORM_PSV)
         FILE ${PSV_ASSETS_FILES}
     )
 elseif (PLATFORM_PS4)
-    # param.sfo ATTRIBUTE: 0x800000 (PS4 Pro mode) and 0x20, the system software assigns the
-    # enter button of system dialogs such as the keyboard: it follows the console's setting, as
-    # borealis does for the app's own keys, instead of always confirming with Circle
-    set(PS4_SFO_ATTRIBUTE 8388640)
+    # param.sfo ATTRIBUTE: 0x800000 is PS4 Pro mode. 0x20 is intended to make system dialogs (the
+    # keyboard) follow the console's enter-button setting, as borealis does for the app's own
+    # keys; unverified, checked on the console. 0x2 is the other candidate
+    # (-DPS4_SFO_ATTRIBUTE=8388610)
+    if (NOT DEFINED PS4_SFO_ATTRIBUTE)
+        set(PS4_SFO_ATTRIBUTE 8388640)
+    endif()
     add_self(${PROJECT_NAME})
     add_pkg(${PROJECT_NAME}
             ${CMAKE_BINARY_DIR}/ps4
