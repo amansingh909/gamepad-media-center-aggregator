@@ -57,6 +57,9 @@ int64_t Warmup::buffered() const { return state->buffered; }
 int64_t Warmup::target() const { return state->target; }
 void Warmup::finish() { state->end(false); }
 void Warmup::cancel() { state->end(true); }
+// Dropping the handle ends the warm-up: end(true) both gives up a warm-up that hasn't reported
+// and, once `done` has run (abandoned is no longer read), lets the thread release its reader.
+Warmup::~Warmup() { state->end(true); }
 
 struct TorrentService::Impl {
     ServiceSettings settings;
@@ -287,14 +290,15 @@ std::shared_ptr<Warmup> TorrentService::warmUp(const StreamRequest& req, int64_t
             refused = Status::Stopped;
         } else {
             impl->reap();
-            impl->warmups.emplace_back();
-            Impl::Running& running = impl->warmups.back();
-            running.state = state;
             try {
+                impl->warmups.emplace_back();
+                Impl::Running& running = impl->warmups.back();
+                running.state = state;
                 running.thread =
                     std::thread([this, req, bytes, state, done] { impl->runWarmup(req, bytes, state, done); });
-            } catch (const std::system_error& e) {
-                impl->warmups.pop_back();
+            } catch (const std::exception& e) {  // system_error, bad_alloc
+                // a Running without a thread must not stay in the list
+                if (!impl->warmups.empty() && !impl->warmups.back().thread.joinable()) impl->warmups.pop_back();
                 impl->log(std::string("no thread for a warm-up: ") + e.what());
                 refused = Status::Failed;
             }

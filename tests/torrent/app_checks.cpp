@@ -233,6 +233,16 @@ static void serviceChecks() {
     CHECK(cancelled.count() == 1 && cancelled.last() == torrent::Status::Stopped);
     w->cancel();
 
+    // dropping the handle without cancel() ends an unfinished warm-up the same way
+    Calls dropped;
+    {
+        auto w3 = service.warmUp(request(dead(11)), torrent::startBufferBytes, dropped.recorder());
+        std::this_thread::sleep_for(std::chrono::seconds(1));
+        CHECK(dropped.count() == 0);
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds(1500));
+    CHECK(dropped.count() == 1 && dropped.last() == torrent::Status::Stopped);
+
     // stop() ends a waiting warm-up, and later ones are refused at once
     Calls pending;
     auto w2 = service.warmUp(request(dead(9)), torrent::startBufferBytes, pending.recorder());

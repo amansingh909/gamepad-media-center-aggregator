@@ -38,10 +38,15 @@ struct ServiceSettings {
 /// The start of one file, buffered for the player (TorrentService::warmUp()). While the
 /// player keeps it, the engine keeps its reader, so that stretch and the file's tail stay
 /// wanted until mpv has data.
+/// Dropping the last handle without finish() or cancel() ends the warm-up the same way as
+/// cancel(), so a handle that is forgotten never leaves a reader behind.
 class Warmup {
 public:
     struct State;
     explicit Warmup(std::shared_ptr<State> state);
+    ~Warmup();  // dropping the handle ends the warm-up, like cancel()
+    Warmup(const Warmup&) = delete;
+    Warmup& operator=(const Warmup&) = delete;
 
     /// Bytes from the start of the file confirmed so far, and how many it waits for (0
     /// until the torrent's metadata is in). Any thread.
