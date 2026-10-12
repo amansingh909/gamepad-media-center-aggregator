@@ -118,9 +118,17 @@ void DownloadManager::addDownload(const std::string& itemId) {
     // metadata for the download
     AppConfig::instance().backend().getItemDetail(
         itemId, true,  // full: Stremio resolves its streams (the sources) only for a full detail
-        [this](const media::Item& item) {
+        [this, itemId](const media::Item& item) {
 
             std::lock_guard<std::mutex> lock(this->mutex);
+
+            // a second request made while this detail was in flight lands here too: one per item
+            for (auto& existing : this->items) {
+                if (existing.itemId == item.ratingKey || existing.itemId == itemId) {
+                    brls::Logger::info("Already exists: {}", item.ratingKey);
+                    return;
+                }
+            }
 
             DownloadItem dl;
             dl.itemId = item.ratingKey;
