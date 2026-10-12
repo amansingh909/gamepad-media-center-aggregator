@@ -14,6 +14,7 @@
 #include <optional>
 
 #include "utils/download_path.hpp"
+#include "utils/download_end.hpp"
 
 #ifdef __PS4__
 #include <torrent/posix_tree.hpp>
@@ -544,8 +545,7 @@ void DownloadManager::doDownload(DownloadItem& item) {
                 });
             };
 
-        bool cancelled = false;
-        bool success = false;
+        bool threw = false;
         std::string error;
 
         try {
@@ -559,13 +559,17 @@ void DownloadManager::doDownload(DownloadItem& item) {
             // the last buffered bytes reach the disk only here, and can fail the same way
             of.close();
             if (!of) throw std::runtime_error("Failed to write " + fileName);
-
-            cancelled = cancel->load();
-            if (!cancelled) success = true;
         } catch (const std::exception& ex) {
+            threw = true;
             error = ex.what();
             brls::Logger::error("Download failed: {} - {}", itemId, error);
         }
+
+        // a cancel aborts curl through the progress callback, so the transfer throws:
+        // the flag is read on both paths (removing an active download sets it too)
+        const DownloadEnd end = classifyDownloadEnd(threw, cancel->load());
+        const bool cancelled = end.cancelled;
+        const bool success = end.success;
 
         // Offline capture (fiche + ancestors + artwork) on this worker thread,
         // before signalling completion — best-effort, never fails the download.
