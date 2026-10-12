@@ -123,6 +123,9 @@ int main() {
 
     // mpv waits longer than the engine's stall timeout, so the engine's error is the one shown
     CHECK(playerNetworkTimeoutSecs > EngineSettings{}.stallSecs);
+    // and never retries a body the server ended (each retry of a stalled torrent waited the
+    // stall timeout again): mpv's options for a local stream URL
+    CHECK(playerOptions() == "network-timeout=120,stream-lavf-o=reconnect=0");
 
     if (failures == 0) printf("test_torrent_source: all passed\n");
     return failures ? 1 : 0;

@@ -980,9 +980,9 @@ media::PlaybackSource StremioBackend::resolvePlayback(
     torrent::StreamRequest torrentRequest;
     if (torrent::parseLocalStreamUrl(version.parts.front().key, torrentRequest)) {
         // the engine answers or gives up within its stall timeout and the loading screen
-        // says why; mpv waits longer. No proxy: the server is this machine.
-        std::string torrentExtra = "network-timeout=" + std::to_string(torrent::playerNetworkTimeoutSecs);
-        return {version.parts.front().key, torrentExtra, false, "directplay"};
+        // says why; mpv waits longer, and never retries a body the server ended. No proxy:
+        // the server is this machine.
+        return {version.parts.front().key, torrent::playerOptions(), false, "directplay"};
     }
 #endif
     std::string extra = "network-timeout=" + std::to_string(HTTP::TIMEOUT / 100);

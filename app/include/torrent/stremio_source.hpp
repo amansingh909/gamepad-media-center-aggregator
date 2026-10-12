@@ -20,6 +20,16 @@ constexpr const char* localStreamBase = "http://127.0.0.1:11470";
 /// screen reports that; mpv must not give up first.
 constexpr int playerNetworkTimeoutSecs = 120;
 
+/// mpv's options for a local stream URL: the timeout above, and no reconnect. mpv turns
+/// ffmpeg's reconnect on, and ffmpeg then retries a body that ended early four times; against
+/// a stalled torrent each retry waited the engine's whole stall timeout before its 504, so
+/// "No peers" came five minutes after the data stopped, not one. The server ends a body early
+/// only when the engine gives up on the torrent or the app stops, where a retry can't help.
+/// Seeks open their own connections and don't depend on it.
+inline std::string playerOptions() {
+    return "network-timeout=" + std::to_string(playerNetworkTimeoutSecs) + ",stream-lavf-o=reconnect=0";
+}
+
 /// More trackers than this in one stream is an addon bug, not more peers.
 constexpr size_t maxTrackers = 16;
 
