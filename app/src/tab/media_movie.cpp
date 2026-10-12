@@ -20,6 +20,8 @@
 #include "tab/remote_view.hpp"
 #include <fmt/ranges.h>
 #ifdef USE_TORRENT
+#include <chrono>
+#include <torrent/stremio_source.hpp>
 #include <torrent/torrent_service.hpp>
 #include <torrent/ui_model.hpp>
 #endif
@@ -79,12 +81,27 @@ public:
         NVGcolor c = brls::Application::getTheme().getColor("color/app");
         c.a = 0.22f;  // light orange tint
         this->setBackgroundColor(c);
+#ifdef USE_TORRENT
+        if (this->focusChanged) this->focusChanged(true);
+#endif
     }
     void onFocusLost() override {
         brls::Box::onFocusLost();
         this->setBackgroundColor(nvgRGBA(0, 0, 0, 0));
+#ifdef USE_TORRENT
+        if (this->focusChanged) this->focusChanged(false);
+#endif
     }
+#ifdef USE_TORRENT
+    std::function<void(bool)> focusChanged;  // torrent rows: prefetch on focus
+#endif
 };
+
+#ifdef USE_TORRENT
+double secondsNow() {
+    return std::chrono::duration<double>(std::chrono::steady_clock::now().time_since_epoch()).count();
+}
+#endif
 
 }  // namespace
 
@@ -191,6 +208,9 @@ MediaMovie::~MediaMovie() {
     Image::cancel(this->imageLogo);
     Image::cancel(this->imagePoster);
     Image::cancel(this->imageBackdrop);
+#ifdef USE_TORRENT
+    this->prefetchTimer.stop();
+#endif
 }
 
 void MediaMovie::updateDownloadButton() {
@@ -335,6 +355,26 @@ void MediaMovie::downloadSource(int mediaIndex) {
     brls::Application::notify("main/download/queued"_i18n);
 }
 
+#ifdef USE_TORRENT
+void MediaMovie::torrentRowFocus(const std::string& url, bool focused) {
+    if (!focused) {
+        if (this->prefetchGate.blur(url)) this->prefetchTimer.stop();
+        return;
+    }
+    this->prefetchGate.focus(url, secondsNow());
+    this->prefetchTimer.stop();
+    this->prefetchTimer.setEndCallback([this](bool finished) {
+        if (!finished) return;  // stopped: the focus moved on
+        const std::string due = this->prefetchGate.due(secondsNow());
+        auto* service = torrent::TorrentService::current();
+        torrent::StreamRequest req;
+        if (due.empty() || !service || !torrent::parseLocalStreamUrl(due, req)) return;
+        service->prefetch(req);
+    });
+    this->prefetchTimer.start(1000);
+}
+#endif
+
 void MediaMovie::buildSources(const media::Item& item) {
     this->sourcesBox->clearViews();
     this->sourcesBox->setVisibility(brls::Visibility::GONE);
@@ -464,6 +504,12 @@ void MediaMovie::buildSources(const media::Item& item) {
 
         SourceRow* row = makeRow(cells);
         int idx = (int)i;
+#ifdef USE_TORRENT
+        if (torrentRow) {
+            std::string url = m.parts.front().key;
+            row->focusChanged = [this, url](bool focused) { this->torrentRowFocus(url, focused); };
+        }
+#endif
         row->registerClickAction([this, idx](brls::View*) {
             this->playSource(idx);
             return true;

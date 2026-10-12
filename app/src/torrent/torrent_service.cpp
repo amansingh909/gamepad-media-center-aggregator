@@ -124,7 +124,10 @@ struct TorrentService::Impl {
                 engine.setUploadLimit(limit);
                 log("upload limit " + std::to_string(limit / 1024) + " KB/s");
             }
-            for (const auto& r : todo) engine.prefetch(r);
+            for (const auto& r : todo) {
+                log("prefetch " + r.infoHash);
+                engine.prefetch(r);
+            }
             Stats s = hash.empty() ? Stats{} : engine.stats(hash);
             publishProgress();
             lock.lock();

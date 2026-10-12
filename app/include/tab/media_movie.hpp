@@ -9,6 +9,9 @@
 #include <api/plex/types.hpp>
 #include <utils/download.hpp>
 #include <view/svg_image.hpp>
+#ifdef USE_TORRENT
+#include <torrent/prefetch_gate.hpp>
+#endif
 
 class HRecyclerFrame;
 class TextBox;
@@ -67,6 +70,13 @@ private:
     void initWatchlist(const media::Item& item);
     void toggleWatchlist();
     void updateWatchlistButton();
+#ifdef USE_TORRENT
+    /// A torrent row got or lost the focus: after a second on it, the engine starts
+    /// fetching that torrent's info and peers, so A starts faster.
+    void torrentRowFocus(const std::string& url, bool focused);
+    torrent::PrefetchGate prefetchGate;
+    brls::Timer prefetchTimer;
+#endif
 
     DownloadManager::ProgressEvent::Subscription progressSub;
     DownloadManager::StatusEvent::Subscription statusSub;
