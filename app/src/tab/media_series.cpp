@@ -569,6 +569,8 @@ void MediaSeries::doRequest() {
 
 void MediaSeries::doPlay() {
     if (this->onDeck.ratingKey.empty()) return;
+    // "Finding streams...": nothing to play or explain yet
+    if (this->searching) return;
     // Muted Play (Stremio, no playable source for the next episode): explain
     // rather than launch a player that would just fail.
     if (!this->nextPlayable) {
@@ -870,6 +872,7 @@ void MediaSeries::doNextup() {
                 // it — hiding a focused button strands the focus highlight.
                 bool fs = fromStart;
                 this->nextPlayable = false;
+                this->searching = true;
                 this->btnPlay->setMuted(true);
                 this->btnPlay->setText("main/sources/finding"_i18n);
                 std::string epId = item.ratingKey;
@@ -886,6 +889,7 @@ void MediaSeries::doNextup() {
                             }
                         this->onDeck = full;  // resolved (carries sources)
                         this->nextPlayable = playable;
+                        this->searching = false;
                         this->btnPlay->setMuted(!playable);
                         this->btnPlay->setText(playable
                                 ? (fs ? "main/media/replay"_i18n : "main/media/play"_i18n)
@@ -894,6 +898,7 @@ void MediaSeries::doNextup() {
                     [ASYNC_TOKEN](const std::string& ex) {
                         ASYNC_RELEASE
                         brls::Logger::warning("MediaSeries next episode sources: {}", ex);
+                        this->searching = false;
                         this->btnPlay->setText("main/stremio/source/unavailable"_i18n);
                     });
             } else {
