@@ -18,6 +18,9 @@
 
 #include "api/backend.hpp"
 #include "api/stremio/addons.hpp"
+#include <chrono>
+#include <map>
+#include <string>
 
 namespace stremio {
 
@@ -70,6 +73,7 @@ public:
     // ---- item actions --------------------------------------------------------
     void markWatched(const std::string& id) override;
     void markUnwatched(const std::string& id) override;
+    void clearProgress(const std::string& id) override;
 
     // ---- playback (étape 2) --------------------------------------------------
     media::PlaybackSource resolvePlayback(
@@ -97,6 +101,8 @@ public:
 private:
     media::Capabilities caps_;
     AddonEngine engine;
+    // reportProgress(), on the UI thread: when each item's playing position was last saved
+    std::map<std::string, std::chrono::steady_clock::time_point> lastPlayingSave;
 };
 
 }  // namespace stremio

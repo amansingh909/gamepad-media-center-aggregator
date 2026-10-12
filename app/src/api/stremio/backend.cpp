@@ -21,6 +21,7 @@
 #include "api/stremio/backend.hpp"
 #include "api/stremio/types.hpp"
 #include "api/stremio/auth.hpp"
+#include "api/stremio/resume.hpp"
 #include "api/media/langs.hpp"
 #include "utils/config.hpp"
 #ifdef USE_TORRENT
@@ -83,6 +84,55 @@ media::Item itemFromLibrary(const nlohmann::json& j) {
         it.viewOffset = jint(*st, "timeOffset");
         it.viewCount = jint(*st, "flaggedWatched") > 0 ? 1 : 0;
         it.duration = jint(*st, "duration");
+    }
+    return it;
+}
+
+/// A datastore libraryItem as the Continue Watching rules (resume.hpp) read it.
+LibraryEntry libraryEntry(const nlohmann::json& j) {
+    LibraryEntry e;
+    e.id = jstr(j, "_id");
+    e.type = jstr(j, "type");
+    e.name = jstr(j, "name");
+    e.poster = jstr(j, "poster");
+    auto st = j.find("state");
+    if (st != j.end() && st->is_object()) {
+        e.state.timeOffsetMs = jint(*st, "timeOffset");
+        e.state.durationMs = jint(*st, "duration");
+        e.state.flaggedWatched = jint(*st, "flaggedWatched") > 0;
+        e.state.videoId = jstr(*st, "videoId");
+        e.state.lastWatched = jstr(*st, "lastWatched");
+    }
+    return e;
+}
+
+/// A Continue Watching card's item: the movie, or the episode the show was left at, with its
+/// position, length and when it was last watched (epoch seconds). The episode's own title isn't
+/// in the library: the Home row asks the show for it (resume_source.cpp).
+media::Item resumeItem(const LibraryEntry& e) {
+    media::Item it;
+    it.type = mapType(e.type);
+    it.ratingKey = e.type + ":" + e.id;
+    it.key = it.ratingKey;
+    it.guid = e.id;
+    it.title = e.name;
+    it.thumb = e.poster;
+    it.viewOffset = e.state.timeOffsetMs;
+    it.duration = e.state.durationMs;
+    it.lastViewedAt = isoToEpochSeconds(e.state.lastWatched);
+    int64_t season = 0, episode = 0;
+    if (e.type == "series" && parseEpisodeId(e.state.videoId, season, episode)) {
+        it.type = media::mediaTypeEpisode;
+        it.ratingKey = episodeId(e.state.videoId);
+        it.key = it.ratingKey;
+        it.guid = e.state.videoId;
+        it.title.clear();
+        it.parentIndex = season;
+        it.index = episode;
+        it.parentRatingKey = seasonId(e.id, season);
+        it.grandparentRatingKey = e.type + ":" + e.id;
+        it.grandparentTitle = e.name;
+        it.grandparentThumb = e.poster;
     }
     return it;
 }
@@ -505,21 +555,15 @@ void StremioBackend::getContinueWatching(
     brls::async([key, cnt, title, then, error]() {
         try {
             nlohmann::json items = stremio::datastoreGet(key);
-            // in-progress = a resume offset and not yet flagged watched; most
-            // recently watched first (ISO-8601 timestamps sort lexicographically).
-            std::vector<std::pair<std::string, const nlohmann::json*>> prog;
-            for (auto& it : items) {
-                auto st = it.find("state");
-                if (st == it.end() || !st->is_object()) continue;
-                if (jint(*st, "timeOffset") <= 0 || jint(*st, "flaggedWatched") > 0) continue;
-                prog.emplace_back(jstr(*st, "lastWatched"), &it);
-            }
-            std::sort(prog.begin(), prog.end(), [](const auto& a, const auto& b) { return a.first > b.first; });
+            // with a saved position, most recently watched first; a series as the episode it
+            // was left at (resume.hpp)
+            std::vector<LibraryEntry> entries;
+            for (auto& it : items) entries.push_back(libraryEntry(it));
             media::Container<media::Hub> out;
             media::Hub h;
             h.title = title;
             h.hubIdentifier = "home.continue";
-            for (size_t i = 0; i < prog.size() && (int)i < cnt; i++) h.items.push_back(itemFromLibrary(*prog[i].second));
+            for (size_t i : continueWatching(entries, size_t(std::max(0, cnt)))) h.items.push_back(resumeItem(entries[i]));
             if (!h.items.empty()) out.Items.push_back(std::move(h));
             out.TotalRecordCount = (long)out.Items.size();
             brls::sync(std::bind(then, std::move(out)));
@@ -661,6 +705,22 @@ void StremioBackend::getItemDetail(
                 ParsedId sp = parseId(ratingKey);
                 std::string streamType = (sp.stremioType == "movie") ? "movie" : "series";
                 out.media = resolveAllStreams(engine, streamType, sp.stremioId);
+            }
+            // where the user stopped, from the account library: the title's page and the player
+            // resume there (0 when it was finished, it is another episode's, or there is none)
+            const std::string key = accountKey();
+            if (full && playable && !key.empty()) {
+                try {
+                    for (auto& li : stremio::datastoreGet(key)) {
+                        if (jstr(li, "_id") != metaId) continue;
+                        const LibraryEntry e = libraryEntry(li);
+                        out.viewOffset = resumePositionMs(e.state, isEpisode ? parseId(ratingKey).stremioId : "");
+                        if (out.duration <= 0 && out.viewOffset > 0) out.duration = e.state.durationMs;
+                        break;
+                    }
+                } catch (const std::exception& ex) {
+                    brls::Logger::warning("stremio resume position: {}", ex.what());
+                }
             }
             brls::sync(std::bind(then, std::move(out)));
         } catch (const std::exception& ex) {
@@ -821,9 +881,32 @@ void StremioBackend::getNextUp(
                 media::Item show = parseMeta(*meta);
                 auto eps = parseEpisodes(*meta, show);
                 if (!eps.empty()) {
-                    // No server progress in étape 1: always offer the first episode.
+                    // without an account there is no saved progress: the first episode
                     item = eps.front();
                     fromStart = true;
+                    // with one, where the show was left: the episode in progress, the one after
+                    // a finished one, or the first again after the last
+                    const std::string key = accountKey();
+                    if (!key.empty()) {
+                        std::vector<EpisodeRef> refs;
+                        for (auto& e : eps) refs.push_back({e.parentIndex, e.index});
+                        LibraryState state;
+                        try {
+                            for (auto& li : stremio::datastoreGet(key))
+                                if (jstr(li, "_id") == baseId) {
+                                    state = libraryEntry(li).state;
+                                    break;
+                                }
+                        } catch (const std::exception& ex) {
+                            brls::Logger::warning("stremio getNextUp library: {}", ex.what());
+                        }
+                        bool again = false;
+                        const int at = showNextUp(refs, state, again);
+                        if (at >= 0) {
+                            item = eps[size_t(at)];
+                            fromStart = again;
+                        }
+                    }
                 }
                 break;
             }
@@ -960,7 +1043,22 @@ void StremioBackend::markWatched(const std::string& id) {
     std::string rk = id;
     brls::async([this, rk]() {
         try {
-            upsertLibrary(engine, rk, [](nlohmann::json& st) {
+            // one episode watched, not the whole show: that episode, played to its end, keeps
+            // the show in Continue Watching, whose card then leads to the next one
+            ParsedId pid = parseId(rk);
+            const bool episode = pid.stremioType == "series" && pid.episode >= 0;
+            const std::string videoId = pid.stremioId;
+            upsertLibrary(engine, rk, [episode, videoId](nlohmann::json& st) {
+                if (episode) {
+                    int64_t dur = jint(st, "duration");
+                    if (dur <= 0) {
+                        dur = 1;
+                        st["duration"] = dur;
+                    }
+                    st["videoId"] = videoId;
+                    st["timeOffset"] = dur;
+                    return;
+                }
                 st["flaggedWatched"] = 1;
                 st["timeOffset"] = 0;  // watched -> clear resume position
             });
@@ -982,28 +1080,44 @@ void StremioBackend::markUnwatched(const std::string& id) {
     });
 }
 
+void StremioBackend::clearProgress(const std::string& id) {
+    if (accountKey().empty()) return;
+    std::string rk = id;
+    brls::async([this, rk]() {
+        try {
+            // Stremio's own "remove from Continue Watching": the position goes, the item stays
+            upsertLibrary(engine, rk, [](nlohmann::json& st) { st["timeOffset"] = 0; });
+        } catch (const std::exception& ex) {
+            brls::Logger::warning("stremio clearProgress: {}", ex.what());
+        }
+    });
+}
+
 // ---- playback (étape 2) --------------------------------------------------------
 
 media::PlaybackSource StremioBackend::resolvePlayback(
-    const media::Item&, const media::Media& version, const media::PlaybackOptions&) {
+    const media::Item&, const media::Media& version, const media::PlaybackOptions& opts) {
     // getItemDetail already fanned out /stream and stored the chosen playback URL
     // in version.parts[0].key (Stremio has no per-request transcode decision). An
     // empty url means no playable source -> the player shows a "playback failed"
     // dialog. We never throw: a cross-TU throw on the borealis async task loop
     // (which does not wrap tasks in try/catch) would abort the app.
     if (version.parts.empty() || version.parts.front().key.empty()) return {};
+    // the resume position: mpv starts there (a torrent, once the loading screen has buffered
+    // the file's start)
+    const std::string start = opts.seekMs > 0 ? ",start=" + std::to_string(opts.seekMs / 1000) : "";
 #ifdef USE_TORRENT
     torrent::StreamRequest torrentRequest;
     if (torrent::parseLocalStreamUrl(version.parts.front().key, torrentRequest)) {
         // the engine answers or gives up within its stall timeout and the loading screen
         // says why; mpv waits longer, and never retries a body the server ended. No proxy:
         // the server is this machine.
-        return {version.parts.front().key, torrent::playerOptions(), false, "directplay"};
+        return {version.parts.front().key, torrent::playerOptions() + start, false, "directplay"};
     }
 #endif
     std::string extra = "network-timeout=" + std::to_string(HTTP::TIMEOUT / 100);
     if (HTTP::PROXY_STATUS) extra += ",http-proxy=\"" + HTTP::PROXY + "\"";
-    return {version.parts.front().key, extra, false, "directplay"};
+    return {version.parts.front().key, extra + start, false, "directplay"};
 }
 
 std::string StremioBackend::subtitleSidecarUrl(const std::string& streamKey) const {
@@ -1050,9 +1164,15 @@ void StremioBackend::reportProgress(
     const std::string& id, media::PlayState state, int64_t posMs, int64_t durMs, const std::string&) {
     if (accountKey().empty()) return;
     // Persist on pause/stop only — the player calls this every 10 s while playing,
-    // far too chatty for a datastoreGet+Put round-trip per tick.
-    if (state != media::PlayState::Stopped && state != media::PlayState::Paused) return;
+    // far too chatty for a datastoreGet+Put round-trip per tick. While playing, once every 5
+    // minutes instead: a PS-button close never reports a stop.
     if (posMs <= 0) return;
+    if (state == media::PlayState::Playing) {
+        const auto now = std::chrono::steady_clock::now();
+        auto last = this->lastPlayingSave.find(id);
+        if (last != this->lastPlayingSave.end() && now - last->second < std::chrono::minutes(5)) return;
+        this->lastPlayingSave[id] = now;
+    }
     std::string rk = id;
     int64_t pos = posMs, dur = durMs;
     brls::async([this, rk, pos, dur]() {

@@ -178,6 +178,9 @@ public:
     // ---- item actions --------------------------------------------------------
     virtual void markWatched(const std::string& id) = 0;
     virtual void markUnwatched(const std::string& id) = 0;
+    /// Forgets where playback stopped (Continue Watching's "Remove from list"). A no-op where
+    /// the server keeps its own list.
+    virtual void clearProgress(const std::string& id) {}
 
     // ---- playback ------------------------------------------------------------
     /// Synchronous (call inside brls::async). `version` is the Media chosen by
