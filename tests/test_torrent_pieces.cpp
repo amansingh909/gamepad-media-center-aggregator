@@ -94,6 +94,38 @@ int main() {
     p = huge.update(0);
     CHECK(p.refill && p.wantEnd == 256 * MiB && p.deadlineEnd == 32 * MiB);
 
+    // big pieces: the window holds at least 8 of them, so there are always pieces past the
+    // urgent ones to fill in the background, and deadlines cover at least 2, so the next piece
+    // is urgent before the reader gets to it; small pieces keep the 32 MiB and 4 MiB floors
+    {
+        ReadWindow eight(1000 * MiB, 8 * MiB);
+        p = eight.update(0);
+        CHECK(p.refill && p.wantEnd == 64 * MiB && p.deadlineEnd == 16 * MiB);
+        p = eight.update(30 * MiB);  // 34 MiB still ahead: more than half
+        CHECK(!p.refill && p.wantEnd == 64 * MiB);
+        p = eight.update(33 * MiB);
+        CHECK(p.refill && p.wantEnd == 97 * MiB);
+        ReadWindow sixteen(1000 * MiB, 16 * MiB);
+        p = sixteen.update(0);
+        CHECK(p.wantEnd == 128 * MiB && p.deadlineEnd == 32 * MiB);
+        ReadWindow small(1000 * MiB, 256 << 10);
+        p = small.update(0);
+        CHECK(p.wantEnd == 32 * MiB && p.deadlineEnd == 4 * MiB);
+        // 64 MiB pieces: 8 of them is more than the 256 MiB ceiling, and 2 more than the 32 MiB
+        // deadline ceiling, which both give way
+        ReadWindow sixtyFour(10000 * MiB, 64 * MiB);
+        sixtyFour.noteRead(0, 0.0);
+        sixtyFour.noteRead(2000 * MiB, 1.0);
+        p = sixtyFour.update(0);
+        CHECK(p.wantEnd == 512 * MiB && p.deadlineEnd == 128 * MiB);
+        // a fast reader's window grows past 8 pieces as before, up to the ceiling
+        ReadWindow fast16(10000 * MiB, 16 * MiB);
+        fast16.noteRead(0, 0.0);
+        fast16.noteRead(4 * MiB, 1.0);  // 4 MiB/s: 60 s is 240 MiB
+        p = fast16.update(0);
+        CHECK(p.refill && p.wantEnd == 240 * MiB && p.deadlineEnd == 32 * MiB);
+    }
+
     // how much of a range is in: verified pieces whole, written blocks of the others
     {
         const int64_t B = blockBytes;  // 16 KiB, 16 blocks a piece

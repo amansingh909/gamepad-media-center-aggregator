@@ -46,6 +46,7 @@ namespace fs = std::filesystem;
 using Clock = std::chrono::steady_clock;
 
 static_assert(static_cast<std::uint8_t>(lt::dont_download) == pieceSkip &&
+                  static_cast<std::uint8_t>(lt::low_priority) == pieceBackground &&
                   static_cast<std::uint8_t>(lt::top_priority) == pieceTop,
               "piece_plan.hpp's priorities are libtorrent's");
 static_assert(lt::default_block_size == blockBytes, "pieces.hpp's block is libtorrent's");
@@ -85,7 +86,8 @@ struct Reader {
     ReadWindow::Plan plan{0, 0, false};  // what the window wanted then
     bool waiting = false;               // inside waitFor(): only then does it get deadlines
 
-    Reader(int64_t offset, int64_t size) : fileOffset(offset), fileSize(size), window(size) {}
+    Reader(int64_t offset, int64_t size, int pieceLength)
+        : fileOffset(offset), fileSize(size), window(size, pieceLength) {}
 };
 
 struct Torrent {
@@ -101,7 +103,7 @@ struct Torrent {
     Clock::time_point removeAt = Clock::time_point::max();
     Clock::time_point lastProgress = Clock::now();
     std::vector<bool> have;
-    std::vector<bool> deadlined;  // got a deadline since the last reprioritize()
+    std::vector<bool> deadlined;  // got a deadline since the deadlines were last cleared
     int pieceLength = 1;
     std::map<ReaderId, Reader> active;
 };
@@ -491,6 +493,13 @@ struct TorrentEngine::Impl {
         // (3) or active_seeds (5), so a few dead or prefetched sources could hold the one
         // being watched paused until acquire() gives up
         atp.flags &= ~(lt::torrent_flags::auto_managed | lt::torrent_flags::paused);
+        // sequential: once the top priority pieces (piece_plan.hpp's urgent ones) are asked
+        // for, peers take the background in file order. It also orders the pieces already
+        // started: with more than 32 MiB of them under way libtorrent finishes those first,
+        // and rarest first ranks them by availability whatever their priority, so the piece a
+        // reader waited for came in with the last of them. Only the readers' windows are
+        // wanted: this never fetches the whole file.
+        atp.flags |= lt::torrent_flags::sequential_download;
         t.handle = session->add_torrent(std::move(atp), ec);
         if (ec) {
             error = ec.message();
@@ -612,25 +621,29 @@ struct TorrentEngine::Impl {
         }
     }
 
-    // Priorities and deadlines from scratch, for the readers open now: when a reader's
-    // window refills and when a reader leaves, so a seek or a closed connection takes
-    // the old position's pieces and deadlines with it.
+    // Priorities from scratch, for the readers open now: when a reader's window refills and
+    // when a reader leaves, so a seek or a closed connection takes the old position's pieces
+    // with it. Its deadlines go too when one of them is no longer needed (staleDeadlines():
+    // clearing and setting them again makes libtorrent cancel every request in flight).
     void reprioritize(Torrent& t) {
         PiecePlan p = plan(t);
         std::vector<lt::download_priority_t> prio;
         prio.reserve(p.priorities.size());
         for (uint8_t v : p.priorities) prio.push_back(lt::download_priority_t(v));
-        // clear first: libtorrent sets every piece whose deadline it clears to low
-        // priority, which would override the priorities below
-        t.handle.clear_piece_deadlines();
+        if (staleDeadlines(t.deadlined, t.have, p.deadlines)) {
+            // cleared before the priorities: libtorrent sets every piece whose deadline it
+            // clears to low priority, which would override the priorities below
+            t.handle.clear_piece_deadlines();
+            std::fill(t.deadlined.begin(), t.deadlined.end(), false);
+        }
         t.handle.prioritize_pieces(prio);
-        std::fill(t.deadlined.begin(), t.deadlined.end(), false);
         addDeadlines(t, p.deadlines);
     }
 
     // Moves reader `r` to `position`. Priorities change only when some reader's window
     // refills (in one batch, as the spike learned) or a reader leaves; in between, the
-    // waiting readers' deadlines are topped up as they move.
+    // waiting readers' deadlines are topped up as they move, which raises the pieces they
+    // reach to top priority.
     void applyWindow(Torrent& t, Reader& r, int64_t position) {
         ReadWindow::Plan next = r.window.update(position);
         r.position = position;
@@ -720,7 +733,7 @@ struct TorrentEngine::Impl {
     // waits with little ahead while many pieces download points at the network; one with plenty
     // ahead while the player stalls points at mpv.
     // "at" is where the reader's last request began; "deadlines" counts the torrent's pieces given a
-    // deadline since the last reprioritize, not this reader's alone.
+    // deadline since the deadlines were last cleared, not this reader's alone.
     template <class Mb>
     void logReaders(const std::string& hash, Torrent& t, const Mb& mb) {
         // the blocks arrays aren't read here: only the queue's length
@@ -866,7 +879,7 @@ Status TorrentEngine::acquire(const StreamRequest& req, FileInfo& file, ReaderId
     found.size = files.file_size(fi);
     ReaderId id = impl->nextReader++;
     t->active.emplace(std::piecewise_construct, std::forward_as_tuple(id),
-                      std::forward_as_tuple(files.file_offset(fi), files.file_size(fi)));
+                      std::forward_as_tuple(files.file_offset(fi), files.file_size(fi), t->pieceLength));
     ref.kept = true;
     reader = id;
     file = std::move(found);

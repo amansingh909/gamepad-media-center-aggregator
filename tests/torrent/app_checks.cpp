@@ -6,12 +6,15 @@
 //   docker run --rm --user "$(id -u):$(id -g)" -v "$PWD:/src" -w /src gmca-torrent-harness
 //     bash -c 'cmake -S tests/torrent -B build-torrent && cmake --build build-torrent -j$(nproc)'
 //   docker run --rm --user "$(id -u):$(id -g)" -v "$PWD:/src" -w /src
-//     gmca-torrent-harness build-torrent/app_checks [--online]
+//     gmca-torrent-harness build-torrent/app_checks [--online] [--swarm]
 // With --online, `--full-disk DIR` also fills a small tmpfs (about a minute more):
 //   docker run --rm --user "$(id -u):$(id -g)" -v "$PWD:/src" -w /src
 //     --tmpfs /tmp/full:size=8m,uid=$(id -u),gid=$(id -g)
 //     gmca-torrent-harness build-torrent/app_checks --online --full-disk /tmp/full
-// The checks listen on ports 11481 to 11485 of the container's own 127.0.0.1.
+// --swarm also streams from a swarm of 40 local peers (local_swarm.hpp), no internet needed:
+// about 5 minutes more (5.5 in all on the laptop), and 2 GiB of space in the container's /tmp.
+// The checks listen on ports 11481 to 11486 of the container's own 127.0.0.1, the swarm's
+// peers on 127.0.0.11 to 127.0.0.50.
 
 #include <torrent/stream_url.hpp>
 #include <torrent/torrent_engine.hpp>
@@ -19,7 +22,10 @@
 #include <torrent/torrent_service.hpp>
 #include <torrent/ui_model.hpp>
 
+#include "local_swarm.hpp"
+
 #include <arpa/inet.h>
+#include <fcntl.h>
 #include <netinet/in.h>
 #include <sys/socket.h>
 #include <unistd.h>
@@ -28,6 +34,7 @@
 #include <chrono>
 #include <csignal>
 #include <cstdio>
+#include <cstdlib>
 #include <functional>
 #include <mutex>
 #include <string>
@@ -533,12 +540,241 @@ static void fullDiskChecks(const std::string& dir) {
     service.stop();
 }
 
+// What a player saw while it streamed a file from the engine.
+struct Playback {
+    bool ok = false;          // every read returned Ok, with the file's bytes, before the time limit
+    double startSecs = 0;     // from the request to the first frame
+    int stalls = 0;           // times the player ran out of data after it started
+    double stalledSecs = 0;   // how long it waited in all, after it started
+    int waits = 0;            // reads the engine held over 100 ms after the start
+    double waitedSecs = 0;
+    double playedSecs = 0;    // from the first frame to the last
+    // the least the player had cached when the reader waited for data, once it had played 5 s
+    // (it starts with what the warm-up and the first piece brought)
+    double leastAheadSecs = 0;
+    int64_t downloaded = 0;   // payload the seeders sent
+    int64_t kept = 0;         // bytes of the file the engine has at the end
+};
+
+// A player streaming `playBytes` of a file at `bitrate` bytes per second, the way GMCA's mpv
+// reads a local torrent URL: the server's 256 KiB reads, a cache that reads ahead as fast as
+// the engine gives data, up to 60 s or 64 MiB past the playhead (demuxer-readahead-secs,
+// demuxer-max-bytes); playback once the first 4 MiB are in (the warm-up's start buffer) and the
+// file's last MiB has been read on a second connection (mpv reads a Matroska file's index there
+// before it plays), and after a stall, playback again once 5 s are cached (cache-pause-wait).
+static Playback play(torrent::TorrentEngine& engine, const torrent::StreamRequest& req, int64_t playBytes,
+                     int64_t bitrate, const swarm::Seeders& seeders) {
+    using Clock = std::chrono::steady_clock;
+    auto secsSince = [](Clock::time_point t) { return std::chrono::duration<double>(Clock::now() - t).count(); };
+    Playback out;
+    const Clock::time_point begin = Clock::now();
+    torrent::FileInfo file;
+    torrent::ReaderId reader = 0;
+    if (engine.acquire(req, file, reader) != torrent::Status::Ok) return out;
+    playBytes = std::min(playBytes, file.size);
+    const int64_t chunk = 256 << 10;
+    const int64_t cacheAhead = std::min<int64_t>(64ll << 20, 60 * bitrate);
+    const int64_t startBytes = 4ll << 20, resumeBytes = 5 * bitrate;
+
+    std::mutex m;
+    int64_t pos = 0;          // the reader's next byte
+    double playhead = 0;      // the player's
+    bool started = false, failed = false, tailIn = false;
+    bool blocked = false;     // the reader waits in waitFor()
+    Clock::time_point blockedSince = begin;
+    std::thread tailThread([&] {
+        torrent::FileInfo f;
+        torrent::ReaderId tail = 0;
+        bool ok = engine.acquire(req, f, tail) == torrent::Status::Ok;
+        for (int64_t at = std::max<int64_t>(0, f.size - (1 << 20)); ok && at < f.size; at += chunk)
+            ok = engine.waitFor(req, tail, at, std::min(at + chunk, f.size)) == torrent::Status::Ok;
+        if (tail) engine.release(req, tail);
+        std::lock_guard<std::mutex> lock(m);
+        if (ok) tailIn = true;
+        else failed = true;
+    });
+    std::thread readThread([&] {
+        int fd = -1;
+        std::vector<unsigned char> buf(size_t(chunk), 0);
+        while (true) {
+            int64_t at;
+            bool full;
+            {
+                std::lock_guard<std::mutex> lock(m);
+                if (pos >= playBytes || failed) break;
+                at = pos;
+                full = double(at) - playhead >= double(cacheAhead);
+            }
+            if (full) {  // the cache is full: the player reads nothing until it plays some
+                std::this_thread::sleep_for(std::chrono::milliseconds(10));
+                continue;
+            }
+            const int64_t end = std::min(at + chunk, playBytes);
+            const Clock::time_point t0 = Clock::now();
+            {
+                std::lock_guard<std::mutex> lock(m);
+                blocked = true;
+                blockedSince = t0;
+            }
+            const torrent::Status st = engine.waitFor(req, reader, at, end);
+            const double waited = secsSince(t0);
+            {
+                std::lock_guard<std::mutex> lock(m);
+                blocked = false;
+            }
+            if (st == torrent::Status::Ok && fd < 0) fd = open(file.diskPath.c_str(), O_RDONLY);
+            bool right = st == torrent::Status::Ok && fd >= 0 &&
+                         pread(fd, buf.data(), size_t(end - at), at) == ssize_t(end - at);
+            for (int64_t i = 0; right && i < end - at; ++i) right = buf[size_t(i)] == swarm::byteAt(at + i);
+            std::lock_guard<std::mutex> lock(m);
+            if (!right) {
+                std::printf("  read at %lld: %s\n", (long long)at, torrent::statusName(st));
+                failed = true;
+                break;
+            }
+            if (started && waited > 0.1) {
+                ++out.waits;
+                out.waitedSecs += waited;
+            }
+            pos = end;
+        }
+        if (fd >= 0) close(fd);
+    });
+
+    // the player, in 10 ms steps
+    bool stalled = false;
+    double leastAhead = 1e9;
+    Clock::time_point last = Clock::now(), stallStart = last, startAt = last, nextLine = last;
+    while (true) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        const Clock::time_point now = Clock::now();
+        const double dt = std::chrono::duration<double>(now - last).count();
+        last = now;
+        std::lock_guard<std::mutex> lock(m);
+        if (failed || secsSince(begin) > 900) {
+            failed = true;
+            break;
+        }
+        if (now >= nextLine) {
+            nextLine = now + std::chrono::seconds(5);
+            std::printf("  t %5.1f s: player %6.1f MiB%s, reader %6.1f MiB, stalls %d (%.1f s), down %d KiB/s\n",
+                        secsSince(begin), playhead / (1 << 20), !started ? " (starting)" : stalled ? " (stalled)" : "",
+                        double(pos) / (1 << 20), out.stalls, out.stalledSecs,
+                        engine.stats(req.infoHash).downloadBytesPerSec >> 10);
+            std::fflush(stdout);
+        }
+        if (!started) {
+            if (pos >= std::min(startBytes, playBytes) && tailIn) {
+                started = true;
+                startAt = now;
+                out.startSecs = secsSince(begin);
+            }
+            continue;
+        }
+        if (stalled) {
+            if (double(pos) - playhead >= double(resumeBytes) || pos >= playBytes) {
+                stalled = false;
+                out.stalledSecs += std::chrono::duration<double>(now - stallStart).count();
+            }
+            continue;
+        }
+        playhead = std::min(playhead + double(bitrate) * dt, double(playBytes));
+        if (playhead >= double(playBytes)) break;
+        if (playhead >= double(pos)) {
+            playhead = double(pos);
+            stalled = true;
+            ++out.stalls;
+            stallStart = now;
+        }
+        // what the player has cached when the reader waits for data, once it has played 5 s (it
+        // starts with what the warm-up and the first piece brought)
+        if (blocked && now - blockedSince > std::chrono::milliseconds(20) && playhead >= 5.0 * double(bitrate))
+            leastAhead = std::min(leastAhead, (double(pos) - playhead) / double(bitrate));
+    }
+    {
+        std::lock_guard<std::mutex> lock(m);
+        out.ok = !failed;
+        out.leastAheadSecs = leastAhead;
+        out.playedSecs = secsSince(startAt);
+    }
+    readThread.join();
+    tailThread.join();
+    out.downloaded = seeders.uploaded();
+    out.kept = engine.bytesReady(req, reader, 0, file.size);
+    engine.release(req, reader);
+    return out;
+}
+
+// Streaming a 4K-like file (4 MiB/s) of a torrent with big pieces from a swarm whose upload adds
+// up to twice that, over many peers, none of them fast, most with part of the pieces: GMCA diag
+// H's console runs, where readers waited with nothing ahead while 4.5 MB/s came in over 59
+// peers. mpv's 64 MiB cache is then 16 s of video, and a window at one priority spread the swarm
+// over a dozen pieces: the reader waited 31 to 44 s of the 128 s played with 16 MiB pieces (16
+// to 31 s with 8 MiB), the player came within 0.5 to 4 s of a stall, and stalled when it started
+// right after the first piece. It must not stall once it has started, its reader must wait under
+// 20 s in all (here 7 to 17 s), it must keep 2 s cached whenever the reader waits (here 4 s or
+// more; the first seconds after the start ride on the swarm's ramp), and the engine must not
+// download much twice (no end-game for good). A generated 1 GiB file, a fresh engine and swarm
+// for 8 and for 16 MiB pieces; about 5 minutes in all.
+static void swarmChecks() {
+    std::printf("swarm\n");
+    const std::string dir = "/tmp/app-checks/swarm";
+    const std::string name = "generated.bin";
+    const int64_t MiB = 1 << 20;
+    const int64_t bitrate = 4 * MiB;
+    std::string mk = "mkdir -p " + dir;
+    CHECK(std::system(mk.c_str()) == 0 && swarm::generateFile(dir + "/" + name, 1024 * MiB));
+    // 40 peers sending 8237 KiB/s in all (twice the bitrate), from 309 down to 103 KiB/s; every
+    // fourth one has every piece, the others about 40% of them, so the pieces' availability
+    // differs, as in a swarm where most peers are downloaders themselves
+    std::vector<swarm::Peer> peers;
+    for (int i = 0; i < 40; ++i) peers.push_back({8256 * (117 - 2 * i) / 3120, i % 4 == 0 ? 1.0 : 0.4});
+    int total = 0;
+    for (const swarm::Peer& peer : peers) total += peer.uploadKiB;
+    for (int pieceMiB : {8, 16}) {
+        swarm::Torrent t = swarm::makeTorrent(dir, name, pieceMiB * int(MiB));
+        std::printf("  %d MiB pieces, %zu peers sending %d KiB/s in all, read at %lld MiB/s\n", pieceMiB, peers.size(),
+                    total, (long long)(bitrate / MiB));
+        swarm::Seeders seeders(t, dir, peers, 17001);
+        swarm::Tracker tracker(11486, seeders.endpoints);
+        CHECK(tracker.ok);
+        std::this_thread::sleep_for(std::chrono::seconds(1));
+        std::string counts;
+        for (int n : seeders.pieceCounts()) counts += " " + std::to_string(n);
+        std::printf("  pieces each peer has (of %d):%s\n", t.info->num_pieces(), counts.c_str());
+        torrent::EngineSettings s = engineSettings("/tmp/app-checks/swarm-engine");
+        s.defaultTrackers.clear();
+        Playback p;
+        {
+            torrent::TorrentEngine engine(s);
+            torrent::StreamRequest req = request(t.infoHash, 0);
+            req.trackers = {"http://127.0.0.1:11486/announce"};
+            p = play(engine, req, 512 * MiB, bitrate, seeders);
+        }
+        const double redundant = double(p.downloaded - p.kept) / MiB;
+        std::printf("  %d MiB pieces: start %.1f s, %d stalls for %.1f s in %.1f s played, %.1f s cached at the least; "
+                    "%d reads waited %.1f s; downloaded %.1f MiB (%.2f MiB/s), kept %.1f MiB, %.1f MiB more than kept\n",
+                    pieceMiB, p.startSecs, p.stalls, p.stalledSecs, p.playedSecs, p.leastAheadSecs, p.waits,
+                    p.waitedSecs, double(p.downloaded) / MiB,
+                    double(p.downloaded) / MiB / std::max(1.0, p.startSecs + p.playedSecs), double(p.kept) / MiB,
+                    redundant);
+        CHECK(p.ok);
+        CHECK(p.stalls == 0);
+        CHECK(p.waitedSecs < 20);
+        CHECK(p.leastAheadSecs >= 2);
+        CHECK(redundant < 0.05 * double(p.kept) / MiB);
+    }
+    std::string rm = "rm -rf " + dir;
+    CHECK(std::system(rm.c_str()) == 0);
+}
+
 int main(int argc, char** argv) {
-    bool online = false;
+    bool online = false, swarmCheck = false;
     std::string fullDisk;
     for (int i = 1; i < argc; ++i) {
         const std::string a = argv[i];
         if (a == "--online") online = true;
+        else if (a == "--swarm") swarmCheck = true;
         else if (a == "--full-disk" && i + 1 < argc) fullDisk = argv[++i];
     }
     std::signal(SIGPIPE, SIG_IGN);
@@ -549,6 +785,7 @@ int main(int argc, char** argv) {
     if (online) dhtOnlineChecks();
     if (online) onlineChecks();
     if (online && !fullDisk.empty()) fullDiskChecks(fullDisk);
+    if (swarmCheck) swarmChecks();
     if (failures == 0) std::printf("app_checks: all passed\n");
     return failures ? 1 : 0;
 }
