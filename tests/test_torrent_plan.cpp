@@ -257,6 +257,17 @@ int main() {
         CHECK(!staleDeadlines({}, {}, {{0, 0}}));
     }
 
+    // the 30 s reader line's "deadlines": pieces with a deadline still missing (deadlines stay
+    // set across refills, so pieces already read don't count)
+    {
+        const std::vector<bool> set = {true, true, true, false, true};
+        const std::vector<bool> in = {true, true, false, false, false};
+        CHECK(missingDeadlines(set, in) == 2);                    // pieces 2 and 4
+        CHECK(missingDeadlines(set, {true, true, true, true, true}) == 0);
+        CHECK(missingDeadlines(set, {}) == 4);                    // no piece in yet
+        CHECK(missingDeadlines({}, in) == 0);
+    }
+
     if (failures == 0) printf("test_torrent_plan: all passed\n");
     return failures ? 1 : 0;
 }

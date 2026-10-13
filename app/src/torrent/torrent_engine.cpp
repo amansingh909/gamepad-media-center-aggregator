@@ -732,15 +732,14 @@ struct TorrentEngine::Impl {
     // whether it waits for data; the pieces with deadlines and those downloading. A reader that
     // waits with little ahead while many pieces download points at the network; one with plenty
     // ahead while the player stalls points at mpv.
-    // "at" is where the reader's last request began; "deadlines" counts the torrent's pieces given a
-    // deadline since the deadlines were last cleared, not this reader's alone.
+    // "at" is where the reader's last request began; "deadlines" counts the torrent's pieces with a
+    // deadline that are still missing, not this reader's alone.
     template <class Mb>
     void logReaders(const std::string& hash, Torrent& t, const Mb& mb) {
         // the blocks arrays aren't read here: only the queue's length
         std::vector<lt::partial_piece_info> queue;
         t.handle.get_download_queue(queue);
-        int deadlines = 0;
-        for (bool d : t.deadlined) deadlines += d ? 1 : 0;
+        const int deadlines = missingDeadlines(t.deadlined, t.have);
         for (const auto& kv : t.active) {
             const Reader& r = kv.second;
             const int64_t ahead = bytesAhead(r.fileOffset, r.position, r.fileSize, t.pieceLength, t.have);

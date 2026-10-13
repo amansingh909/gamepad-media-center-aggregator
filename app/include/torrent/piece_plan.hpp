@@ -110,8 +110,9 @@ inline PiecePlan planPieces(const std::vector<PlanReader>& readers, int pieceCou
 /// Whether the deadlines set so far (`deadlined`, one flag per piece) must go before the plan
 /// whose deadlines are `next` is applied: one is on a piece that isn't in and that no waiting
 /// reader needs next any more (a seek, a reader gone or idle). libtorrent clears deadlines all
-/// together, and when the first one is set again it cancels every request in flight that isn't
-/// for a piece with a deadline: a refill that only moves forward keeps them.
+/// together, and whenever one is set while none is left it cancels every request in flight that
+/// isn't for a piece with a deadline: a refill that only moves forward keeps them, so that
+/// happens less often (still each time the reader has caught up with all its deadlines).
 inline bool staleDeadlines(const std::vector<bool>& deadlined, const std::vector<bool>& have,
                            const std::vector<PieceDeadline>& next) {
     std::vector<bool> urgent(deadlined.size(), false);
@@ -120,6 +121,16 @@ inline bool staleDeadlines(const std::vector<bool>& deadlined, const std::vector
     for (size_t i = 0; i < deadlined.size(); ++i)
         if (deadlined[i] && !(i < have.size() && have[i]) && !urgent[i]) return true;
     return false;
+}
+
+/// Pieces with a deadline that aren't in yet (`deadlined` as for staleDeadlines()): what the
+/// engine's 30 s reader line reports as "deadlines". Deadlines stay set across refills, so the
+/// flags alone would also count every piece read since the last seek.
+inline int missingDeadlines(const std::vector<bool>& deadlined, const std::vector<bool>& have) {
+    int n = 0;
+    for (size_t i = 0; i < deadlined.size(); ++i)
+        if (deadlined[i] && !(i < have.size() && have[i])) ++n;
+    return n;
 }
 
 }  // namespace torrent
