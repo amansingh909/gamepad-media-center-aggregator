@@ -351,13 +351,20 @@ elseif (PLATFORM_PSV)
         FILE ${PSV_ASSETS_FILES}
     )
 elseif (PLATFORM_PS4)
+    # param.sfo ATTRIBUTE: 0x800000 is PS4 Pro mode. 0x20 makes system dialogs such as the
+    # keyboard take their enter button from the console's setting, as borealis does for the app's
+    # own keys; without it the keyboard confirmed with Circle on a console set to Cross. Tested on
+    # a GoldHEN PS4 set to Cross. Override with -DPS4_SFO_ATTRIBUTE=<value>.
+    if (NOT DEFINED PS4_SFO_ATTRIBUTE)
+        set(PS4_SFO_ATTRIBUTE 8388640)
+    endif ()
     add_self(${PROJECT_NAME})
     add_pkg(${PROJECT_NAME}
             ${CMAKE_BINARY_DIR}/ps4
             ${PSN_TITLE_ID}
             ${PROJECT_NAME}
             ${VITA_VERSION}
-            8388608
+            ${PS4_SFO_ATTRIBUTE}
     )
     add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
         COMMAND "${CMAKE_COMMAND}" -E copy_directory ${BOREALIS_DIR}/ps4/sce_module ${CMAKE_BINARY_DIR}/ps4/sce_module
