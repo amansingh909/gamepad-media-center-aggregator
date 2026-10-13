@@ -47,6 +47,7 @@ private:
     BRLS_BIND(brls::Label, labelSubtitle, "menu/subtitle");
     BRLS_BIND(MenuItem, btnGoSeries, "menu/go/series");
     BRLS_BIND(MenuItem, btnGoSeason, "menu/go/season");
+    BRLS_BIND(MenuItem, btnChooseSource, "menu/choose_source");
     BRLS_BIND(MenuItem, btnMarkPlay, "menu/mark/play");
     BRLS_BIND(MenuItem, btnStartOver, "menu/start_over");
     BRLS_BIND(MenuItem, btnRemoveResume, "menu/remove_resume");

@@ -20,6 +20,7 @@
 #include "utils/network_state.hpp"
 #include "tab/remote_view.hpp"
 #include "api/stremio/resume.hpp"
+#include "api/stremio/resume_card.hpp"
 #include "api/stremio/source_order.hpp"
 #include <fmt/ranges.h>
 #ifdef USE_TORRENT
@@ -101,6 +102,24 @@ public:
 #endif
 };
 
+/// An episode opened as a source page ("Choose source") reads as that episode: the show's name,
+/// "S1 E2 . title" (as the Continue Watching cards say it), the show's poster and backdrop when
+/// the episode has none of its own, and the year it aired. Display only: the page keeps the real
+/// item for playback and downloads.
+media::Item forDisplay(const media::Item& in) {
+    if (in.type != media::mediaTypeEpisode) return in;
+    media::Item out = in;
+    if (in.parentIndex > 0 || in.index > 0) {
+        std::string label = stremio::episodeLabel(in.parentIndex, in.index, in.title);
+        out.title = in.grandparentTitle.empty() ? label : in.grandparentTitle + "  \xC2\xB7  " + label;
+    }
+    if (!in.grandparentThumb.empty()) out.thumb = in.grandparentThumb;
+    else if (!in.parentThumb.empty()) out.thumb = in.parentThumb;
+    if (out.art.empty()) out.art = in.grandparentArt;
+    if (out.year == 0 && in.originallyAvailableAt.size() >= 4) out.year = std::atoi(in.originallyAvailableAt.substr(0, 4).c_str());
+    return out;
+}
+
 #ifdef USE_TORRENT
 double secondsNow() {
     return std::chrono::duration<double>(std::chrono::steady_clock::now().time_since_epoch()).count();
@@ -127,8 +146,11 @@ MediaMovie::MediaMovie(const plex::Item& item, bool localContext)
         this->btnSource->setVisibility(brls::Visibility::GONE);
     }
 
-    this->labelTitle->setText(item.title);
-    Image::load(this->imagePoster, item.thumb, 325);
+    {
+        media::Item shown = forDisplay(item);
+        this->labelTitle->setText(shown.title);
+        Image::load(this->imagePoster, shown.thumb, 325);
+    }
     if (brls::Application::getThemeVariant() == brls::ThemeVariant::LIGHT)
         this->imageFade->setImageFromRes("img/fade-bottom-light.png");
     this->people->registerCell("Cell", MediaCardCell::create);
@@ -359,6 +381,15 @@ void MediaMovie::playSource(int mediaIndex) {
 #endif
     // mediaIndex -1 = best (first accessible); otherwise the chosen source row.
     PlayerView* view = new PlayerView(this->movieItem, this->viewOffsetMs, mediaIndex);
+    if (this->movieItem.type == media::mediaTypeEpisode) {
+        // an episode chosen from its source list: titled and wired to its show like a season's
+        const media::Item& e = this->movieItem;
+        view->setTitie(e.grandparentTitle.empty()
+                           ? fmt::format("S{}E{} — {}", e.parentIndex, e.index, e.title)
+                           : fmt::format("{} · S{}E{} — {}", e.grandparentTitle, e.parentIndex, e.index, e.title));
+        if (!e.grandparentRatingKey.empty()) view->setSeries(e.grandparentRatingKey);
+        return;
+    }
     view->setTitie(this->movieItem.year ? fmt::format("{} ({})", this->movieItem.title, this->movieItem.year)
                                         : this->movieItem.title);
 }
@@ -705,7 +736,8 @@ void MediaMovie::buildSources(const media::Item& item) {
 
 // Renders the fiche from an Item — shared by the server and local-catalog
 // (offline / downloaded) paths.
-void MediaMovie::applyMovie(const media::Item& item) {
+void MediaMovie::applyMovie(const media::Item& detail) {
+    const media::Item item = forDisplay(detail);
     this->labelTitle->setText(item.title);
     Image::load(this->imagePoster, item.thumb, 325);
     // banner: backdrop (art) + centered cut-out logo; the poster
@@ -739,10 +771,10 @@ void MediaMovie::applyMovie(const media::Item& item) {
     }
     if (item.duration > 0) {
         int min = int(item.duration / 60000);
-        this->labelYear->setText(min >= 60 ? fmt::format("{}  ·  {} h {:02d}", item.year, min / 60, min % 60)
-                                           : fmt::format("{}  ·  {} min", item.year, min));
+        std::string span = min >= 60 ? fmt::format("{} h {:02d}", min / 60, min % 60) : fmt::format("{} min", min);
+        this->labelYear->setText(item.year > 0 ? fmt::format("{}  ·  {}", item.year, span) : span);
     } else {
-        this->labelYear->setText(std::to_string(item.year));
+        this->labelYear->setText(item.year > 0 ? std::to_string(item.year) : "");
     }
     if (item.contentRating.empty()) {
         this->parentalRating->getParent()->setVisibility(brls::Visibility::GONE);
@@ -777,7 +809,7 @@ void MediaMovie::applyMovie(const media::Item& item) {
         this->people->setVisibility(brls::Visibility::GONE);
     }
 
-    this->movieItem = item;  // resolved detail backs per-source playback
+    this->movieItem = detail;  // resolved detail backs per-source playback
     this->viewOffsetMs = item.viewOffset;
 
     if (AppConfig::instance().backend().type() == media::BackendType::Stremio) {
@@ -788,7 +820,7 @@ void MediaMovie::applyMovie(const media::Item& item) {
         this->btnPlay->setVisibility(brls::Visibility::GONE);
         this->btnSource->setVisibility(brls::Visibility::GONE);
         if (this->btnPlay->getParent()) this->btnPlay->getParent()->setVisibility(brls::Visibility::GONE);
-        this->buildSources(item);
+        this->buildSources(detail);
     } else {
         this->sourcesBox->setVisibility(brls::Visibility::GONE);
         this->hasPlayableSource = true;

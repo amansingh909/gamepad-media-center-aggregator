@@ -420,6 +420,7 @@ StremioBackend::StremioBackend() {
     caps_.transcode = false;
     caps_.serverProgress = account;
     caps_.downloadOriginal = false;
+    caps_.sourceDownload = true;
     caps_.multiProfile = false;
     episodes = std::make_shared<cache::SessionCache<std::vector<media::Item>>>(
         [this](const std::string& seriesId) { this->fetchEpisodes(seriesId); });

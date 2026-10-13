@@ -110,6 +110,9 @@ struct Capabilities {
     bool transcode = true;
     bool serverProgress = true;    // report progress to server (else local-only)
     bool downloadOriginal = true;
+    /// Download entry in a title's context menu although there is no original file to fetch: the
+    /// backend picks a source (Stremio). The detail pages keep their own gates.
+    bool sourceDownload = false;
     // accounts
     bool multiProfile = true;      // Plex Home / Jellyfin users
 };

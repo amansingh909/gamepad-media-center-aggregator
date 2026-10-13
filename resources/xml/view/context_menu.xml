@@ -46,6 +46,12 @@
             title="@i18n/main/media/go_season"
             visibility="gone"
             id="menu/go/season" />
+        <!-- Stremio episodes only (context_menu.cpp): the episode's source list -->
+        <MenuItem
+            icon="@res/icon/ico-list.svg"
+            title="@i18n/main/media/choose_source"
+            visibility="gone"
+            id="menu/choose_source" />
         <!-- Continue Watching (Stremio) only: shown by context_menu.cpp. Its icon, like Mark
              played's, is a grey copy (#61666D, as the others here): a white icon disappears on
              the light theme's white panel -->

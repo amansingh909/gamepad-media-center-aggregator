@@ -5,6 +5,7 @@
 #include "view/video_card.hpp"
 #include "view/mpv_core.hpp"
 #include "tab/media_series.hpp"
+#include "tab/media_movie.hpp"
 #include "view/resume_source.hpp"
 #include "activity/player_view.hpp"
 #include "api/plex.hpp"
@@ -201,9 +202,9 @@ ContextMenu::ContextMenu(const plex::Item& item, brls::Box* host, bool resumeRow
     }
 
     auto& dm = DownloadManager::instance();
-    // a backend without original-quality downloads (Stremio) has no Download entry here: its
-    // downloads go through a title's source list (the movie page), where a source is chosen
-    if (be.caps().downloadOriginal && (item.type == plex::mediaTypeMovie || item.type == plex::mediaTypeEpisode ||
+    // a Stremio episode or movie downloads from here too: addDownload resolves the title's sources
+    // and takes the best one, with the next ones as fallbacks (the movie page's source list picks)
+    if ((be.caps().downloadOriginal || be.caps().sourceDownload) && (item.type == plex::mediaTypeMovie || item.type == plex::mediaTypeEpisode ||
                                           item.type == plex::mediaTypeClip)) {
         if (dm.isDownloaded(item.ratingKey)) {
             this->btnDownload->title->setText("main/download/completed"_i18n);
@@ -228,6 +229,18 @@ ContextMenu::ContextMenu(const plex::Item& item, brls::Box* host, bool resumeRow
         this->btnDownload->addGestureRecognizer(new brls::TapGestureRecognizer(this->btnDownload));
     } else {
         this->btnDownload->setVisibility(brls::Visibility::GONE);
+    }
+
+    // Stremio episodes play the best source on A: this opens the episode's whole source list
+    // (the movie page's rows), to play or download another
+    if (be.type() == media::BackendType::Stremio && item.type == plex::mediaTypeEpisode) {
+        this->btnChooseSource->setVisibility(brls::Visibility::VISIBLE);
+        this->btnChooseSource->registerClickAction([item, host](...) {
+            brls::Application::popActivity(brls::TransitionAnimation::NONE,
+                [item, host]() { ui::presentDetail(host, new MediaMovie(item)); });
+            return true;
+        });
+        this->btnChooseSource->addGestureRecognizer(new brls::TapGestureRecognizer(this->btnChooseSource));
     }
 }
 
