@@ -18,6 +18,9 @@ static inline void check_error(int status) {
 
 #ifdef MPV_DIAG_LOG
 #include <ctime>
+#ifdef __PS4__
+#include <SDL2/SDL.h>
+#endif
 // Diag builds only (CMake MPV_DIAG_LOG): mpv's own log in {config}/mpv.log, written like
 // torrent.log, the kind of file a console run is known to leave readable over FTP. Opened once,
 // capped so a long session cannot fill the disk, and every line goes through redactLogLine
@@ -53,6 +56,17 @@ static void mpvDiagLine(const std::string& raw, bool urgent = false) {
     if (urgent || full || now != mpvDiagFlushed) mpvDiagFlush();
 }
 
+// What SDL's PS4 backend reads to load the shader compiler (unset in GMCA: no runtime compiler, so
+// only precompiled shaders draw); logged at start so a console that has one can be recognized.
+static std::string shaderCompilerHint() {
+#ifdef __PS4__
+    const char* hint = SDL_GetHint("SDL_PS4_PIGLET_MODULES_PATH");
+    return hint ? std::string("set (") + hint + ")" : "unset";
+#else
+    return "n/a";
+#endif
+}
+
 // Four lines, each under redactLogLine's 200 bytes, flushed together (every 10 s): the
 // investigation reads them, and a close in the same second must not lose the last ones
 void MPVCore::diagVideoStats() {
@@ -68,8 +82,19 @@ void MPVCore::diagVideoStats() {
     collect(at + " (3):",
         {"decoder-frame-drop-count", "frame-drop-count", "vo-delayed-frame-count", "avsync", "demuxer-cache-duration"},
         false);
-    collect(at + " (4):", {"video-params/gamma", "video-params/primaries", "video-params/sig-peak"}, false);
-    mpvDiagLine(at + " (4): HDR handling: " + this->hdr_applied + " (level " + std::to_string(this->hdr_level) + ")", true);
+    collect(at + " (4):", {"video-params/gamma", "video-params/primaries", "video-params/sig-peak", "video-out-params/gamma"}, false);
+    mpvDiagLine(at + " (4): HDR handling: " + this->hdr_applied, true);
+}
+#endif
+
+#ifdef MPV_HDR_HANDLING
+// The HDR choice in force: the diag selector's, Automatic in a release build.
+static int hdrTest() {
+#ifdef MPV_DIAG_LOG
+    return MPVCore::DIAG_VIDEO_TEST;
+#else
+    return hdr::Automatic;
+#endif
 }
 #endif
 
@@ -288,8 +313,14 @@ void MPVCore::init() {
     for (const auto& o : hdr::startOptions(DIAG_VIDEO_TEST)) mpv_set_option_string(mpv, o.first.c_str(), o.second.c_str());
     mpv_request_log_messages(mpv, "v");
     mpvDiagLine("mpv start: HEVC test " + std::to_string(DIAG_VIDEO_TEST) + " (" + hdr::testLabels()[DIAG_VIDEO_TEST] +
-                    "), start options " + hdr::describe(hdr::startOptions(DIAG_VIDEO_TEST)) + ", alang " +
+                    "), start options " + hdr::describe(hdr::startOptions(DIAG_VIDEO_TEST)) +
+                    ", shader compiler hint " + shaderCompilerHint() + ", alang " +
                 media::audioLangList(AUDIO_LANG, brls::Application::getLocale()));
+#endif
+#ifdef MPV_HDR_HANDLING
+    // HDR video drawn through mpv's own HDR shader cannot work on the PS4 (no shader compiler): the
+    // re-tag filter, in the chain before the first frame, keeps mpv on its precompiled SDR shader
+    if (hdr::usesRetag(hdrTest())) mpv_set_option_string(mpv, "vf", hdr::retagFilter().c_str());
 #endif
 
 #if (defined(__APPLE__) || defined(__linux__) || defined(_WIN32)) && !defined(ANDROID)
@@ -314,9 +345,8 @@ void MPVCore::init() {
     check_error(mpv_observe_property(mpv, 9, "speed", MPV_FORMAT_DOUBLE));
     check_error(mpv_observe_property(mpv, 10, "volume", MPV_FORMAT_INT64));
 #ifdef MPV_HDR_HANDLING
-    // the video's transfer function, known before its first frame is drawn: HDR gets its options then
+    // the video's transfer function: an HDR file gets its saturation and contrast then
     hdr_active = false;
-    hdr_level = 0;
     hdr_applied = "none";
     check_error(mpv_observe_property(mpv, 11, "video-params/gamma", MPV_FORMAT_STRING));
 #endif
@@ -704,9 +734,6 @@ void MPVCore::eventMainLoop() {
             if (log->log_level <= MPV_LOG_LEVEL_ERROR) {
                 std::string line = misc::redactLogLine(fmt::format("{}: {}", log->prefix, log->text));
                 brls::Logger::error("{}", line);
-#ifdef MPV_HDR_HANDLING
-                if (this->hdr_active && hdr::isShaderLinkFailure(log->text ? log->text : "")) this->hdrShaderFailed();
-#endif
                 if (this->last_error_line.empty()) this->last_error_line = line;
             } else if (log->log_level <= MPV_LOG_LEVEL_WARN) {
                 std::string line = misc::redactLogLine(fmt::format("{}: {}", log->prefix, log->text));
@@ -881,57 +908,48 @@ void MPVCore::eventMainLoop() {
 }
 
 #ifdef MPV_HDR_HANDLING
-static int hdrTest() {
-#ifdef MPV_DIAG_LOG
-    return MPVCore::DIAG_VIDEO_TEST;
-#else
-    return hdr::Automatic;
-#endif
-}
-
-static void hdrSet(mpv_handle *mpv, const hdr::Option &o) {
-    const int status = mpv_set_property_string(mpv, o.first.c_str(), o.second.c_str());
-    if (status < 0) brls::Logger::error("MPV HDR option {}={}: {}", o.first, o.second, mpv_error_string(status));
-}
-
-// Called when the video's transfer function changes (a file loaded, or ended): an HDR file gets the
-// options of its level, the file after it starts from mpv's defaults again.
+// Called when the video's transfer function changes (a file loaded, or ended). What the previous
+// HDR file got is undone first (saturation and contrast back to the viewer's own), so the next
+// file, SDR or HDR, starts clean; then an HDR file gets its plan. The re-tag filter itself is in
+// the chain from the start (see hdr_options.hpp), so this only raises saturation and contrast.
 void MPVCore::applyHdrHandling() {
     const std::string gamma = this->getString("video-params/gamma");
-    const std::string primaries = this->getString("video-params/primaries");
-    const double sigPeak = this->getDouble("video-params/sig-peak");
     if (this->hdr_active) {
-        for (const auto &o : hdr::resetOptions()) hdrSet(this->mpv, o);
+        this->setInt("saturation", this->hdr_base_saturation);
+        this->setInt("contrast", this->hdr_base_contrast);
         this->hdr_active = false;
         this->hdr_applied = "none";
     }
-    if (!hdr::isHdrTransfer(gamma)) {
 #ifdef MPV_DIAG_LOG
-        if (!gamma.empty()) mpvDiagLine("video: gamma " + gamma + ", primaries " + primaries + ", not HDR, no HDR handling");
+    const std::string primaries = this->getString("video-params/primaries");
+#endif
+    const hdr::Plan plan = hdr::planFor(hdrTest(), gamma);
+    if (!plan.retag) {
+#ifdef MPV_DIAG_LOG
+        if (!gamma.empty())
+            mpvDiagLine("video: gamma " + gamma + ", primaries " + primaries + ", HDR handling: none");
 #endif
         return;
     }
-    const auto options = hdr::hdrOptions(hdrTest(), this->hdr_level, gamma, primaries, sigPeak);
-    for (const auto &o : options) hdrSet(this->mpv, o);
+    this->hdr_base_saturation = int(this->getDouble("saturation"));
+    this->hdr_base_contrast = int(this->getDouble("contrast"));
+    this->setInt("saturation", hdr::clampEqualizer(this->hdr_base_saturation + plan.saturation));
+    this->setInt("contrast", hdr::clampEqualizer(this->hdr_base_contrast + plan.contrast));
     this->hdr_active = true;
-    this->hdr_applied = hdr::describe(options);
-    brls::Logger::info("MPV HDR video ({}, {}): {}", gamma, primaries, this->hdr_applied);
+    this->hdr_applied = hdr::describe(plan);
+    brls::Logger::info("MPV HDR video ({}): {}", gamma, this->hdr_applied);
 #ifdef MPV_DIAG_LOG
-    mpvDiagLine("video: gamma " + gamma + ", primaries " + primaries + ", sig-peak " + std::to_string(sigPeak) +
-                    ", HDR handling (level " + std::to_string(this->hdr_level) + "): " + this->hdr_applied,
+    mpvDiagLine("video: gamma " + gamma + ", primaries " + primaries + ", sig-peak " +
+                    this->getString("video-params/sig-peak") + ", HDR handling: " + this->hdr_applied,
         true);
 #endif
 }
 
-// mpv says a shader did not link while an HDR file is on: with the automatic choice, the next level.
-void MPVCore::hdrShaderFailed() {
-    if (hdrTest() != hdr::Automatic || this->hdr_level >= hdr::autoLevels - 1) return;
-    this->hdr_level++;
-    brls::Logger::warning("MPV HDR shader failed to link, trying level {}", this->hdr_level);
-#ifdef MPV_DIAG_LOG
-    mpvDiagLine("video: shader did not link, HDR handling goes to level " + std::to_string(this->hdr_level), true);
-#endif
-    this->applyHdrHandling();
+// `set vf` (the mirror setting) replaces the whole filter list: put the re-tag filter back.
+void MPVCore::restoreHdrFilter() {
+    if (!hdr::usesRetag(hdrTest())) return;
+    this->command("vf", "remove", hdr::filterLabel());
+    this->command("vf", "add", hdr::retagFilter().c_str());
 }
 #endif
 

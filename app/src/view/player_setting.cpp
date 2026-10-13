@@ -190,6 +190,9 @@ PlayerSetting::PlayerSetting(VideoView* video) {
             default:
                 mpv.command("set", "vf", "");
             }
+#ifdef MPV_HDR_HANDLING
+            mpv.restoreHdrFilter();  // the PS4's HDR re-tag filter was in the list that was just replaced
+#endif
             // 如果正在使用硬解，那么将硬解更新为 auto-copy，避免直接硬解因为不经过 cpu 处理导致镜像翻转无效
             if (MPVCore::HARDWARE_DEC) {
                 const char* hwdec = value > 0 ? "auto-copy" : MPVCore::PLAYER_HWDEC_METHOD.c_str();

@@ -153,12 +153,14 @@ public:
     void diagVideoStats();
 #endif
 #ifdef MPV_HDR_HANDLING
-    // The HDR file being played (video-params/gamma is pq or hlg) and the automatic level its
-    // mpv options came from; see view/hdr_options.hpp.
+    // The video is re-tagged as SDR by a filter that is in the chain from the start; while an HDR
+    // file is played (video-params/gamma is pq or hlg) saturation and contrast are raised, and the
+    // viewer's own values are kept to put back at the end of the file. See view/hdr_options.hpp.
     void applyHdrHandling();
-    void hdrShaderFailed();
+    void restoreHdrFilter();  // after `set vf` replaced the filter list
     bool hdr_active = false;
-    int hdr_level = 0;
+    int hdr_base_saturation = 0;
+    int hdr_base_contrast = 0;
     std::string hdr_applied = "none";  // the options of the file being played, for the diag log
 #endif
 
