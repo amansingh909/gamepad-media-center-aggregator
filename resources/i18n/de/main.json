@@ -244,6 +244,7 @@
     "playback": {
       "header": "Wiedergabe",
       "low_quality": "Dekodierung in geringer Qualität (weniger CPU-Last)",
+      "light_hevc": "Leichte HEVC-Dekodierung (weniger CPU-Last auf der PS4)",
       "in_memory_cache": "Arbeitsspeicher-Cache",
       "subs_fallback": "Untertitel automatisch laden",
       "subtitle_lang": {

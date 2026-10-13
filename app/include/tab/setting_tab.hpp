@@ -35,6 +35,7 @@ private:
     BRLS_BIND(brls::RadioCell, btnTutorialFont, "tools/tutorial_font");
     BRLS_BIND(brls::BooleanCell, btnHWDEC, "setting/video/hwdec");
     BRLS_BIND(brls::BooleanCell, btnQuality, "setting/video/low_quality");
+    BRLS_BIND(brls::BooleanCell, btnLightHevc, "setting/video/light_hevc");
     BRLS_BIND(brls::BooleanCell, btnSubFallback, "setting/video/subs_fallback");
     BRLS_BIND(brls::SelectorCell, selectorSubLang, "setting/playback/subtitle_lang");
     BRLS_BIND(brls::SelectorCell, selectorAudioLang, "setting/playback/audio_lang");

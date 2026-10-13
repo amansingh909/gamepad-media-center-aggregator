@@ -244,6 +244,7 @@
     "playback": {
       "header": "Phát lại",
       "low_quality": "Giải mã chất lượng thấp (sử dụng ít CPU hơn)",
+      "light_hevc": "Giải mã HEVC nhẹ (ít tốn CPU hơn trên PS4)",
       "in_memory_cache": "Bộ nhớ đệm trong RAM",
       "subs_fallback": "Tự động tải phụ đề",
       "subtitle_lang": {

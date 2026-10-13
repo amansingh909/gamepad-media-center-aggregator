@@ -33,6 +33,13 @@
 #define MPV_HDR_HANDLING
 #endif
 
+// Light HEVC decoding (Settings, Playback): the loop filter is skipped for HEVC files, set per file
+// from mpv's on_preloaded hook so it holds for every backend. A PS4 feature; the define lets a
+// desktop build compile it for a test.
+#if defined(__PS4__) || defined(MPV_LIGHT_HEVC_TEST)
+#define MPV_LIGHT_HEVC
+#endif
+
 typedef std::unordered_map<std::string, std::string> MPVMap;
 
 class MPVCore : public brls::Singleton<MPVCore> {
@@ -147,6 +154,12 @@ public:
     // 低画质解码，剔除解码过程中的部分步骤，可以用来节省cpu
     inline static bool LOW_QUALITY = false;
     inline static bool SUBS_FALLBACK = true;
+    // Settings, Playback, Light HEVC decoding (PS4): skip the loop filter for HEVC video, on by default
+    inline static bool LIGHT_HEVC = true;
+#ifdef MPV_LIGHT_HEVC
+    // on_preloaded hook: sets vd-lavc-skiploopfilter for the file about to open, then continues
+    void handlePreloadedHook(uint64_t hookId);
+#endif
     // Settings, Playback, Audio language: "auto" (the app language), "file" (none) or a 2-letter code
     inline static std::string AUDIO_LANG = "auto";
 #ifdef MPV_DIAG_LOG

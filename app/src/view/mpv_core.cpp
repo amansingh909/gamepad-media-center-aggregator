@@ -356,6 +356,10 @@ void MPVCore::init() {
     this->setAspect(VIDEO_ASPECT);
 
     // set observe properties
+#ifdef MPV_LIGHT_HEVC
+    // before the decoder opens (the file is demuxed, no track is selected yet): see handlePreloadedHook
+    check_error(mpv_hook_add(mpv, 0, "on_preloaded", 0));
+#endif
     check_error(mpv_observe_property(mpv, 1, "core-idle", MPV_FORMAT_FLAG));
     check_error(mpv_observe_property(mpv, 2, "pause", MPV_FORMAT_FLAG));
     check_error(mpv_observe_property(mpv, 3, "duration", MPV_FORMAT_INT64));
@@ -732,6 +736,42 @@ std::string MPVCore::getCacheSpeed() const {
     }
 }
 
+#ifdef MPV_LIGHT_HEVC
+void MPVCore::handlePreloadedHook(uint64_t hookId) {
+    // the codec of the first video track (track-list is filled once the file is demuxed); an
+    // album art track is flagged and is not the video
+    std::string codec;
+    int64_t count = 0;
+    if (mpv_get_property(mpv, "track-list/count", MPV_FORMAT_INT64, &count) >= 0) {
+        for (int64_t i = 0; i < count && codec.empty(); i++) {
+            const std::string base = "track-list/" + std::to_string(i) + "/";
+            auto str = [&](const char* name) {
+                char* v = mpv_get_property_string(mpv, (base + name).c_str());
+                std::string out = v ? v : "";
+                if (v) mpv_free(v);
+                return out;
+            };
+            if (str("type") == "video" && str("albumart") != "yes") codec = str("codec");
+        }
+    }
+    const bool apply = hdr::lightDecodeApplies(codec, LIGHT_HEVC);
+    bool baselineAll = LOW_QUALITY;
+#ifdef MPV_DIAG_LOG
+    baselineAll = baselineAll || !hdr::startOptions(DIAG_VIDEO_TEST).empty();
+#endif
+    const char* value = hdr::skipLoopFilterValue(apply, baselineAll);
+    const int err = mpv_set_property_string(mpv, "vd-lavc-skiploopfilter", value);
+    brls::Logger::info("MPV light HEVC decoding: codec '{}', setting {}, skiploopfilter={} ({})", codec,
+        LIGHT_HEVC ? "on" : "off", value, err >= 0 ? "set" : mpv_error_string(err));
+#ifdef MPV_DIAG_LOG
+    mpvDiagLine(std::string("light decode: codec '") + codec + "', setting " + (LIGHT_HEVC ? "on" : "off") +
+                ", vd-lavc-skiploopfilter=" + value + (apply ? " (applied to this HEVC file)" : " (not applied)") +
+                (err >= 0 ? "" : std::string(", SET FAILED: ") + mpv_error_string(err)));
+#endif
+    mpv_hook_continue(mpv, hookId);
+}
+#endif
+
 void MPVCore::eventMainLoop() {
     while (true) {
         mpv_event *event = mpv_wait_event(this->mpv, 0);
@@ -769,6 +809,16 @@ void MPVCore::eventMainLoop() {
             }
             break;
         }
+#ifdef MPV_LIGHT_HEVC
+        case MPV_EVENT_HOOK: {
+            auto hook = (mpv_event_hook *)event->data;
+            if (hook && hook->name && std::strcmp(hook->name, "on_preloaded") == 0)
+                this->handlePreloadedHook(hook->id);
+            else if (hook)
+                mpv_hook_continue(this->mpv, hook->id);  // never leave an unknown hook waiting
+            break;
+        }
+#endif
         case MPV_EVENT_SHUTDOWN:
             brls::Logger::debug("MPVCore => EVENT_SHUTDOWN");
             return;

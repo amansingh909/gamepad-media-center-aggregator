@@ -256,6 +256,7 @@
     "playback": {
       "header": "Paramètres de lecture",
       "low_quality": "Décodage en basse qualité (réduit la qualité de l'image pour une moindre consommation d'énergie)",
+      "light_hevc": "Décodage HEVC allégé (moins de CPU sur PS4)",
       "in_memory_cache": "Cache en mémoire",
       "subs_fallback": "Chargement automatique des sous-titres",
       "subtitle_lang": {

@@ -45,6 +45,8 @@
                     id="setting/playback/audio_channels" />
                 <brls:BooleanCell
                     id="setting/video/subs_fallback" />
+                <brls:BooleanCell
+                    id="setting/video/light_hevc" />
                 <brls:SelectorCell
                     id="setting/playback/audio_lang" />
                 <brls:SelectorCell

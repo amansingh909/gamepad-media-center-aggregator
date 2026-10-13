@@ -244,6 +244,7 @@
     "playback": {
       "header": "再生",
       "low_quality": "低品質デコード (CPU 使用率が低い)",
+      "light_hevc": "HEVC の軽量デコード (PS4 の CPU 負荷を軽減)",
       "in_memory_cache": "インメモリーキャッシュ",
       "subs_fallback": "字幕の自動読み込み",
       "subtitle_lang": {

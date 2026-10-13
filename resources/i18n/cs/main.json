@@ -244,6 +244,7 @@
     "playback": {
       "header": "Přehrávání",
       "low_quality": "Nízká kvalita dekódování (s menším využitím CPU)",
+      "light_hevc": "Lehké dekódování HEVC (menší zátěž CPU na PS4)",
       "in_memory_cache": "Vyrovnávací paměť v RAM",
       "subs_fallback": "Automaticky načítat titulky",
       "subtitle_lang": {

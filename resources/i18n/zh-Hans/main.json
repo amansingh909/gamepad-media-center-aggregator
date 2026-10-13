@@ -244,6 +244,7 @@
     "playback": {
       "header": "播放设置",
       "low_quality": "低画质解码（以画质为代价换取更低的功耗）",
+      "light_hevc": "HEVC 轻量解码（降低 PS4 的 CPU 占用）",
       "in_memory_cache": "内存缓存",
       "subs_fallback": "自动加载字幕",
       "subtitle_lang": {

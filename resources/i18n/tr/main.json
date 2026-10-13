@@ -244,6 +244,7 @@
     "playback": {
       "header": "Oynatma",
       "low_quality": "Düşük kalite video çözümü (daha az işlemci kullanır)",
+      "light_hevc": "Hafif HEVC çözme (PS4'te daha az işlemci kullanır)",
       "in_memory_cache": "Bellek içi önbellek",
       "subs_fallback": "Alt yazıları otomatik yükle",
       "subtitle_lang": {

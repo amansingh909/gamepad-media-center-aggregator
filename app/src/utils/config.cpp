@@ -92,6 +92,7 @@ std::unordered_map<AppConfig::Item, AppConfig::Option> AppConfig::settingMap = {
     // settings tab (value stored as-is: "auto" | "off" | 2-letter code)
     {PLAYER_SUBTITLE_LANG, {"player_subtitle_lang"}},
     {PLAYER_AUDIO_LANG, {"player_audio_lang"}},
+    {PLAYER_LIGHT_HEVC, {"player_light_hevc"}},
     {PLAYER_INMEMORY_CACHE,
         {
             "player_inmemory_cache",
@@ -418,6 +419,7 @@ bool AppConfig::init() {
     MPVCore::VIDEO_CODEC = this->getItem(TRANSCODEC, MPVCore::VIDEO_CODEC);
     MPVCore::AUDIO_CHANNELS = this->getItem(AUDIO_CHANNELS, MPVCore::AUDIO_CHANNELS);
     MPVCore::AUDIO_LANG = this->getItem(PLAYER_AUDIO_LANG, MPVCore::AUDIO_LANG);
+    MPVCore::LIGHT_HEVC = this->getItem(PLAYER_LIGHT_HEVC, true);
     // 初始化自定义的硬件加速方案
     MPVCore::PLAYER_HWDEC_METHOD = this->getItem(PLAYER_HWDEC_CUSTOM, MPVCore::PLAYER_HWDEC_METHOD);
     // 初始化默认的倍速设定

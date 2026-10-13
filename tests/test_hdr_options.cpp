@@ -63,6 +63,17 @@ int main() {
     CHECK_EQ(describe(startOptions(FourKTest)), "vd-lavc-skiploopfilter=all vd-lavc-fast=yes framedrop=decoder+vo");
     for (int t : {Automatic, MpvDefaults, RetagOnly, RetagLow, RetagHigh}) CHECK_EQ(describe(startOptions(t)), "none");
 
+    // light HEVC decoding: the loop filter is skipped for HEVC only, and only with the setting on
+    for (const char* c : {"hevc", "h265", "HEVC"}) {
+        CHECK_EQ(lightDecodeApplies(c, true) ? "y" : "n", "y");
+        CHECK_EQ(lightDecodeApplies(c, false) ? "y" : "n", "n");
+    }
+    for (const char* c : {"h264", "av1", "vp9", "mpeg2video", "", "hevcx"}) CHECK_EQ(lightDecodeApplies(c, true) ? "y" : "n", "n");
+    CHECK_EQ(skipLoopFilterValue(true, false), "all");
+    CHECK_EQ(skipLoopFilterValue(false, false), "default");
+    CHECK_EQ(skipLoopFilterValue(false, true), "all");  // the low quality mode or a diag choice keeps its own "all"
+    CHECK_EQ(skipLoopFilterValue(true, true), "all");
+
     CHECK_EQ(std::to_string(clampEqualizer(95 + 30)), "100");
     CHECK_EQ(std::to_string(clampEqualizer(-95 - 30)), "-100");
     CHECK_EQ(std::to_string(clampEqualizer(5 + 15)), "20");

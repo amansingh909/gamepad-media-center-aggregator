@@ -62,7 +62,7 @@ inline const std::vector<std::string>& testLabels() {
         "HDR re-tag + saturation 8, contrast 5",
         "HDR re-tag + saturation 30, contrast 25",
         "4K test (skip loop filter, fast, framedrop)",
-        "1080p light decode (skip loop filter only)",
+        "Light decode for every codec (skip loop filter only; the setting does it for HEVC)",
     };
     return labels;
 }
@@ -121,6 +121,23 @@ inline std::vector<Option> startOptions(int test) {
         return {{"vd-lavc-skiploopfilter", "all"}, {"vd-lavc-fast", "yes"}, {"framedrop", "decoder+vo"}};
     if (test == Light1080p) return {{"vd-lavc-skiploopfilter", "all"}};
     return {};
+}
+
+/// True when light HEVC decoding (Settings, Playback, on a PS4) applies to a video whose mpv
+/// codec name (track-list codec) is `codec`: HEVC only, and only with the setting on. H.264 shows
+/// blocking without its loop filter and decodes fast enough with it.
+inline bool lightDecodeApplies(const std::string& codec, bool setting) {
+    if (!setting) return false;
+    std::string c;
+    for (char ch : codec) c += (ch >= 'A' && ch <= 'Z') ? char(ch - 'A' + 'a') : ch;
+    return c == "hevc" || c == "h265";
+}
+
+/// The value of mpv's `vd-lavc-skiploopfilter` for one file: "all" when light decoding applies, or
+/// when mpv already skips it for every file (`baselineAll`: the low quality mode, a diag choice);
+/// mpv's own "default" otherwise, which puts the option back for a file that is not HEVC.
+inline const char* skipLoopFilterValue(bool lightApplies, bool baselineAll) {
+    return (lightApplies || baselineAll) ? "all" : "default";
 }
 
 /// A value kept inside mpv's -100 .. 100 range.

@@ -244,6 +244,7 @@
     "playback": {
       "header": "Reprodução",
       "low_quality": "Descodificação de baixa qualidade (com menos uso do CPU)",
+      "light_hevc": "Descodificação HEVC leve (menos CPU na PS4)",
       "in_memory_cache": "Cache em memória",
       "subs_fallback": "Carregar legendas automaticamente",
       "subtitle_lang": {

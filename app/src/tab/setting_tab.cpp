@@ -151,6 +151,16 @@ void SettingTab::onCreate() {
         conf.setItem(AppConfig::PLAYER_LOW_QUALITY, value);
     });
 
+    // Light HEVC decoding: a PS4 setting, read per file by the on_preloaded hook (no restart)
+#ifdef MPV_LIGHT_HEVC
+    btnLightHevc->init("main/setting/playback/light_hevc"_i18n, MPVCore::LIGHT_HEVC, [&conf](bool value) {
+        MPVCore::LIGHT_HEVC = value;
+        conf.setItem(AppConfig::PLAYER_LIGHT_HEVC, value);
+    });
+#else
+    btnLightHevc->setVisibility(brls::Visibility::GONE);
+#endif
+
     btnSubFallback->init("main/setting/playback/subs_fallback"_i18n, MPVCore::SUBS_FALLBACK, [&conf](bool value) {
         if (MPVCore::SUBS_FALLBACK == value) return;
         MPVCore::SUBS_FALLBACK = value;

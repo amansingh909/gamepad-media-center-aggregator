@@ -244,6 +244,7 @@
     "playback": {
       "header": "재생 설정",
       "low_quality": "저화질 디코딩 (CPU 사용량 감소)",
+      "light_hevc": "HEVC 경량 디코딩 (PS4 CPU 사용량 감소)",
       "in_memory_cache": "메모리 캐시",
       "subs_fallback": "자동으로 자막 불러오기",
       "subtitle_lang": {
