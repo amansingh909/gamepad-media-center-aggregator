@@ -30,7 +30,7 @@ public:
     static void checkUpdate(int delay = 2000, bool showUpToDateDialog = false);
 
     inline static std::shared_ptr<std::atomic_bool> updating = std::make_shared<std::atomic_bool>(true);
-    inline static std::string git_repo = "thcolin/gamepad-media-center-aggregator";
+    inline static std::string git_repo = "amansingh909/gamepad-media-center-aggregator";
 
     /// Real path of the running NRO (argv[0] provided by hbloader or the
     /// forwarder), filled in main(). THIS is the file the auto-update must
