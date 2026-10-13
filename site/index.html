@@ -27,6 +27,7 @@
   <link href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,400..900&family=Hanken+Grotesk:wght@400;500;700;800&family=Fragment+Mono&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="assets/css/style.css">
   <script>document.documentElement.classList.add('js')</script>
+  <script defer src="https://stats.thcol.in/p.js" data-website-id="acfbb404-6359-47e6-9678-9185da4bb264" data-domains="thcolin.github.io"></script>
 </head>
 <body>
   <a class="skip-link" href="#main">Skip to content</a>
@@ -44,7 +45,7 @@
       <a href="#install">Install</a>
       <a href="guide.html">Guide</a>
     </nav>
-    <a class="nav-gh" href="https://github.com/thcolin/gamepad-media-center-aggregator" aria-label="GMCA on GitHub">
+    <a class="nav-gh" href="https://github.com/thcolin/gamepad-media-center-aggregator" data-track="github" aria-label="GMCA on GitHub">
       <svg viewBox="0 0 16 16" width="20" height="20" fill="currentColor" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8Z"/></svg>
     </a>
   </header>
@@ -96,8 +97,8 @@
 
         <p class="hero-sub">GMCA is one gamepad-first <strong>client</strong>. Point it at any <strong>media center</strong>, and run it on any <strong>device</strong> you left in a drawer.</p>
         <div class="hero-cta">
-          <a class="btn btn-primary" href="https://github.com/thcolin/gamepad-media-center-aggregator/releases/latest"><span class="btn-glyph">A</span> Download <span data-version>v1.3.0</span></a>
-          <a class="btn btn-ghost" href="https://github.com/thcolin/gamepad-media-center-aggregator"><span class="btn-glyph">B</span> View on GitHub</a>
+          <a class="btn btn-primary" href="https://github.com/thcolin/gamepad-media-center-aggregator/releases/latest" data-track="download"><span class="btn-glyph">A</span> Download <span data-version>v1.3.0</span></a>
+          <a class="btn btn-ghost" href="https://github.com/thcolin/gamepad-media-center-aggregator" data-track="github"><span class="btn-glyph">B</span> View on GitHub</a>
         </div>
         <p class="center-note">Free &amp; open source · Not affiliated with Plex · Jellyfin · Emby · Stremio</p>
       </div>
@@ -314,10 +315,10 @@
         <div class="mc-switch reveal" role="tablist" aria-label="Choose a media center">
           <span class="mc-switch-label">Same app, every server</span>
           <div class="mc-tabs">
-            <button class="mc-tab is-on" data-mc="plex" role="tab" aria-selected="true">Plex</button>
-            <button class="mc-tab" data-mc="jellyfin" role="tab" aria-selected="false">Jellyfin</button>
-            <button class="mc-tab" data-mc="emby" role="tab" aria-selected="false">Emby</button>
-            <button class="mc-tab" data-mc="stremio" role="tab" aria-selected="false">Stremio</button>
+            <button class="mc-tab is-on" data-mc="plex" data-track="server: plex" role="tab" aria-selected="true">Plex</button>
+            <button class="mc-tab" data-mc="jellyfin" data-track="server: jellyfin" role="tab" aria-selected="false">Jellyfin</button>
+            <button class="mc-tab" data-mc="emby" data-track="server: emby" role="tab" aria-selected="false">Emby</button>
+            <button class="mc-tab" data-mc="stremio" data-track="server: stremio" role="tab" aria-selected="false">Stremio</button>
           </div>
         </div>
 
@@ -439,9 +440,9 @@
         </div>
 
         <div class="install-cta">
-          <a class="btn btn-primary" href="https://github.com/thcolin/gamepad-media-center-aggregator/releases/latest"><span class="btn-glyph">A</span> Download latest release</a>
+          <a class="btn btn-primary" href="https://github.com/thcolin/gamepad-media-center-aggregator/releases/latest" data-track="download"><span class="btn-glyph">A</span> Download latest release</a>
           <a class="btn btn-ghost" href="guide.html">Read the guide</a>
-          <a class="btn btn-ghost" href="https://nightly.link/thcolin/gamepad-media-center-aggregator/workflows/build.yaml/dev">Nightly builds</a>
+          <a class="btn btn-ghost" href="https://nightly.link/thcolin/gamepad-media-center-aggregator/workflows/build.yaml/dev" data-track="nightly">Nightly builds</a>
         </div>
       </div>
     </section>
@@ -456,7 +457,7 @@
     </div>
     <div class="cb-right">
       <a class="cb-hint" href="#servers"><span class="btn-glyph">B</span> Servers</a>
-      <a class="cb-hint" href="https://github.com/thcolin/gamepad-media-center-aggregator/releases/latest"><span class="btn-glyph btn-glyph-a">A</span> Download</a>
+      <a class="cb-hint" href="https://github.com/thcolin/gamepad-media-center-aggregator/releases/latest" data-track="download"><span class="btn-glyph btn-glyph-a">A</span> Download</a>
     </div>
   </div>
 
@@ -473,17 +474,17 @@
       </div>
       <nav class="footer-col" aria-label="Project">
         <h3>Project</h3>
-        <a href="https://github.com/thcolin/gamepad-media-center-aggregator">GitHub</a>
-        <a href="https://github.com/thcolin/gamepad-media-center-aggregator/releases">Releases</a>
-        <a href="https://nightly.link/thcolin/gamepad-media-center-aggregator/workflows/build.yaml/dev">Nightly builds</a>
-        <a href="https://github.com/thcolin/gamepad-media-center-aggregator/issues">Issues</a>
+        <a href="https://github.com/thcolin/gamepad-media-center-aggregator" data-track="github">GitHub</a>
+        <a href="https://github.com/thcolin/gamepad-media-center-aggregator/releases" data-track="download">Releases</a>
+        <a href="https://nightly.link/thcolin/gamepad-media-center-aggregator/workflows/build.yaml/dev" data-track="nightly">Nightly builds</a>
+        <a href="https://github.com/thcolin/gamepad-media-center-aggregator/issues" data-track="issues">Issues</a>
       </nav>
       <nav class="footer-col" aria-label="Help">
         <h3>Help</h3>
         <a href="guide.html">Guide</a>
         <a href="guide.html#controls">Controls</a>
         <a href="guide.html#faq">FAQ</a>
-        <a href="https://github.com/sponsors/thcolin">Sponsor ♥</a>
+        <a href="https://github.com/sponsors/thcolin" data-track="sponsor">Sponsor ♥</a>
       </nav>
     </div>
     <p class="footer-legal">
