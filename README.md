@@ -22,11 +22,68 @@ changes; only the accent colour and the tabs follow your server. Also runs on Wi
 
 </div>
 
+> [!IMPORTANT]
+> **This is a fork.** It adds on-device torrent streaming for Stremio on a jailbroken PS4
+> (GoldHEN), plus fixes found while testing on a real console. The original project is
+> [thcolin/gamepad-media-center-aggregator](https://github.com/thcolin/gamepad-media-center-aggregator);
+> this fork is not affiliated with it. See [What this fork adds](#what-this-fork-adds).
+
 > [!NOTE]
 > GMCA is the multi-backend evolution of **pleNx** (a native Plex client), itself a fork of
 > [Switchfin](https://github.com/dragonflylee/switchfin) — the Nintendo Switch Jellyfin client.
 > Existing pleNx installs migrate their data to GMCA automatically on first launch. It is an
 > independent, third-party project, not affiliated with or endorsed by Plex, Jellyfin, Emby or Stremio.
+
+---
+
+## What this fork adds
+
+Version 1.4.0 of this fork, compared with the original GMCA 1.3.0. Everything below was tested on a
+GoldHEN PS4 unless it says otherwise.
+
+**Torrent streaming on the PS4, with no PC and no debrid**
+- A PS4 port of libtorrent 2.0.15 runs inside the app. Stremio torrent sources (Torrentio and
+  similar addons) play directly: a short loading screen, then the film.
+- The source a row would play starts downloading when the row is highlighted, so playback starts
+  sooner. Nothing is uploaded unless a video is playing, and a torrent's data is deleted shortly
+  after playback ends.
+- Faster first start: the peer network state is kept between launches, the torrent session opens
+  at launch, and 15 public trackers are added to Torrentio's tracker-less streams. An optional
+  setting lets the router forward peers to the console (UPnP and NAT-PMP).
+- Smooth playback for torrents with big pieces (8 to 16 MB, common for films): the pieces the
+  player needs next are finished first. Torrent streams also get a larger read-ahead buffer.
+
+**The source list**
+- Sorted by quality, then torrents before links, then healthy torrents smallest first.
+- "Finding streams..." while the addons answer, the live peer count on the highlighted torrent,
+  a "May buffer" hint on rows too heavy for your connection, and "+N more" expands the list.
+- For a TV episode, X then **Choose source** shows its full source list.
+
+**Video on the PS4**
+- HDR video shows a picture instead of a blue screen (colors are a little washed out: the PS4
+  build of the player can't run HDR color conversion).
+- **Light HEVC decoding** (Settings, Playback, on by default) keeps 1080p HEVC and its audio
+  smooth. 4K stays too heavy for the console's CPU.
+- **Audio language** setting next to Subtitle language.
+
+**Continue Watching and resume**
+- Resume works for every Stremio title, torrents included, and stays in sync with your Stremio
+  library on other devices (the library's episode field is `video_id`).
+- Cards show the episode, the time left and when you last watched; X offers Start over, Mark
+  played and Remove from list. A finished episode leads to the next one.
+
+**Downloads**
+- Torrent downloads, a fallback to the next source when one fails (up to 3), season and episode
+  downloads for Stremio, and fixes so a removed download never comes back.
+
+**Other fixes**
+- The PS4 system keyboard's X and O now follow the console's setting.
+- The PS4 Files tab lists the console's folders and USB drives (it was empty).
+- Player controls: right from play/pause reaches the progress bar, down reaches the bottom row.
+- In-app updates come from this fork's releases.
+
+Torrent streaming is built for the PS4 and desktop builds. Switch and Vita builds keep their
+behavior apart from the shared fixes.
 
 ---
 
