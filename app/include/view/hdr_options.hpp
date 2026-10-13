@@ -50,7 +50,8 @@ enum Test {
     RetagLow = 3,
     RetagHigh = 4,
     FourKTest = 5,
-    testCount = 6,
+    Light1080p = 6,
+    testCount = 7,
 };
 
 inline const std::vector<std::string>& testLabels() {
@@ -61,6 +62,7 @@ inline const std::vector<std::string>& testLabels() {
         "HDR re-tag + saturation 8, contrast 5",
         "HDR re-tag + saturation 30, contrast 25",
         "4K test (skip loop filter, fast, framedrop)",
+        "1080p light decode (skip loop filter only)",
     };
     return labels;
 }
@@ -78,9 +80,10 @@ inline std::string filterChain(int mirror, bool withRetag) {
 }
 
 /// True when the choice runs with the re-tag filter in the chain (Automatic, and the three
-/// compensation levels). The control (mpv defaults) and the 4K test do not.
+/// compensation levels). The control (mpv defaults) and the 4K test do not; the 1080p light decode does, like Automatic
+/// (it changes the decoder options only, so 1080p HDR still draws).
 inline bool usesRetag(int test) {
-    return test == Automatic || test == RetagOnly || test == RetagLow || test == RetagHigh;
+    return test == Automatic || test == Light1080p || test == RetagOnly || test == RetagLow || test == RetagHigh;
 }
 
 /// What one HDR file gets: the saturation and contrast added to the viewer's own settings
@@ -103,7 +106,8 @@ struct Plan {
 inline Plan planFor(int test, const std::string& gamma) {
     if (gamma != "pq") return {};
     switch (test) {
-    case Automatic: return {true, 15, 10};
+    case Automatic:
+    case Light1080p: return {true, 15, 10};
     case RetagOnly: return {true, 0, 0};
     case RetagLow: return {true, 8, 5};
     case RetagHigh: return {true, 30, 25};
@@ -115,6 +119,7 @@ inline Plan planFor(int test, const std::string& gamma) {
 inline std::vector<Option> startOptions(int test) {
     if (test == FourKTest)
         return {{"vd-lavc-skiploopfilter", "all"}, {"vd-lavc-fast", "yes"}, {"framedrop", "decoder+vo"}};
+    if (test == Light1080p) return {{"vd-lavc-skiploopfilter", "all"}};
     return {};
 }
 

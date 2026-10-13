@@ -57,6 +57,9 @@ int main() {
                  : "bad",
         "ok");
 
+    CHECK_EQ(describe(startOptions(Light1080p)), "vd-lavc-skiploopfilter=all");
+    CHECK_EQ(usesRetag(Light1080p) ? "y" : "n", "y");
+    CHECK_EQ(describe(planFor(Light1080p, "pq")), describe(planFor(Automatic, "pq")));
     CHECK_EQ(describe(startOptions(FourKTest)), "vd-lavc-skiploopfilter=all vd-lavc-fast=yes framedrop=decoder+vo");
     for (int t : {Automatic, MpvDefaults, RetagOnly, RetagLow, RetagHigh}) CHECK_EQ(describe(startOptions(t)), "none");
 

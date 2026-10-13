@@ -16,6 +16,11 @@ static inline void check_error(int status) {
     if (status < 0) brls::Logger::error("MPV ERROR => {}", mpv_error_string(status));
 }
 
+#ifdef __PS4__
+static const char* const PS4_AO_SDL = "sdl:buflen=0.2";
+static const char* const PS4_AUDIO_BUFFER = "0.5";
+#endif
+
 #ifdef MPV_DIAG_LOG
 #include <ctime>
 #ifdef __PS4__
@@ -64,6 +69,14 @@ static std::string shaderCompilerHint() {
     return hint ? std::string("set (") + hint + ")" : "unset";
 #else
     return "n/a";
+#endif
+}
+
+static std::string ps4AudioHint() {
+#ifdef __PS4__
+    return std::string("ao ") + PS4_AO_SDL + " audio-buffer " + PS4_AUDIO_BUFFER;
+#else
+    return "default";
 #endif
 }
 
@@ -280,6 +293,12 @@ void MPVCore::init() {
         mpv_set_option_string(mpv, "sub-font", "nintendo_udsg-r_ko_003");
 #elif defined(__PS4__)
     mpv_set_option_string(mpv, "vd-lavc-threads", "6");
+    // A larger audio buffer, so a short CPU burst of the software decoder does not starve the
+    // sound (diag J: choppy with SDL's default 2048 samples, 43 ms). Checked in the libmpv.a of the
+    // PS4 builder: ao_sdl.c has the sub-option `buflen` (seconds, default 0 = SDL's own size; the
+    // `sdl-buflen` name is not in 0.36, so it goes through `ao`) and mpv has `audio-buffer` (seconds).
+    check_error(mpv_set_option_string(mpv, "ao", PS4_AO_SDL));
+    check_error(mpv_set_option_string(mpv, "audio-buffer", PS4_AUDIO_BUFFER));
 #elif defined(__PSV__)
     mpv_set_option_string(mpv, "vd-lavc-threads", "4");
     mpv_set_option_string(mpv, "fbo-format", "rgba8");
@@ -314,7 +333,7 @@ void MPVCore::init() {
     mpv_request_log_messages(mpv, "v");
     mpvDiagLine("mpv start: HEVC test " + std::to_string(DIAG_VIDEO_TEST) + " (" + hdr::testLabels()[DIAG_VIDEO_TEST] +
                     "), start options " + hdr::describe(hdr::startOptions(DIAG_VIDEO_TEST)) +
-                    ", shader compiler hint " + shaderCompilerHint() + ", alang " +
+                    ", shader compiler hint " + shaderCompilerHint() + ", audio " + ps4AudioHint() + ", alang " +
                 media::audioLangList(AUDIO_LANG, brls::Application::getLocale()));
 #endif
 #ifdef MPV_HDR_HANDLING
