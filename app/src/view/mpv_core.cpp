@@ -8,6 +8,7 @@
 #include "utils/log_redact.hpp"
 #include "api/http.hpp"
 #include "api/media/langs.hpp"
+#include "view/hdr_options.hpp"
 #include <cstring>
 #include <fmt/ranges.h>
 
@@ -52,8 +53,8 @@ static void mpvDiagLine(const std::string& raw, bool urgent = false) {
     if (urgent || full || now != mpvDiagFlushed) mpvDiagFlush();
 }
 
-// Three lines, each under redactLogLine's 200 bytes, flushed together (every 10 s): the
-// investigation reads them, and a close in the same second must not lose the last two
+// Four lines, each under redactLogLine's 200 bytes, flushed together (every 10 s): the
+// investigation reads them, and a close in the same second must not lose the last ones
 void MPVCore::diagVideoStats() {
     auto collect = [this](const std::string& head, std::initializer_list<const char*> props, bool last = false) {
         std::string line = head;
@@ -66,7 +67,9 @@ void MPVCore::diagVideoStats() {
     collect(at + " (2):", {"video-codec", "container-fps", "estimated-vf-fps"});
     collect(at + " (3):",
         {"decoder-frame-drop-count", "frame-drop-count", "vo-delayed-frame-count", "avsync", "demuxer-cache-duration"},
-        true);
+        false);
+    collect(at + " (4):", {"video-params/gamma", "video-params/primaries", "video-params/sig-peak"}, false);
+    mpvDiagLine(at + " (4): HDR handling: " + this->hdr_applied + " (level " + std::to_string(this->hdr_level) + ")", true);
 }
 #endif
 
@@ -281,12 +284,11 @@ void MPVCore::init() {
         mpv_request_log_messages(mpv, brls::Application::isDebuggingViewEnabled() ? "info" : "warn");
     }
 #ifdef MPV_DIAG_LOG
-    // diag builds: the HEVC test switch, and mpv's verbose log (decoder, video output, formats)
-    if (DIAG_VIDEO_TEST == 1 || DIAG_VIDEO_TEST == 4) mpv_set_option_string(mpv, "vf", "format=yuv420p");
-    if (DIAG_VIDEO_TEST == 2 || DIAG_VIDEO_TEST == 4) mpv_set_option_string(mpv, "fbo-format", "rgba8");
-    if (DIAG_VIDEO_TEST == 3 || DIAG_VIDEO_TEST == 4) mpv_set_option_string(mpv, "gpu-dumb-mode", "yes");
+    // diag builds: the HEVC test switch (hdr::Test), and mpv's verbose log (decoder, video output, formats)
+    for (const auto& o : hdr::startOptions(DIAG_VIDEO_TEST)) mpv_set_option_string(mpv, o.first.c_str(), o.second.c_str());
     mpv_request_log_messages(mpv, "v");
-    mpvDiagLine("mpv start: HEVC test " + std::to_string(DIAG_VIDEO_TEST) + ", alang " +
+    mpvDiagLine("mpv start: HEVC test " + std::to_string(DIAG_VIDEO_TEST) + " (" + hdr::testLabels()[DIAG_VIDEO_TEST] +
+                    "), start options " + hdr::describe(hdr::startOptions(DIAG_VIDEO_TEST)) + ", alang " +
                 media::audioLangList(AUDIO_LANG, brls::Application::getLocale()));
 #endif
 
@@ -311,6 +313,13 @@ void MPVCore::init() {
     check_error(mpv_observe_property(mpv, 5, "cache-speed", MPV_FORMAT_INT64));
     check_error(mpv_observe_property(mpv, 9, "speed", MPV_FORMAT_DOUBLE));
     check_error(mpv_observe_property(mpv, 10, "volume", MPV_FORMAT_INT64));
+#ifdef MPV_HDR_HANDLING
+    // the video's transfer function, known before its first frame is drawn: HDR gets its options then
+    hdr_active = false;
+    hdr_level = 0;
+    hdr_applied = "none";
+    check_error(mpv_observe_property(mpv, 11, "video-params/gamma", MPV_FORMAT_STRING));
+#endif
 
 // init renderer params
 #ifdef ANDROID
@@ -695,6 +704,9 @@ void MPVCore::eventMainLoop() {
             if (log->log_level <= MPV_LOG_LEVEL_ERROR) {
                 std::string line = misc::redactLogLine(fmt::format("{}: {}", log->prefix, log->text));
                 brls::Logger::error("{}", line);
+#ifdef MPV_HDR_HANDLING
+                if (this->hdr_active && hdr::isShaderLinkFailure(log->text ? log->text : "")) this->hdrShaderFailed();
+#endif
                 if (this->last_error_line.empty()) this->last_error_line = line;
             } else if (log->log_level <= MPV_LOG_LEVEL_WARN) {
                 std::string line = misc::redactLogLine(fmt::format("{}: {}", log->prefix, log->text));
@@ -728,6 +740,10 @@ void MPVCore::eventMainLoop() {
             this->last_warn_line.clear();
             this->load_generation++;
             brls::Logger::info("MPVCore => EVENT_START_FILE");
+#ifdef MPV_DIAG_LOG
+            mpvDiagLine("file start: HEVC test " + std::to_string(DIAG_VIDEO_TEST) + " (" +
+                        hdr::testLabels()[DIAG_VIDEO_TEST] + ")");
+#endif
             mpvCoreEvent.fire(MpvEventEnum::START_FILE);
             mpvCoreEvent.fire(MpvEventEnum::LOADING_START);
             break;
@@ -792,6 +808,13 @@ void MPVCore::eventMainLoop() {
         case MPV_EVENT_PROPERTY_CHANGE: {
             /// https://mpv.io/manual/stable/#property-list
             mpv_event_property *prop = (mpv_event_property *)event->data;
+#ifdef MPV_HDR_HANDLING
+            // also when the property goes away (the file ended): the next file starts from mpv's defaults
+            if (event->reply_userdata == 11) {
+                this->applyHdrHandling();
+                break;
+            }
+#endif
             if (prop->format == MPV_FORMAT_NONE) break;
 
             switch (event->reply_userdata) {
@@ -856,6 +879,61 @@ void MPVCore::eventMainLoop() {
         }
     }
 }
+
+#ifdef MPV_HDR_HANDLING
+static int hdrTest() {
+#ifdef MPV_DIAG_LOG
+    return MPVCore::DIAG_VIDEO_TEST;
+#else
+    return hdr::Automatic;
+#endif
+}
+
+static void hdrSet(mpv_handle *mpv, const hdr::Option &o) {
+    const int status = mpv_set_property_string(mpv, o.first.c_str(), o.second.c_str());
+    if (status < 0) brls::Logger::error("MPV HDR option {}={}: {}", o.first, o.second, mpv_error_string(status));
+}
+
+// Called when the video's transfer function changes (a file loaded, or ended): an HDR file gets the
+// options of its level, the file after it starts from mpv's defaults again.
+void MPVCore::applyHdrHandling() {
+    const std::string gamma = this->getString("video-params/gamma");
+    const std::string primaries = this->getString("video-params/primaries");
+    const double sigPeak = this->getDouble("video-params/sig-peak");
+    if (this->hdr_active) {
+        for (const auto &o : hdr::resetOptions()) hdrSet(this->mpv, o);
+        this->hdr_active = false;
+        this->hdr_applied = "none";
+    }
+    if (!hdr::isHdrTransfer(gamma)) {
+#ifdef MPV_DIAG_LOG
+        if (!gamma.empty()) mpvDiagLine("video: gamma " + gamma + ", primaries " + primaries + ", not HDR, no HDR handling");
+#endif
+        return;
+    }
+    const auto options = hdr::hdrOptions(hdrTest(), this->hdr_level, gamma, primaries, sigPeak);
+    for (const auto &o : options) hdrSet(this->mpv, o);
+    this->hdr_active = true;
+    this->hdr_applied = hdr::describe(options);
+    brls::Logger::info("MPV HDR video ({}, {}): {}", gamma, primaries, this->hdr_applied);
+#ifdef MPV_DIAG_LOG
+    mpvDiagLine("video: gamma " + gamma + ", primaries " + primaries + ", sig-peak " + std::to_string(sigPeak) +
+                    ", HDR handling (level " + std::to_string(this->hdr_level) + "): " + this->hdr_applied,
+        true);
+#endif
+}
+
+// mpv says a shader did not link while an HDR file is on: with the automatic choice, the next level.
+void MPVCore::hdrShaderFailed() {
+    if (hdrTest() != hdr::Automatic || this->hdr_level >= hdr::autoLevels - 1) return;
+    this->hdr_level++;
+    brls::Logger::warning("MPV HDR shader failed to link, trying level {}", this->hdr_level);
+#ifdef MPV_DIAG_LOG
+    mpvDiagLine("video: shader did not link, HDR handling goes to level " + std::to_string(this->hdr_level), true);
+#endif
+    this->applyHdrHandling();
+}
+#endif
 
 void MPVCore::reset() {
     brls::Logger::debug("MPVCore::reset");

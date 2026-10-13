@@ -18,6 +18,13 @@ constexpr int wellSeeded = 10;
 /// plays smoothly on a PS4, which then ranks it with H.264.
 constexpr bool ps4LightHevcPlays = false;
 
+/// To relax the PS4 rule after the console run of GMCA diag J (the HDR handling in
+/// view/hdr_options.hpp and the 4K test): set these to true. `ps4TenBitPlays` stops 10-bit
+/// and HDR video counting as heavy by itself (HEVC then follows the HEVC rule); `ps4Hevc1080pPlays`
+/// lets HEVC at 1080p count as light too (needs ps4LightHevcPlays). 4K stays heavy either way.
+constexpr bool ps4TenBitPlays = false;
+constexpr bool ps4Hevc1080pPlays = false;
+
 /// What the order reads from one source row.
 struct SourceKey {
     bool playable = false;
@@ -96,9 +103,10 @@ inline std::string parseCodecLabel(const std::string& text) {
 /// not drawn (a blue screen with sound): they go after the light sources there. With
 /// `lightHevcPlays` (ps4LightHevcPlays), 8-bit HEVC at 720p or less counts as light.
 inline bool heavyOnPs4(const std::string& codec, bool tenBit, const std::string& resolution, bool lightHevcPlays) {
-    if (tenBit || codec == "AV1") return true;
+    if ((tenBit && !ps4TenBitPlays) || codec == "AV1") return true;
     if (codec != "HEVC") return false;
-    const bool light = resolution == "720p" || resolution == "480p" || resolution == "SD";
+    const bool light = resolution == "720p" || resolution == "480p" || resolution == "SD" ||
+                       (ps4Hevc1080pPlays && resolution == "1080p");
     return !(lightHevcPlays && light);
 }
 

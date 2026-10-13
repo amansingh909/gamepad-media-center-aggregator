@@ -15,6 +15,7 @@
 */
 
 #include "tab/setting_tab.hpp"
+#include "view/hdr_options.hpp"
 #include "activity/server_list.hpp"
 #include "activity/hint_activity.hpp"
 #include "activity/changelog_activity.hpp"
@@ -201,7 +202,7 @@ void SettingTab::onCreate() {
     {
         auto* diagVideo = new brls::SelectorCell();
         diagVideo->init("HEVC test (diag build)",
-            {"Off", "10-bit to 8-bit", "rgba8 framebuffer", "Simple rendering", "All three"},
+            hdr::testLabels(),
             MPVCore::DIAG_VIDEO_TEST, [](int selected) {
                 MPVCore::DIAG_VIDEO_TEST = selected;
                 MPVCore::instance().restart();
