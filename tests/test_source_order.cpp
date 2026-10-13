@@ -76,8 +76,9 @@ int main() {
         const std::string text = std::string("Addon") + " " + "Show 1080p" + " " + "Show.S01E01.1080p.x265.10bit.mkv";
         CHECK(parseCodecLabel(text) == "HEVC");
         CHECK(parseTenBit(text));
-        CHECK(heavyOnPs4(parseCodecLabel(text), parseTenBit(text), "1080p", false));
-        CHECK(compareSources([&] { SourceKey k = tor(4, 50, GB); k.heavy = heavyOnPs4(parseCodecLabel(text), parseTenBit(text), "1080p", false); return k; }(),
+        CHECK(!heavyOnPs4(parseCodecLabel(text), parseTenBit(text), "1080p", true));
+        CHECK(heavyOnPs4(parseCodecLabel(text), parseTenBit(text), "4K", true));
+        CHECK(compareSources([&] { SourceKey k = tor(6, 50, GB); k.heavy = heavyOnPs4(parseCodecLabel(text), parseTenBit(text), "4K", true); return k; }(),
                              tor(4, 5, GB), true) > 0);
         const std::string light = "Addon Show 1080p Show.S01E01.1080p.x264.mkv";
         CHECK(parseCodecLabel(light) == "H.264");
@@ -95,17 +96,22 @@ int main() {
     CHECK(parseSizeBytes("GB") == -1);
     CHECK(parseSizeBytes("12 KB") == -1);
 
-    // heavy on a PS4: HEVC, AV1, 10-bit; light HEVC only once the console test says it plays
-    CHECK(heavyOnPs4("HEVC", false, "1080p", false));
-    CHECK(heavyOnPs4("HEVC", false, "720p", false));
-    CHECK(heavyOnPs4("AV1", false, "720p", true));
-    CHECK(heavyOnPs4("H.264", true, "1080p", false));  // Hi10P
-    CHECK(!heavyOnPs4("H.264", false, "1080p", false));
-    CHECK(!heavyOnPs4("", false, "1080p", false));      // no codec named: most often H.264
+    // heavy on a PS4: AV1, and HEVC or 10-bit at 4K or 1440p (diag J: 1080p HDR HEVC plays)
+    CHECK(!heavyOnPs4("HEVC", false, "1080p", true));
     CHECK(!heavyOnPs4("HEVC", false, "720p", true));
+    CHECK(heavyOnPs4("AV1", false, "720p", true));
+    CHECK(heavyOnPs4("AV1", false, "1080p", true));
+    CHECK(!heavyOnPs4("H.264", true, "1080p", true));  // Hi10P at 1080p
+    CHECK(heavyOnPs4("H.264", true, "4K", true));
+    CHECK(!heavyOnPs4("H.264", false, "1080p", true));
+    CHECK(!heavyOnPs4("H.264", false, "4K", true));
+    CHECK(!heavyOnPs4("", false, "1080p", true));      // no codec named: most often H.264
     CHECK(!heavyOnPs4("HEVC", false, "SD", true));
-    CHECK(heavyOnPs4("HEVC", false, "1080p", true));
-    CHECK(heavyOnPs4("HEVC", true, "720p", true));
+    CHECK(!heavyOnPs4("HEVC", true, "1080p", true));
+    CHECK(heavyOnPs4("HEVC", false, "4K", true));
+    CHECK(heavyOnPs4("HEVC", true, "4K", true));
+    CHECK(heavyOnPs4("HEVC", false, "1440p", true));
+    CHECK(heavyOnPs4("HEVC", false, "1080p", false));  // the 8-bit HEVC switch off: all HEVC heavy
 
     // 1. playable first, then quality
     CHECK(compareSources(lnk(2), grey(6), false) < 0);

@@ -16,14 +16,14 @@ constexpr int wellSeeded = 10;
 
 /// Set from the HEVC test on the console (GMCA diag H): true once 8-bit HEVC at 720p or less
 /// plays smoothly on a PS4, which then ranks it with H.264.
-constexpr bool ps4LightHevcPlays = false;
+constexpr bool ps4LightHevcPlays = true;
 
-/// To relax the PS4 rule after the console run of GMCA diag J (the HDR handling in
-/// view/hdr_options.hpp and the 4K test): set these to true. `ps4TenBitPlays` stops 10-bit
+/// Set to true after the console run of GMCA diag J (the HDR handling in
+/// view/hdr_options.hpp). `ps4TenBitPlays` stops 10-bit
 /// and HDR video counting as heavy by itself (HEVC then follows the HEVC rule); `ps4Hevc1080pPlays`
-/// lets HEVC at 1080p count as light too (needs ps4LightHevcPlays). 4K stays heavy either way.
-constexpr bool ps4TenBitPlays = false;
-constexpr bool ps4Hevc1080pPlays = false;
+/// lets HEVC at 1080p count as light too (needs ps4LightHevcPlays). 4K and 1440p stay heavy.
+constexpr bool ps4TenBitPlays = true;
+constexpr bool ps4Hevc1080pPlays = true;
 
 /// What the order reads from one source row.
 struct SourceKey {
@@ -99,14 +99,17 @@ inline std::string parseCodecLabel(const std::string& text) {
     return "";
 }
 
-/// HEVC, AV1 and 10-bit video decode in software on a PS4, at the CPU's limit, and are often
-/// not drawn (a blue screen with sound): they go after the light sources there. With
-/// `lightHevcPlays` (ps4LightHevcPlays), 8-bit HEVC at 720p or less counts as light.
+/// AV1 decodes in software on a PS4 at the CPU's limit and is often not drawn; HEVC and 10-bit
+/// video (HDR included) play up to 1080p (console runs H to J) but not at 4K or 1440p. Heavy
+/// sources go after the light ones there. `lightHevcPlays` (ps4LightHevcPlays) off makes all
+/// HEVC heavy again; the other two constants do the same for 10-bit and for 1080p HEVC.
 inline bool heavyOnPs4(const std::string& codec, bool tenBit, const std::string& resolution, bool lightHevcPlays) {
-    if ((tenBit && !ps4TenBitPlays) || codec == "AV1") return true;
+    if (codec == "AV1") return true;
+    const bool big = resolution == "4K" || resolution == "1440p";
+    if (tenBit && (!ps4TenBitPlays || big)) return true;
     if (codec != "HEVC") return false;
-    const bool light = resolution == "720p" || resolution == "480p" || resolution == "SD" ||
-                       (ps4Hevc1080pPlays && resolution == "1080p");
+    if (big) return true;
+    const bool light = resolution != "1080p" || ps4Hevc1080pPlays;
     return !(lightHevcPlays && light);
 }
 
