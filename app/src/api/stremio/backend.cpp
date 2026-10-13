@@ -21,6 +21,7 @@
 #include "api/stremio/backend.hpp"
 #include "api/stremio/types.hpp"
 #include "api/stremio/auth.hpp"
+#include "api/stremio/catalog_label.hpp"
 #include "api/stremio/library_item.hpp"
 #include "api/stremio/resume.hpp"
 #include "api/media/langs.hpp"
@@ -220,10 +221,10 @@ std::string catalogLabel(const L10n& l, const Catalog& c) {
 }
 /// Like catalogLabel but, when the catalog is unnamed (name fell back to its id),
 /// use the addon's name instead (e.g. "publicdomainmovies" -> "Public Domain Movies").
-std::string bestCatalogLabel(const L10n& l, const Addon& a, const Catalog& c) {
-    std::string lbl = catalogLabel(l, c);
-    if (lbl == c.id && !a.manifest.name.empty()) return a.manifest.name;
-    return lbl;
+/// An empty name ("name": "") falls back the same way, then to the catalog id, then to "Movies 2".
+std::string bestCatalogLabel(const L10n& l, const Addon& a, const Catalog& c, size_t position = 0) {
+    return stremio::pickCatalogLabel(catalogLabel(l, c), c.id, a.manifest.name,
+        stremio::genericCatalogLabel(typeLabel(l, c.type), position));
 }
 
 /// A section/hub key is either a bare Stremio type ("movie"/"series") or a fully
@@ -458,8 +459,12 @@ std::vector<std::pair<std::string, std::string>> StremioBackend::sectionTabs(con
     L10n loc = loadL10n();
     std::vector<std::pair<std::string, std::string>> out;
     for (auto& pc : engine.catalogsForType(sectionId))
-        out.emplace_back(
-            catalogKey(pc.first.base, pc.second.type, pc.second.id), bestCatalogLabel(loc, pc.first, pc.second));
+        out.emplace_back(catalogKey(pc.first.base, pc.second.type, pc.second.id),
+            bestCatalogLabel(loc, pc.first, pc.second, out.size() + 1));
+    // the tab labels as built, for a console log: a blank tab shows here as an empty entry
+    std::string labels;
+    for (auto& t : out) labels += (labels.empty() ? "'" : ", '") + t.second + "'";
+    brls::Logger::info("stremio: {} tabs: {}", sectionId, labels);
     return out;
 }
 
