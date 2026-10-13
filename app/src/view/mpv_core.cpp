@@ -17,7 +17,7 @@ static inline void check_error(int status) {
 }
 
 #ifdef __PS4__
-static const char* const PS4_AO_SDL = "sdl:buflen=0.2";
+static const char* const PS4_SDL_BUFLEN = "0.2";
 static const char* const PS4_AUDIO_BUFFER = "0.5";
 #endif
 
@@ -74,7 +74,7 @@ static std::string shaderCompilerHint() {
 
 static std::string ps4AudioHint() {
 #ifdef __PS4__
-    return std::string("ao ") + PS4_AO_SDL + " audio-buffer " + PS4_AUDIO_BUFFER;
+    return std::string("sdl-buflen ") + PS4_SDL_BUFLEN + " audio-buffer " + PS4_AUDIO_BUFFER;
 #else
     return "default";
 #endif
@@ -294,10 +294,10 @@ void MPVCore::init() {
 #elif defined(__PS4__)
     mpv_set_option_string(mpv, "vd-lavc-threads", "6");
     // A larger audio buffer, so a short CPU burst of the software decoder does not starve the
-    // sound (diag J: choppy with SDL's default 2048 samples, 43 ms). Checked in the libmpv.a of the
-    // PS4 builder: ao_sdl.c has the sub-option `buflen` (seconds, default 0 = SDL's own size; the
-    // `sdl-buflen` name is not in 0.36, so it goes through `ao`) and mpv has `audio-buffer` (seconds).
-    check_error(mpv_set_option_string(mpv, "ao", PS4_AO_SDL));
+    // sound (diag J: choppy with SDL's default 2048 samples, 43 ms). `sdl-buflen` is ao_sdl.c's
+    // `buflen` with the options prefix "sdl" (seconds; mpv 0.36 has no --ao sub-options, so
+    // `--ao=sdl:buflen=` is rejected) and `audio-buffer` is mpv's own audio buffer (seconds).
+    check_error(mpv_set_option_string(mpv, "sdl-buflen", PS4_SDL_BUFLEN));
     check_error(mpv_set_option_string(mpv, "audio-buffer", PS4_AUDIO_BUFFER));
 #elif defined(__PSV__)
     mpv_set_option_string(mpv, "vd-lavc-threads", "4");
