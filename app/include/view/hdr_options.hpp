@@ -18,7 +18,10 @@
 // to be HDR: mpv reconfigures the video output only when a frame's tags differ from the output's,
 // and waits for the frame on screen first; a filter added after the first frame was drawn with
 // HDR tags (the video-params event reaches the app after it) was not picked up (checked on the
-// desktop build). For SDR files it changes nothing: mpv's output colorspace follows the source.
+// desktop build). For SDR files in the usual BT.709 tags it changes nothing: mpv's output
+// colorspace follows the source. Wide-gamut SDR (BT.2020 or P3 primaries) is no longer converted
+// either: on the PS4 that is better (the conversion needed a shader the console cannot make), on a
+// desktop diag build slightly less accurate.
 #pragma once
 
 #include <string>
@@ -65,6 +68,15 @@ inline const std::vector<std::string>& testLabels() {
 /// True for the transfer functions of HDR video, as mpv's video-params/gamma prints them.
 inline bool isHdrTransfer(const std::string& gamma) { return gamma == "pq" || gamma == "hlg"; }
 
+/// The value of mpv's `vf` for the mirror setting (0 off, 1 horizontal, 2 vertical) with the
+/// re-tag filter first when `withRetag` (the mirror filter, a libavfilter graph, then sees SDR tags): one list, set in one step, so there is never a moment without
+/// the re-tag filter (a video output configured with HDR tags freezes the picture).
+inline std::string filterChain(int mirror, bool withRetag) {
+    const std::string flip = mirror == 1 ? "hflip" : (mirror == 2 ? "vflip" : "");
+    if (!withRetag) return flip;
+    return flip.empty() ? retagFilter() : retagFilter() + "," + flip;
+}
+
 /// True when the choice runs with the re-tag filter in the chain (Automatic, and the three
 /// compensation levels). The control (mpv defaults) and the 4K test do not.
 inline bool usesRetag(int test) {
@@ -80,7 +92,8 @@ struct Plan {
 };
 
 /// The plan for a file whose transfer is `gamma` under the diag choice `test` (Automatic in a
-/// release build). Nothing for a file that is not HDR.
+/// release build). Nothing for a file that is not PQ: HLG is close to SDR-compatible, and +15/+10
+/// could over-boost it (it still gets the re-tag filter, which every file has).
 ///
 /// The automatic amounts: PQ puts reference white (203 nits) at a code value near 0.58 and
 /// BT.2020 colors are shown on BT.709 primaries, so shown as SDR the picture is flat and
@@ -88,7 +101,7 @@ struct Plan {
 /// lost chroma; both are moderate on purpose, as clipped highlights and neon colors are worse than
 /// flat ones. The console run compares the low and high choices.
 inline Plan planFor(int test, const std::string& gamma) {
-    if (!isHdrTransfer(gamma)) return {};
+    if (gamma != "pq") return {};
     switch (test) {
     case Automatic: return {true, 15, 10};
     case RetagOnly: return {true, 0, 0};

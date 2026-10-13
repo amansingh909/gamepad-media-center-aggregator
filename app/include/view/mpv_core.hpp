@@ -78,6 +78,9 @@ public:
 
     std::unordered_map<std::string, mpv_node> getNodeMap(const std::string &key);
 
+    /// The mirror setting (0 off, 1 horizontal, 2 vertical), keeping the HDR re-tag filter (PS4).
+    void setMirror(int mirror);
+
     void togglePlay();
 
     void stop();
@@ -157,7 +160,6 @@ public:
     // file is played (video-params/gamma is pq or hlg) saturation and contrast are raised, and the
     // viewer's own values are kept to put back at the end of the file. See view/hdr_options.hpp.
     void applyHdrHandling();
-    void restoreHdrFilter();  // after `set vf` replaced the filter list
     bool hdr_active = false;
     int hdr_base_saturation = 0;
     int hdr_base_contrast = 0;

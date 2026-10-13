@@ -927,7 +927,8 @@ void MPVCore::applyHdrHandling() {
     if (!plan.retag) {
 #ifdef MPV_DIAG_LOG
         if (!gamma.empty())
-            mpvDiagLine("video: gamma " + gamma + ", primaries " + primaries + ", HDR handling: none");
+            mpvDiagLine("video: gamma " + gamma + ", primaries " + primaries + ", HDR handling: " +
+                        (hdr::usesRetag(hdrTest()) ? "re-tag only" : "none"));
 #endif
         return;
     }
@@ -945,13 +946,18 @@ void MPVCore::applyHdrHandling() {
 #endif
 }
 
-// `set vf` (the mirror setting) replaces the whole filter list: put the re-tag filter back.
-void MPVCore::restoreHdrFilter() {
-    if (!hdr::usesRetag(hdrTest())) return;
-    this->command("vf", "remove", hdr::filterLabel());
-    this->command("vf", "add", hdr::retagFilter().c_str());
-}
 #endif
+
+// The mirror setting (0 off, 1 horizontal, 2 vertical): `set vf` replaces the whole filter list, so
+// the PS4's re-tag filter goes in the same list, in one step.
+void MPVCore::setMirror(int mirror) {
+#ifdef MPV_HDR_HANDLING
+    const bool retag = hdr::usesRetag(hdrTest());
+#else
+    const bool retag = false;
+#endif
+    this->command("set", "vf", hdr::filterChain(mirror, retag).c_str());
+}
 
 void MPVCore::reset() {
     brls::Logger::debug("MPVCore::reset");
