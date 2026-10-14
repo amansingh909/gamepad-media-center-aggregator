@@ -36,6 +36,8 @@ on:
 env:
   # Prebuilt dependencies, see RELEASING.md.
   DEPS_URL: https://github.com/thcolin/gamepad-media-center-aggregator/releases/download/ci-deps
+  # The PS4 torrent build's two extra packages (boost-headers, libtorrent) live on this fork.
+  TORRENT_DEPS_URL: https://github.com/amansingh909/gamepad-media-center-aggregator/releases/download/ci-deps
 
 jobs:
   upload-release:
@@ -169,8 +171,16 @@ jobs:
         git -C library/borealis apply --verbose ../../scripts/patches/borealis-fixes.patch
     - name: Update dependencies
       run: |
-        for pkg in musl-1.5-3 mbedtls-2.28.10-2 sdl2-2.0.18-19 libcurl-7.80.0-5 dav1d-1.5.4-1 ffmpeg-7.1.5-3 libmpv-0.36.0-2 boost-headers-1.83.0-1 libtorrent-2.0.15-1; do
+        for pkg in musl-1.5-3 mbedtls-2.28.10-2 sdl2-2.0.18-19 libcurl-7.80.0-5 dav1d-1.5.4-1 ffmpeg-7.1.5-3 libmpv-0.36.0-2; do
           pacman --noconfirm -U $DEPS_URL/ps4-openorbis-${pkg}-any.pkg.tar.gz
+        done
+        # pinned SHA-256: a package is installed only if it matches
+        for dep in "boost-headers-1.83.0-1 a3ae84500b4b9d28cef9a2af324f8760d6f97aaba0faf2840e8e3760b2519166" \
+                   "libtorrent-2.0.15-1 052600d00ab7af897e0fca43b03464086e9a7f0b7a80f60ef4d2221ed3443dfd"; do
+          set -- $dep
+          curl -fsSLo /tmp/$1.pkg.tar.gz $TORRENT_DEPS_URL/ps4-openorbis-$1-any.pkg.tar.gz
+          echo "$2  /tmp/$1.pkg.tar.gz" | sha256sum -c -
+          pacman --noconfirm -U /tmp/$1.pkg.tar.gz
         done
         git config --system --add safe.directory $GITHUB_WORKSPACE
     - name: Build
