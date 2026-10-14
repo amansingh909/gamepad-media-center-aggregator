@@ -9,6 +9,14 @@ prepared with [git-cliff](https://git-cliff.org/) from conventional commits
 hand. For the history of the upstream project this fork is based on, see the
 [Switchfin changelog](https://github.com/dragonflylee/switchfin/blob/dev/CHANGELOG.md).
 
+## [1.4.1] - 2026-10-14
+
+Merged the latest upstream GMCA.
+
+### Fixed
+
+- A Plex HTTP 403 now shows a clear message instead of retrying into a transcode.
+
 ## [1.4.0] - 2026-10-13
 
 First release of the fork. The in-app updater and the release links now look at the fork's repository. The PS4 package version is 00.29, so the console installs it as an update over 1.3.0.
