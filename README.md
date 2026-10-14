@@ -85,6 +85,9 @@ GoldHEN PS4 unless it says otherwise.
 Torrent streaming is built for the PS4 and desktop builds. Switch and Vita builds keep their
 behavior apart from the shared fixes.
 
+How libtorrent and Boost were ported to the PS4, and every console problem that had to be fixed
+along the way: [docs/ps4-libtorrent.md](docs/ps4-libtorrent.md).
+
 ---
 
 ## Screenshots
