@@ -83,22 +83,17 @@ jobs:
     - name: Release and Upload Assets
       uses: softprops/action-gh-release@v3
       with:
-        name: GMCA ${{ github.ref_name }}
+        # this fork writes each release's title and notes by hand (gh release create), so the
+        # job only attaches the package and leaves them alone
         tag_name: ${{ github.ref_name }}
-        body_path: RELEASE_NOTES.md
         # direct publication: the job only runs after ALL builds succeed,
         # and the tag/changelog are validated upstream — as soon as the
         # release exists, the in-app updater sees it (releases/latest ignores drafts)
         draft: false
+        # this fork only releases the PS4 package: the other platforms still build here as a
+        # check, but they don't have the torrent feature and aren't tested on hardware
         files: |
-          assets/GMCA-windows-*.7z
-          assets/GMCA-macOS-*/*.dmg
-          assets/GMCA-NintendoSwitch-deko3d-*/*.nro
           assets/GMCA-PS4-*/*.pkg
-          assets/GMCA-Vita-*/*.vpk
-          assets/GMCA-Flatpak-*/*.flatpak
-          assets/GMCA-Archlinux-*/*.pkg.tar.*
-          assets/GMCA-android-*/*.apk
 
   build-nx:
     runs-on: ubuntu-latest
