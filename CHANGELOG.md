@@ -9,6 +9,14 @@ prepared with [git-cliff](https://git-cliff.org/) from conventional commits
 hand. For the history of the upstream project this fork is based on, see the
 [Switchfin changelog](https://github.com/dragonflylee/switchfin/blob/dev/CHANGELOG.md).
 
+## [1.4.2] - 2026-10-14
+
+### Fixed
+
+- Subtitles now show on the PS4. The PS4 build installs a default subtitle font
+  on first start (replace `/data/GMCA/subfont.ttf` to use your own). Picture
+  subtitles (PGS, VobSub) still can't draw on the PS4.
+
 ## [1.4.1] - 2026-10-14
 
 Merged the latest upstream GMCA.
