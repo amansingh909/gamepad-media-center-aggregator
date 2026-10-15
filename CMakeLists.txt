@@ -94,8 +94,27 @@ if (PLATFORM_SWITCH)
     # System service initialization functions required for libnx
     list(APPEND MAIN_SRC ${BOREALIS_LIBRARY}/lib/platforms/switch/switch_wrapper.c)
 elseif (PLATFORM_PS4)
+    # Static-init guards that work with the PS4's thread ids, see the file
+    list(APPEND MAIN_SRC ${CMAKE_SOURCE_DIR}/app/platform/ps4/cxa_guard.c)
     # Show backtrace when app crash
     list(APPEND MAIN_SRC ${BOREALIS_LIBRARY}/lib/platforms/ps4/crashlog.c)
+    # OpenOrbis' link.x collects `.data` but not `.data.*`, and -fdata-sections puts
+    # each initialized global in its own .data.<name> section. create-fself only
+    # loads `.data`, so the rest read as 0 on the console (ThreadPool::max_thread_num,
+    # stdio's FILEs, libunwind's cache, ...). Link with a copy that merges them.
+    file(READ ${OPENORBIS}/link.x PS4_LINK_SCRIPT)
+    string(REGEX REPLACE "\\*\\(\\.data\\)" "*(.data .data.*)" PS4_LINK_SCRIPT_FIXED "${PS4_LINK_SCRIPT}")
+    if (PS4_LINK_SCRIPT_FIXED STREQUAL PS4_LINK_SCRIPT)
+        message(FATAL_ERROR "Could not patch ${OPENORBIS}/link.x to merge .data.* sections")
+    endif ()
+    file(WRITE ${CMAKE_BINARY_DIR}/link.x "${PS4_LINK_SCRIPT_FIXED}")
+    string(REPLACE "${OPENORBIS}/link.x" "${CMAKE_BINARY_DIR}/link.x" CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS}")
+    string(FIND "${CMAKE_EXE_LINKER_FLAGS}" "${CMAKE_BINARY_DIR}/link.x" PS4_LINK_SCRIPT_FLAG)
+    if (PS4_LINK_SCRIPT_FLAG EQUAL -1)
+        message(FATAL_ERROR "The PS4 linker flags don't reference ${OPENORBIS}/link.x")
+    endif ()
+    # Linux clock ids -> FreeBSD ones, see the file (linked with --wrap below)
+    list(APPEND MAIN_SRC ${CMAKE_SOURCE_DIR}/app/platform/ps4/clock_ids.c)
 elseif (PLATFORM_PSV)
     configure_file("${CMAKE_SOURCE_DIR}/app/platform/vita/template.xml.in" "${CMAKE_BINARY_DIR}/template.xml")
     # In-app self-update (issue #14): app/src/utils/vita_install.cpp unpacks the
@@ -243,6 +262,9 @@ set_target_properties(${PROJECT_NAME} PROPERTIES CXX_STANDARD 17)
 target_include_directories(${PROJECT_NAME} PRIVATE app/include ${APP_PLATFORM_INCLUDE})
 target_compile_options(${PROJECT_NAME} PRIVATE -ffunction-sections -fdata-sections -Wunused-variable ${APP_PLATFORM_OPTION})
 target_link_libraries(${PROJECT_NAME} PRIVATE borealis lunasvg ${APP_PLATFORM_LIB})
+if (PLATFORM_PS4)
+    target_link_options(${PROJECT_NAME} PRIVATE "LINKER:--wrap=clock_gettime")
+endif ()
 target_compile_definitions(${PROJECT_NAME} PRIVATE
     APP_VERSION=${VERSION_MAJOR}.${VERSION_MINOR}.${VERSION_ALTER}
     APP_BUILD=${VERSION_BUILD}
