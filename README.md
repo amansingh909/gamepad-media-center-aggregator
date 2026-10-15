@@ -81,6 +81,7 @@ GoldHEN PS4 unless it says otherwise.
 - The PS4 Files tab lists the console's folders and USB drives (it was empty).
 - Player controls: right from play/pause reaches the progress bar, down reaches the bottom row.
 - In-app updates come from this fork's releases.
+- Subtitles show on the PS4 (text subtitles; picture subtitles like PGS and VobSub still can't draw there).
 
 Torrent streaming is built for the PS4 and desktop builds. Switch and Vita builds keep their
 behavior apart from the shared fixes.
@@ -215,7 +216,7 @@ grab the Flatpak or the desktop package from the latest release.
 GMCA reads your existing library, logins and downloads automatically on first launch — nothing to re-configure.
 
 **Subtitles don't show up on Switch?**
-Drop any TrueType font at `sdmc:/switch/GMCA/subfont.ttf`.
+Drop any TrueType font at `sdmc:/switch/GMCA/subfont.ttf`. The PS4 build installs a default subtitle font automatically; to use your own, replace `/data/GMCA/subfont.ttf` with any TrueType font.
 
 **macOS won't open the app?**
 Clear the quarantine attribute:
