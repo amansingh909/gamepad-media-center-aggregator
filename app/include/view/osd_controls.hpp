@@ -1,7 +1,8 @@
 #pragma once
 
 /// The player's control map (VideoView's OSD) as plain data: which control the D-pad moves to,
-/// and how far a seek key jumps. No borealis in here: tests/test_osd_controls.cpp checks it.
+/// how far a seek key jumps and which face button does what. No borealis in here:
+/// tests/test_osd_controls.cpp checks it.
 ///
 ///     [Back] title             [prev] [-10] [+10] [next] [settings]
 ///     [play/pause] [=========== progress ===========] time / duration
@@ -128,5 +129,25 @@ inline int seekStep(int64_t pending) {
 inline int64_t addSeek(int64_t pending, bool forward) {
     return forward ? pending + seekStep(pending) : pending - seekStep(pending);
 }
+
+/// addSeek() kept within the file: from `position` (seconds) no further back than its start, no
+/// further on than its `duration`, so a long hold stops there instead of growing without end.
+/// A file of unknown length (0 or less) doesn't seek: 0.
+inline int64_t addSeek(int64_t pending, bool forward, int64_t position, int64_t duration) {
+    if (duration <= 0) return 0;
+    int64_t back = position > 0 ? -position : 0;
+    int64_t ahead = duration > position ? duration - position : 0;
+    int64_t next = addSeek(pending, forward);
+    return next < back ? back : (next > ahead ? ahead : next);
+}
+
+/// The face buttons of the player's shortcuts, as borealis names them.
+enum class Face { X, Y };
+
+/// Square locks the player and Triangle opens the subtitles. Borealis names Square BUTTON_X and
+/// Triangle BUTTON_Y, but swaps X and Y along with A and B when it swaps the face buttons (a
+/// console with Circle as enter, the app's swap option).
+inline Face lockButton(bool swapped) { return swapped ? Face::Y : Face::X; }
+inline Face subtitleButton(bool swapped) { return swapped ? Face::X : Face::Y; }
 
 }  // namespace osd

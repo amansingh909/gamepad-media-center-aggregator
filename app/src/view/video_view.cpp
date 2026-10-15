@@ -117,9 +117,13 @@ VideoView::VideoView() {
         return true;
     });
 
-    // Triangle: the subtitle menu (subtitle tracks and sync; audio has its own button)
+    // Triangle: the subtitle menu (subtitle tracks and sync; audio has its own button). Square:
+    // lock. Borealis swaps X and Y along with A and B (a console with Circle as enter, the app's
+    // swap option), set before a player opens.
+    const bool swapped = brls::Application::isSwapInputKeys();
+    auto faceButton = [](osd::Face face) { return face == osd::Face::X ? brls::BUTTON_X : brls::BUTTON_Y; };
     this->registerAction(
-        "main/player/subtitle"_i18n, brls::BUTTON_Y,
+        "main/player/subtitle"_i18n, faceButton(osd::subtitleButton(swapped)),
         [this](brls::View* view) -> bool {
             CHECK_OSD(true);
             if (!this->subtitleAction) return false;
@@ -129,7 +133,7 @@ VideoView::VideoView() {
 
     // Square: lock, and again to unlock. Locked, the other keys only show the lock button.
     this->registerAction(
-        "lock", brls::BUTTON_X,
+        "lock", faceButton(osd::lockButton(swapped)),
         [this](brls::View* view) -> bool {
             this->toggleOSDLock();
             this->focusControl(this->osdLockBox);
@@ -822,8 +826,10 @@ void VideoView::focusControl(brls::View* view) {
 }
 
 void VideoView::seekPress(bool forward) {
-    this->seekingRange = osd::addSeek(this->seekingRange, forward);
-    this->requestSeeking(this->seekingRange);
+    auto& mpv = MPVCore::instance();
+    // within the file: a long hold stops at its start or end (and fits the int it is shown as)
+    this->seekingRange = osd::addSeek(this->seekingRange, forward, (int64_t)mpv.playback_time, mpv.duration);
+    this->requestSeeking((int)this->seekingRange);
 }
 
 bool VideoView::navSeek(bool forward) {

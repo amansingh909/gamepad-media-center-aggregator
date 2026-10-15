@@ -43,7 +43,6 @@
             textColor="@theme/color/white" />
 
         <brls:Box
-            id="video/osd/icon/box"
             positionType="absolute"
             positionRight="10"
             positionTop="10">

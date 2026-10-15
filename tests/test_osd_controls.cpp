@@ -1,9 +1,6 @@
 // Standalone logic test: the player's control map (view/osd_controls.hpp), where the D-pad moves
-// between the OSD's three rows, and the seek step.
-//
-//   c++ -std=gnu++17 -Wall -Iapp/include tests/test_osd_controls.cpp -o /tmp/t && /tmp/t
-//   in Docker, from the repo root: docker run --rm --user "$(id -u):$(id -g)" -v "$PWD:/src" -w /src
-//   streamio/native-builder:ubuntu-24.04 bash -c '<the command above>'
+// between the OSD's three rows, the seek step and the face buttons of the shortcuts. Runs with
+// the other standalone tests: tests/run.sh.
 
 #include <cstdio>
 #include <string>
@@ -174,6 +171,40 @@ int main() {
         CHECK_INT(pending, 300);
         CHECK_INT(addSeek(pending, true), 320);
     }
+
+    // a held seek stays within the file: no further back than its start, no further on than its
+    // end, so it can't grow past what an int holds either
+    CHECK_INT(addSeek(0, true, 100, 1200), 10);
+    CHECK_INT(addSeek(0, false, 5, 1200), -5);
+    CHECK_INT(addSeek(0, true, 1195, 1200), 5);
+    CHECK_INT(addSeek(-5, false, 5, 1200), -5);
+    CHECK_INT(addSeek(20, false, 100, 1200), 10);
+    {
+        int64_t pending = 0;
+        bool sane = true;
+        for (int i = 0; i < 100000; i++) {
+            pending = addSeek(pending, true, 0, 7200);
+            if (pending < 0 || pending > 7200) sane = false;
+        }
+        CHECK(sane);
+        CHECK_INT(pending, 7200);
+        pending = 0;
+        for (int i = 0; i < 100000; i++) pending = addSeek(pending, false, 3600, 7200);
+        CHECK_INT(pending, -3600);
+    }
+    // a file of unknown length: no seek
+    CHECK_INT(addSeek(0, true, 100, 0), 0);
+    CHECK_INT(addSeek(0, false, 100, -1), 0);
+    // mpv's clock a little past the length: forward stays put, back still works
+    CHECK_INT(addSeek(0, true, 1201, 1200), 0);
+    CHECK_INT(addSeek(0, false, 1201, 1200), -10);
+
+    // Square locks and Triangle opens the subtitles: borealis calls them X and Y, and swaps them
+    // along with A and B (a console with Circle as enter, the app's swap option)
+    CHECK(lockButton(false) == Face::X);
+    CHECK(subtitleButton(false) == Face::Y);
+    CHECK(lockButton(true) == Face::Y);
+    CHECK(subtitleButton(true) == Face::X);
 
     if (failures == 0) printf("test_osd_controls: all passed\n");
     return failures ? 1 : 0;
