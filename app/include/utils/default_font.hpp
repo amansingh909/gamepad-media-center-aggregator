@@ -1,7 +1,7 @@
 #pragma once
 
 /*
-    DefaultFont — copies a bundled TTF to {config}/subfont.ttf when none is
+    DefaultFont: copies a bundled TTF to {config}/subfont.ttf when none is
     there. The PS4 libass has no font provider, so that file is its only
     fallback font and without it text subtitles draw nothing.
 
@@ -12,7 +12,7 @@
 */
 
 #include <fcntl.h>
-#include <sys/stat.h>
+#include <sys/types.h>
 #include <unistd.h>
 #include <cstdio>
 #include <string>
@@ -22,8 +22,13 @@ namespace DefaultFont {
 enum class Result { Installed, AlreadyThere, Failed };
 
 inline bool exists(const std::string& path) {
-    struct stat st;
-    return ::stat(path.c_str(), &st) == 0 && S_ISREG(st.st_mode) && st.st_size > 0;
+    // No stat(): on the PS4 musl's stat family goes through fstatat, which is
+    // an ENOSYS stub, so it would always report "missing".
+    int fd = ::open(path.c_str(), O_RDONLY);
+    if (fd < 0) return false;
+    off_t size = ::lseek(fd, 0, SEEK_END);
+    ::close(fd);
+    return size > 0;
 }
 
 inline Result install(const std::string& src, const std::string& dst) {
