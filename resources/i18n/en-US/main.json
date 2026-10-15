@@ -95,6 +95,7 @@
     "seasons_title": "Seasons",
     "go_series": "Go to show",
     "go_season": "Go to season",
+    "choose_source": "Choose source",
     "director": "Director"
   },
   "search": {
@@ -258,6 +259,7 @@
     "playback": {
       "header": "Playback",
       "low_quality": "Low quality decoding (with less CPU usage)",
+      "light_hevc": "Light HEVC decoding (less CPU on PS4)",
       "in_memory_cache": "Inmemory cache",
       "subs_fallback": "Autoload subtitles",
       "subtitle_lang": {
@@ -490,5 +492,54 @@
       "torrents_help": "These sources are raw torrents. This platform has no torrent client: install a debrid-enabled addon (Torrentio + Real-Debrid, Comet, MediaFusion…) in your Stremio account to get playable links.",
       "links_help": "These sources are external links (browser or third-party service) that cannot be played directly in the app on this platform."
     }
+  },
+  "torrent": {
+    "setting": {
+      "header": "Torrents",
+      "streaming": "Torrent streaming",
+      "upload_limit": "Upload limit",
+      "incoming": "Allow incoming connections (UPnP)"
+    },
+    "loading": {
+      "finding_peers": "Finding peers",
+      "getting_info": "Getting torrent info",
+      "buffering": "Buffering {}%",
+      "peers": "{} peers"
+    },
+    "source": {
+      "seeders": "{} seeders",
+      "unavailable": "{} torrent source(s) can't be played right now"
+    },
+    "error": {
+      "no_peers": "No peers found for this source, try another one",
+      "no_space": "Not enough storage space",
+      "unplayable": "This source can't be played",
+      "off": "Torrent streaming is off. Turn it on in Settings.",
+      "start": "Torrent streaming couldn't start: port 11470 is in use."
+    }
+  },
+  "sources": {
+    "finding": "Finding streams...",
+    "none_found": "No streams found",
+    "ps4_note": "May not play on PS4",
+    "show_all": "Show all",
+    "may_buffer": "May buffer"
+  },
+  "audio_lang": {
+    "header": "Audio language",
+    "auto": "Automatic (app language)",
+    "file": "File default"
+  },
+  "resume": {
+    "min_left": "{} min left",
+    "hours_left": "{} h {} min left",
+    "just_now": "Just now",
+    "min_ago": "{} min ago",
+    "hours_ago": "{} h ago",
+    "yesterday": "Yesterday",
+    "days_ago": "{} days ago",
+    "up_next": "Up next",
+    "start_over": "Start over",
+    "remove": "Remove from list"
   }
 }

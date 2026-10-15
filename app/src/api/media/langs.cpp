@@ -131,4 +131,20 @@ const std::vector<LangOption>& subtitleLangCatalog() {
     return cat;
 }
 
+std::string audioLangList(const std::string& setting, const std::string& appLocale) {
+    if (setting == "file") return "";
+    const std::string code = setting == "auto" ? appLocale.substr(0, appLocale.find('-')) : setting;
+    const size_t i = lookup(code);
+    if (i == std::string::npos) return "";
+    const LangRow& r = rows()[i];
+    std::string out = r.code;
+    for (const char* a : r.aliases) {
+        const std::string alias = a;
+        if (alias.size() == 3 &&
+            std::all_of(alias.begin(), alias.end(), [](unsigned char c) { return std::isalpha(c) != 0; }))
+            out += "," + alias;
+    }
+    return out;
+}
+
 }  // namespace media

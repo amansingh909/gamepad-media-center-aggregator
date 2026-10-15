@@ -1,4 +1,5 @@
 #include "api/http.hpp"
+#include "api/http_write.hpp"
 #include "utils/config.hpp"
 #include <borealis/core/logger.hpp>
 #include <curl/curl.h>
@@ -228,15 +229,18 @@ void HTTP::set_basic_auth(const std::string& user, const std::string& passwd) {
 
 size_t HTTP::easy_write_cb(char* ptr, size_t size, size_t nmemb, void* userdata) {
     std::ostream* ctx = reinterpret_cast<std::ostream*>(userdata);
-    size_t count = size * nmemb;
-    ctx->write(ptr, count);
-    return count;
+    // 0 once the stream has failed (a full disk): curl stops with CURLE_WRITE_ERROR
+    return writeChunk(*ctx, ptr, size * nmemb);
 }
 
 int HTTP::perform(std::ostream* body) {
     curl_easy_setopt(this->easy, CURLOPT_WRITEFUNCTION, easy_write_cb);
     curl_easy_setopt(this->easy, CURLOPT_WRITEDATA, body);
     curl_easy_setopt(this->easy, CURLOPT_PROXY, PROXY_STATUS ? PROXY.c_str() : nullptr);
+#ifdef USE_TORRENT
+    // torrent downloads read from this machine's own server, never through the proxy
+    curl_easy_setopt(this->easy, CURLOPT_NOPROXY, "127.0.0.1,localhost");
+#endif
 
     CURLcode res = curl_easy_perform(this->easy);
     if (res != CURLE_OK) throw curl_error(res);

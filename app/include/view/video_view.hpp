@@ -87,6 +87,19 @@ public:
 
     static bool close(bool quit = false);
 
+    /// Optional hook fired on END_OF_FILE before Repeat and the next item, while what ended is
+    /// still the current item (PlayerView saves its final position there: mpv reports no stop
+    /// at an end of file). If it returns true the end is handled (PlayerView: a torrent stream
+    /// that broke off) and the player neither replays nor moves on. Unset, or false: the end
+    /// behaves as before.
+    void registerEnd(brls::ActionListener action) { this->endAction = std::move(action); }
+
+#ifdef USE_TORRENT
+    /// Torrent sources: text added after the cache speed under the centre spinner (the
+    /// peers). nullptr for none.
+    void setSpeedSuffix(std::function<std::string()> suffix) { this->speedSuffix = std::move(suffix); }
+#endif
+
 private:
     /// OSD
     BRLS_BIND(brls::Label, titleLabel, "video/osd/title");
@@ -113,6 +126,9 @@ private:
     BRLS_BIND(brls::Box, osdTopBox, "video/osd/top/box");
     BRLS_BIND(brls::Box, osdBottomBox, "video/osd/bottom/box");
     // 用于显示缓冲组件
+#ifdef USE_TORRENT
+    std::function<std::string()> speedSuffix;
+#endif
     BRLS_BIND(brls::Box, osdCenterBox, "video/osd/center/box");
     BRLS_BIND(brls::Label, centerLabel, "video/osd/center/label");
     BRLS_BIND(brls::ProgressSpinner, osdSpinner, "video/osd/loading");
@@ -172,6 +188,8 @@ private:
     /// fired on MPV_FILE_ERROR; returning true suppresses the error dialog
     brls::ActionListener errorAction = nullptr;
     brls::ActionListener replayAction = nullptr;
+    /// fired on END_OF_FILE; returning true stops Repeat and the next item
+    brls::ActionListener endAction = nullptr;
 
     double speed = 1.0;
     Repeat repeat = Repeat::None;

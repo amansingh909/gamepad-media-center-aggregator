@@ -182,6 +182,17 @@ int main() {
         CHECK(keep.count("e3") == 0);  // its episode -> pruned
     }
 
+    // legacy episodes carry no parent keys: a downloaded one survives, a stray one goes
+    {
+        std::vector<plex::Item> pn;
+        pn.push_back(legacyEpisode("L1", "Scrubs", 1, 1));  // downloaded
+        pn.push_back(legacyEpisode("L2", "Scrubs", 1, 2));  // not downloaded, empty parent keys
+        std::unordered_set<std::string> dl = {"L1"};
+        auto keep = offline::survivors(pn, [&](const std::string& k) { return dl.count(k) > 0; });
+        CHECK(keep.count("L1") == 1);
+        CHECK(keep.count("L2") == 0);
+    }
+
     {
         // the Emby media source id survives the offline snapshot
         media::Media m;

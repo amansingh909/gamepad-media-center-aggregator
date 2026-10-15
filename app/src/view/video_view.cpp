@@ -113,9 +113,14 @@ VideoView::VideoView() {
             return true;
         },
         true, true);
+    // TV-style OSD: right from play/pause reaches the progress bar (setTvMode()); on the bar,
+    // left and right seek, up goes back to play/pause and down to the bottom row (volume,
+    // audio, subtitles, quality). Down from play/pause goes to that row too. Routes by
+    // pointer, not by id.
     brls::View* sliderPointer = this->osdSlider->getDefaultFocus();
-    sliderPointer->setCustomNavigationRoute(brls::FocusDirection::UP, "video/osd/lock/box");
-    sliderPointer->setCustomNavigationRoute(brls::FocusDirection::DOWN, "video/osd/volume/icon");
+    sliderPointer->setCustomNavigationRoute(brls::FocusDirection::UP, this->btnToggle);
+    sliderPointer->setCustomNavigationRoute(brls::FocusDirection::DOWN, this->volumeIcon);
+    this->btnToggle->setCustomNavigationRoute(brls::FocusDirection::DOWN, this->volumeIcon);
 
     this->registerActions(
         "toggleOSD", brls::BUTTON_Y, KeyBind::getVideoOsd(),
@@ -658,6 +663,9 @@ void VideoView::registerMpvEvent() {
             // 播放结束
             disableDimming(false);
             this->toggleIcon->setImageFromSVGRes("icon/ico-play.svg");
+            // an owner (PlayerView) saves where this ended, and may say the end was a failure:
+            // then no replay, no next item
+            if (this->endAction && this->endAction(this)) break;
             if (this->repeat == Repeat::One && this->replayAction && this->replayAction(this)) break;
             if (this->repeat == Repeat::All && this->hasList() && this->playIndex + 1 >= this->listSize)
                 this->playIndex = -1;
@@ -668,7 +676,11 @@ void VideoView::registerMpvEvent() {
             if (this->osdCenterBox->getVisibility() != brls::Visibility::GONE) {
                 if (this->centerLabel->getVisibility() != brls::Visibility::VISIBLE)
                     this->centerLabel->setVisibility(brls::Visibility::VISIBLE);
-                this->centerLabel->setText(MPVCore::instance().getCacheSpeed());
+                std::string speed = MPVCore::instance().getCacheSpeed();
+#ifdef USE_TORRENT
+                if (this->speedSuffix) speed += this->speedSuffix();
+#endif
+                this->centerLabel->setText(speed);
             }
             break;
         case MpvEventEnum::VIDEO_MUTE:

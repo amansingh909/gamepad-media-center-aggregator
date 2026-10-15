@@ -5,6 +5,9 @@
 #include "view/video_card.hpp"
 #include "view/mpv_core.hpp"
 #include "tab/media_series.hpp"
+#include "tab/media_movie.hpp"
+#include "view/resume_source.hpp"
+#include "activity/player_view.hpp"
 #include "api/plex.hpp"
 #include "api/plex/watchlist.hpp"
 #include "api/backend.hpp"
@@ -67,7 +70,8 @@ void MenuItem::setSelected(bool selected) {
 
 brls::View* MenuItem::create() { return new MenuItem(); }
 
-ContextMenu::ContextMenu(const plex::Item& item, brls::Box* host) : host(host), itemId(item.ratingKey) {
+ContextMenu::ContextMenu(const plex::Item& item, brls::Box* host, bool resumeRow)
+    : host(host), itemId(item.ratingKey), resumeRow(resumeRow) {
     this->inflateFromXMLRes("xml/view/context_menu.xml");
     brls::Logger::debug("ContextMenu: create");
 
@@ -85,6 +89,8 @@ ContextMenu::ContextMenu(const plex::Item& item, brls::Box* host) : host(host), 
     if (item.type == plex::mediaTypeEpisode) {
         this->labelTitle->setText(item.grandparentTitle.empty() ? item.title : item.grandparentTitle);
         this->labelSubtitle->setText(fmt::format("S{}E{} — {}", item.parentIndex, item.index, item.title));
+        // Continue Watching (Stremio): as its card says it, "S1 E2" until the title arrives
+        if (resumeRow) this->labelSubtitle->setText(stremio::episodeLabel(item.parentIndex, item.index, item.title));
     } else {
         this->labelTitle->setText(item.title);
         this->labelSubtitle->setVisibility(brls::Visibility::GONE);
@@ -147,6 +153,30 @@ ContextMenu::ContextMenu(const plex::Item& item, brls::Box* host) : host(host), 
     this->btnMarkPlay->addGestureRecognizer(new brls::TapGestureRecognizer(this->btnMarkPlay));
     this->btnMarkPlay->setSelected(item.played());
 
+    // Continue Watching (Stremio): play from the start, or forget the position (the card leaves
+    // the row here and on Stremio's other devices). "Mark played" is the third option.
+    if (resumeRow) {
+        // a show with no episode saved has nothing to start over
+        if (item.type != plex::mediaTypeShow) {
+            this->btnStartOver->setVisibility(brls::Visibility::VISIBLE);
+            this->btnStartOver->registerClickAction([item](brls::View*) {
+                brls::Application::popActivity(brls::TransitionAnimation::NONE,
+                    [item]() { ResumeDataSource::play(item, PlayerView::START_OVER); });
+                return true;
+            });
+            this->btnStartOver->addGestureRecognizer(new brls::TapGestureRecognizer(this->btnStartOver));
+        }
+        this->btnRemoveResume->setVisibility(brls::Visibility::VISIBLE);
+        this->btnRemoveResume->registerClickAction([this](brls::View*) {
+            AppConfig::instance().backend().clearProgress(this->itemId);
+            // the Home tab rebuilds its rows (Presenter), after the write queued above
+            brls::Application::popActivity(brls::TransitionAnimation::NONE,
+                []() { MPVCore::instance().getCustomEvent()->fire(VIDEO_CLOSE, nullptr); });
+            return true;
+        });
+        this->btnRemoveResume->addGestureRecognizer(new brls::TapGestureRecognizer(this->btnRemoveResume));
+    }
+
     // plex.tv watchlist: movies and shows only (the provider API accepts
     // neither episodes nor seasons); the entry stays hidden until the
     // state is known (async provider request — see initWatchlist)
@@ -172,8 +202,10 @@ ContextMenu::ContextMenu(const plex::Item& item, brls::Box* host) : host(host), 
     }
 
     auto& dm = DownloadManager::instance();
-    if (item.type == plex::mediaTypeMovie || item.type == plex::mediaTypeEpisode ||
-        item.type == plex::mediaTypeClip) {
+    // a Stremio episode or movie downloads from here too: addDownload resolves the title's sources
+    // and takes the best one, with the next ones as fallbacks (the movie page's source list picks)
+    if ((be.caps().downloadOriginal || be.caps().sourceDownload) && (item.type == plex::mediaTypeMovie || item.type == plex::mediaTypeEpisode ||
+                                          item.type == plex::mediaTypeClip)) {
         if (dm.isDownloaded(item.ratingKey)) {
             this->btnDownload->title->setText("main/download/completed"_i18n);
             this->btnDownload->setSelected(true);
@@ -197,6 +229,18 @@ ContextMenu::ContextMenu(const plex::Item& item, brls::Box* host) : host(host), 
         this->btnDownload->addGestureRecognizer(new brls::TapGestureRecognizer(this->btnDownload));
     } else {
         this->btnDownload->setVisibility(brls::Visibility::GONE);
+    }
+
+    // Stremio episodes play the best source on A: this opens the episode's whole source list
+    // (the movie page's rows), to play or download another
+    if (be.type() == media::BackendType::Stremio && item.type == plex::mediaTypeEpisode) {
+        this->btnChooseSource->setVisibility(brls::Visibility::VISIBLE);
+        this->btnChooseSource->registerClickAction([item, host](...) {
+            brls::Application::popActivity(brls::TransitionAnimation::NONE,
+                [item, host]() { ui::presentDetail(host, new MediaMovie(item)); });
+            return true;
+        });
+        this->btnChooseSource->addGestureRecognizer(new brls::TapGestureRecognizer(this->btnChooseSource));
     }
 }
 
@@ -252,6 +296,13 @@ bool ContextMenu::doPlayed() {
     // mark watched — fire-and-forget; reflect optimistically, refresh card, close
     AppConfig::instance().backend().markWatched(this->itemId);
     this->btnMarkPlay->setSelected(true);
+    if (this->resumeRow) {
+        // Continue Watching rebuilds from the library: a watched movie leaves the row, a watched
+        // episode's card leads to the next one
+        brls::Application::popActivity(brls::TransitionAnimation::NONE,
+            []() { MPVCore::instance().getCustomEvent()->fire(VIDEO_CLOSE, nullptr); });
+        return true;
+    }
     this->refreshCard(true);
     brls::Application::popActivity(brls::TransitionAnimation::NONE);
     return true;

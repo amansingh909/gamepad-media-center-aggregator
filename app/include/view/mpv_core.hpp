@@ -27,6 +27,19 @@
 #endif
 #endif
 
+// The automatic HDR handling (view/hdr_options.hpp): on the PS4, whose GLES 2.0 driver cannot link
+// mpv's HDR to SDR shader, and in diag builds so a desktop run can show it triggers.
+#if defined(__PS4__) || defined(MPV_DIAG_LOG)
+#define MPV_HDR_HANDLING
+#endif
+
+// Light HEVC decoding (Settings, Playback): the loop filter is skipped for HEVC files, set per file
+// from mpv's on_preloaded hook so it holds for every backend. A PS4 feature; the define lets a
+// desktop build compile it for a test.
+#if defined(__PS4__) || defined(MPV_LIGHT_HEVC_TEST)
+#define MPV_LIGHT_HEVC
+#endif
+
 typedef std::unordered_map<std::string, std::string> MPVMap;
 
 class MPVCore : public brls::Singleton<MPVCore> {
@@ -71,6 +84,9 @@ public:
     void setInt(const std::string &key, int64_t value);
 
     std::unordered_map<std::string, mpv_node> getNodeMap(const std::string &key);
+
+    /// The mirror setting (0 off, 1 horizontal, 2 vertical), keeping the HDR re-tag filter (PS4).
+    void setMirror(int mirror);
 
     void togglePlay();
 
@@ -138,6 +154,30 @@ public:
     // 低画质解码，剔除解码过程中的部分步骤，可以用来节省cpu
     inline static bool LOW_QUALITY = false;
     inline static bool SUBS_FALLBACK = true;
+    // Settings, Playback, Light HEVC decoding (PS4): skip the loop filter for HEVC video, on by default
+    inline static bool LIGHT_HEVC = true;
+#ifdef MPV_LIGHT_HEVC
+    // on_preloaded hook: sets vd-lavc-skiploopfilter for the file about to open, then continues
+    void handlePreloadedHook(uint64_t hookId);
+#endif
+    // Settings, Playback, Audio language: "auto" (the app language), "file" (none) or a 2-letter code
+    inline static std::string AUDIO_LANG = "auto";
+#ifdef MPV_DIAG_LOG
+    // diag builds: the HEVC test switch (hdr::Test in view/hdr_options.hpp; 0 is the automatic
+    // HDR handling), and what the decoder and the video output do, in mpv.log
+    inline static int DIAG_VIDEO_TEST = 0;
+    void diagVideoStats();
+#endif
+#ifdef MPV_HDR_HANDLING
+    // The video is re-tagged as SDR by a filter that is in the chain from the start; while an HDR
+    // file is played (video-params/gamma is pq or hlg) saturation and contrast are raised, and the
+    // viewer's own values are kept to put back at the end of the file. See view/hdr_options.hpp.
+    void applyHdrHandling();
+    bool hdr_active = false;
+    int hdr_base_saturation = 0;
+    int hdr_base_contrast = 0;
+    std::string hdr_applied = "none";  // the options of the file being played, for the diag log
+#endif
 
     // 视频缓存（是否使用内存缓存视频，值为缓存的大小，单位MB）
     inline static int INMEMORY_CACHE = 0;

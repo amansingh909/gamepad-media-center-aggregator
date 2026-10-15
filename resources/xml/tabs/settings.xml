@@ -45,6 +45,10 @@
                     id="setting/playback/audio_channels" />
                 <brls:BooleanCell
                     id="setting/video/subs_fallback" />
+                <brls:BooleanCell
+                    id="setting/video/light_hevc" />
+                <brls:SelectorCell
+                    id="setting/playback/audio_lang" />
                 <brls:SelectorCell
                     id="setting/playback/subtitle_lang" />
             </brls:Box>
@@ -113,6 +117,29 @@
                     id="setting/network/proxy_passwd"
                     type="password"
                     visibility="gone" />
+            </brls:Box>
+
+            <!-- shown by builds with the torrent engine (USE_TORRENT, setting_tab.cpp) -->
+            <brls:Header
+                id="setting/torrent/header"
+                width="auto"
+                height="auto"
+                title="@i18n/main/torrent/setting/header"
+                marginBottom="0px"
+                visibility="gone" />
+            <brls:Box
+                id="setting/torrent/box"
+                width="100%"
+                height="auto"
+                axis="column"
+                marginBottom="30px"
+                visibility="gone">
+                <brls:BooleanCell
+                    id="setting/torrent/streaming" />
+                <brls:SelectorCell
+                    id="setting/torrent/upload_limit" />
+                <brls:BooleanCell
+                    id="setting/torrent/incoming" />
             </brls:Box>
 
             <brls:Header

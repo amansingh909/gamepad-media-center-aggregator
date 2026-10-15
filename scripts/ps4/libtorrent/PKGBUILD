@@ -1,0 +1,45 @@
+# libtorrent for the PS4 build. The patch adds a TORRENT_PS4 platform (no mmap,
+# sysctl, getifaddrs or getrandom; interfaces from the app via ps4_set_network) and
+# ps4_compat.h fixes musl's Linux constants for the FreeBSD kernel. Code that
+# includes libtorrent headers must be built with the same -include and defines.
+
+pkgname=ps4-openorbis-libtorrent
+pkgver=2.0.15
+pkgrel=1
+pkgdesc='libtorrent-rasterbar with PS4 platform fixes'
+arch=('any')
+url='https://libtorrent.org/'
+license=('BSD')
+options=(!strip !debug !buildflags staticlibs)
+makedepends=('ps4-openorbis-vars' 'ps4-openorbis-boost-headers')
+source=("https://github.com/arvidn/libtorrent/releases/download/v$pkgver/libtorrent-rasterbar-$pkgver.tar.gz"
+        'libtorrent-2.0.15-ps4.patch'
+        'ps4_compat.h')
+sha256sums=('5e2e79129823b7ea48721164c32b5aaf83d3fd733b5502100f6705b29f27bb02'
+            'SKIP'
+            'SKIP')
+groups=('ps4-openorbis-portlibs')
+
+prepare() {
+  cd libtorrent-rasterbar-$pkgver
+  patch -Np1 -i "$srcdir/libtorrent-2.0.15-ps4.patch"
+}
+
+build() {
+  cd libtorrent-rasterbar-$pkgver
+  export OPENORBIS=/opt/pacbrew/ps4/openorbis
+  export CFLAGS="-include $srcdir/ps4_compat.h"
+  export CXXFLAGS="-include $srcdir/ps4_compat.h -DBOOST_ASIO_DISABLE_KQUEUE -DBOOST_ASIO_DISABLE_EPOLL -DBOOST_ASIO_DISABLE_EVENTFD"
+  cmake -B build -DCMAKE_TOOLCHAIN_FILE=$OPENORBIS/cmake/ps4.cmake -DCMAKE_BUILD_TYPE=Release \
+    -DCMAKE_INSTALL_PREFIX=$OPENORBIS/usr -DCMAKE_CXX_STANDARD=14 -DBUILD_SHARED_LIBS=OFF \
+    -Ddeprecated-functions=OFF -Di2p=OFF \
+    -DCMAKE_DISABLE_FIND_PACKAGE_OpenSSL=ON -DCMAKE_DISABLE_FIND_PACKAGE_GnuTLS=ON \
+    -DCMAKE_DISABLE_FIND_PACKAGE_LibGcrypt=ON
+  cmake --build build -j$(nproc)
+}
+
+package() {
+  cd libtorrent-rasterbar-$pkgver
+  DESTDIR="$pkgdir" cmake --install build
+  install -Dm644 "$srcdir/ps4_compat.h" "$pkgdir/opt/pacbrew/ps4/openorbis/usr/include/libtorrent/ps4_compat.h"
+}

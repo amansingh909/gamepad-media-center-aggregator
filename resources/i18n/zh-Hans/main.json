@@ -90,6 +90,7 @@
     "seasons_title": "季",
     "go_series": "前往节目",
     "go_season": "前往季",
+    "choose_source": "选择来源",
     "director": "导演",
     "open": "打开"
   },
@@ -246,6 +247,7 @@
     "playback": {
       "header": "播放设置",
       "low_quality": "低画质解码（以画质为代价换取更低的功耗）",
+      "light_hevc": "HEVC 轻量解码（降低 PS4 的 CPU 占用）",
       "in_memory_cache": "内存缓存",
       "subs_fallback": "自动加载字幕",
       "subtitle_lang": {
@@ -491,5 +493,54 @@
       "torrents_help": "这些是原始 Torrent 源。此平台没有 Torrent 客户端：请在 Stremio 账户中安装带 debrid 的插件（Torrentio + Real-Debrid、Comet、MediaFusion 等）以获得可播放的链接。",
       "links_help": "这些是外部链接（浏览器或第三方服务），在此平台的应用中无法直接播放。"
     }
+  },
+  "torrent": {
+    "setting": {
+      "header": "种子",
+      "streaming": "种子串流",
+      "upload_limit": "上传限速",
+      "incoming": "允许传入连接 (UPnP)"
+    },
+    "loading": {
+      "finding_peers": "正在寻找节点",
+      "getting_info": "正在获取种子信息",
+      "buffering": "正在缓冲 {}%",
+      "peers": "{} 个节点"
+    },
+    "source": {
+      "seeders": "{} 个做种",
+      "unavailable": "{} 个种子来源暂时无法播放"
+    },
+    "error": {
+      "no_peers": "未找到此来源的节点，请尝试其他来源",
+      "no_space": "存储空间不足",
+      "unplayable": "无法播放此来源",
+      "off": "种子串流已关闭，可在设置中开启。",
+      "start": "种子串流无法启动：端口 11470 已被占用。"
+    }
+  },
+  "sources": {
+    "finding": "正在查找视频源...",
+    "none_found": "未找到视频源",
+    "ps4_note": "可能无法在 PS4 上播放",
+    "show_all": "显示全部",
+    "may_buffer": "可能会缓冲"
+  },
+  "audio_lang": {
+    "header": "音频语言",
+    "auto": "自动（应用语言）",
+    "file": "文件默认"
+  },
+  "resume": {
+    "min_left": "剩余 {} 分钟",
+    "hours_left": "剩余 {} 小时 {} 分钟",
+    "just_now": "刚刚",
+    "min_ago": "{} 分钟前",
+    "hours_ago": "{} 小时前",
+    "yesterday": "昨天",
+    "days_ago": "{} 天前",
+    "up_next": "接下来播放",
+    "start_over": "从头播放",
+    "remove": "从列表中移除"
   }
 }

@@ -41,6 +41,18 @@
 #include <SDL2/SDL_main.h>
 #endif
 
+#ifdef __PS4__
+#include <csignal>
+#endif
+
+#ifdef USE_TORRENT
+#include <cstdio>
+#include <ctime>
+#include <memory>
+#include <torrent/torrent_service.hpp>
+#include <torrent/upload_limits.hpp>
+#endif
+
 using namespace brls::literals;  // for _i18n
 
 #if defined(__SWITCH__) && defined(BUILTIN_NSP)
@@ -85,9 +97,54 @@ static void proposeForwarderInstall() {
 }
 #endif
 
+#ifdef USE_TORRENT
+/// Torrent streaming: the engine sweeps what a crash or the PS button left in its folder,
+/// and the local server waits for the player and the downloader. Its lines also go to
+/// {config}/torrent.log, the one log a console run leaves behind.
+static std::unique_ptr<torrent::TorrentService> startTorrents(AppConfig& conf) {
+    static std::FILE* torrentLog = std::fopen((conf.configDir() + "/torrent.log").c_str(), "w");
+    if (!torrentLog) brls::Logger::warning("torrent: cannot write {}/torrent.log", conf.configDir());
+    torrent::ServiceSettings settings;
+    settings.tempDir = conf.configDir() + "/torrents";
+    // next to torrent.log, not in the torrents folder the sweep empties
+    settings.stateFile = conf.configDir() + "/torrent-dht.dat";
+#ifdef TORRENT_DEBUG_LAN
+    settings.lan = true;  // testing builds: tests/torrent/integration.sh --remote drives the console
+#endif
+    // Settings, Torrents
+    settings.enabled = conf.getItem(AppConfig::TORRENT_STREAMING, true);
+    settings.uploadLimit =
+        torrent::uploadLimitValue(conf.getItem(AppConfig::TORRENT_UPLOAD_LIMIT, int64_t(torrent::defaultUploadLimit)));
+    settings.portMapping = conf.getItem(AppConfig::TORRENT_PORT_MAPPING, false);
+    settings.log = [](const std::string& msg) {
+        brls::Logger::info("torrent: {}", msg);
+        if (!torrentLog) return;
+        std::time_t now = std::time(nullptr);
+        std::tm local{};
+        localtime_r(&now, &local);
+        char stamp[16];
+        std::strftime(stamp, sizeof stamp, "%H:%M:%S", &local);
+        std::fprintf(torrentLog, "[%s] %s\n", stamp, msg.c_str());
+        std::fflush(torrentLog);
+    };
+    auto service = std::make_unique<torrent::TorrentService>(std::move(settings));
+    if (!service->start()) brls::Logger::error("torrent: {}", service->startError());
+    torrent::TorrentService::setCurrent(service.get());
+    return service;
+}
+#endif
+
 int main(int argc, char* argv[]) {
 #ifdef __SWITCH__
     if (argc > 0 && argv[0]) AppVersion::nro_path = argv[0];
+#endif
+#ifdef __PS4__
+    // A send on a socket the server already closed raises SIGPIPE, whose default
+    // action kills the app with nothing logged. curl runs with CURLOPT_NOSIGNAL so it
+    // leaves SIGPIPE alone, and on PS4 neither MSG_NOSIGNAL (musl's Linux 0x4000,
+    // FreeBSD's MSG_NBIO) nor SO_NOSIGPIPE takes effect. Ignore it: the send fails
+    // with EPIPE instead.
+    std::signal(SIGPIPE, SIG_IGN);
 #endif
     std::vector<std::string> items;
     for (int i = 1; i < argc; i++) {
@@ -140,6 +197,9 @@ int main(int argc, char* argv[]) {
     ImageCache::init();
     DownloadManager::instance().init();
     OfflineLibrary::instance().init();
+#ifdef USE_TORRENT
+    std::unique_ptr<torrent::TorrentService> torrents = startTorrents(conf);
+#endif
 
     // Return directly to the desktop when closing the application (only for NX)
     brls::Application::getPlatform()->exitToHomeMode(true);
@@ -219,7 +279,16 @@ int main(int argc, char* argv[]) {
     // Run the app
     while (brls::Application::mainLoop());
 
+    // Stop the service first so a pool task reading from the server ends, then join the pool
+    // (no task can reach the service after that) and only then clear and destroy the service.
+#ifdef USE_TORRENT
+    torrents->stop();
+#endif
     ThreadPool::instance().stop();
+#ifdef USE_TORRENT
+    torrent::TorrentService::setCurrent(nullptr);
+    torrents.reset();
+#endif
 
     conf.checkRestart(argv);
     // Exit
