@@ -190,6 +190,12 @@ void MPVCore::init() {
         mpv_set_option_string(mpv, "sub-font", "nintendo_udsg-r_ko_003");
 #elif defined(__PS4__)
     mpv_set_option_string(mpv, "vd-lavc-threads", "6");
+    // A larger audio buffer, so a short CPU burst of the software decoder does not starve the
+    // sound (choppy with SDL's default 2048 samples, 43 ms). `sdl-buflen` is ao_sdl.c's `buflen`
+    // with the options prefix "sdl" (seconds; mpv 0.36 has no --ao sub-options, so
+    // `--ao=sdl:buflen=` is rejected) and `audio-buffer` is mpv's own audio buffer (seconds).
+    check_error(mpv_set_option_string(mpv, "sdl-buflen", "0.2"));
+    check_error(mpv_set_option_string(mpv, "audio-buffer", "0.5"));
 #elif defined(__PSV__)
     mpv_set_option_string(mpv, "vd-lavc-threads", "4");
     mpv_set_option_string(mpv, "fbo-format", "rgba8");
