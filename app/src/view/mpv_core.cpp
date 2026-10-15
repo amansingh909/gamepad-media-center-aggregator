@@ -3,6 +3,7 @@
 //
 
 #include "view/mpv_core.hpp"
+#include "view/hdr_options.hpp"
 #include "utils/config.hpp"
 #include "utils/misc.hpp"
 #include "utils/log_redact.hpp"
@@ -218,6 +219,12 @@ void MPVCore::init() {
         mpv_request_log_messages(mpv, brls::Application::isDebuggingViewEnabled() ? "info" : "warn");
     }
 
+#ifdef __PS4__
+    // HDR video drawn through mpv's own HDR shader can't work on the PS4 (no shader compiler): the
+    // re-tag filter, in the chain before the first frame, keeps mpv on its precompiled SDR shader
+    mpv_set_option_string(mpv, "vf", hdr::retagFilter().c_str());
+#endif
+
 #if (defined(__APPLE__) || defined(__linux__) || defined(_WIN32)) && !defined(ANDROID)
     if (conf.getItem(AppConfig::SINGLE, false)) {
         mpv_set_option_string(mpv, "input-ipc-server", conf.ipcSocket().c_str());
@@ -239,6 +246,11 @@ void MPVCore::init() {
     check_error(mpv_observe_property(mpv, 5, "cache-speed", MPV_FORMAT_INT64));
     check_error(mpv_observe_property(mpv, 9, "speed", MPV_FORMAT_DOUBLE));
     check_error(mpv_observe_property(mpv, 10, "volume", MPV_FORMAT_INT64));
+#ifdef __PS4__
+    // the video's transfer function: a PQ file gets its saturation and contrast boost then
+    hdr_active = false;
+    check_error(mpv_observe_property(mpv, 11, "video-params/gamma", MPV_FORMAT_STRING));
+#endif
 
 // init renderer params
 #ifdef ANDROID
@@ -699,6 +711,13 @@ void MPVCore::eventMainLoop() {
         case MPV_EVENT_PROPERTY_CHANGE: {
             /// https://mpv.io/manual/stable/#property-list
             mpv_event_property *prop = (mpv_event_property *)event->data;
+#ifdef __PS4__
+            // also when the property goes away (the file ended): the boost is undone
+            if (event->reply_userdata == 11) {
+                this->applyHdrHandling();
+                break;
+            }
+#endif
             if (prop->format == MPV_FORMAT_NONE) break;
 
             switch (event->reply_userdata) {
@@ -758,6 +777,40 @@ void MPVCore::eventMainLoop() {
         default:;
         }
     }
+}
+
+#ifdef __PS4__
+// Called when the video's transfer function changes (a file loaded, or ended). What the previous
+// PQ file got is undone first (saturation and contrast back to the viewer's own), so the next
+// file, SDR or HDR, starts clean; then a PQ file gets its boost. The re-tag filter itself is in
+// the chain from the start (see hdr_options.hpp), so this only raises saturation and contrast.
+void MPVCore::applyHdrHandling() {
+    const std::string gamma = this->getString("video-params/gamma");
+    if (this->hdr_active) {
+        this->setInt("saturation", this->hdr_base_saturation);
+        this->setInt("contrast", this->hdr_base_contrast);
+        this->hdr_active = false;
+    }
+    const hdr::Plan plan = hdr::planFor(gamma);
+    if (!plan.boost) return;
+    this->hdr_base_saturation = int(this->getDouble("saturation"));
+    this->hdr_base_contrast = int(this->getDouble("contrast"));
+    this->setInt("saturation", hdr::clampEqualizer(this->hdr_base_saturation + plan.saturation));
+    this->setInt("contrast", hdr::clampEqualizer(this->hdr_base_contrast + plan.contrast));
+    this->hdr_active = true;
+    brls::Logger::info("MPV HDR video ({}): shown as SDR, {}", gamma, hdr::describe(plan));
+}
+#endif
+
+// The mirror setting (0 off, 1 horizontal, 2 vertical): `set vf` replaces the whole filter list,
+// so on the PS4 the HDR re-tag filter goes in the same list, in one step.
+void MPVCore::setMirror(int mirror) {
+#ifdef __PS4__
+    const bool retag = true;
+#else
+    const bool retag = false;
+#endif
+    this->command("set", "vf", hdr::filterChain(mirror, retag).c_str());
 }
 
 void MPVCore::reset() {
