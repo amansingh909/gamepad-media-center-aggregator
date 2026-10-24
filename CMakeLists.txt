@@ -264,6 +264,9 @@ target_compile_options(${PROJECT_NAME} PRIVATE -ffunction-sections -fdata-sectio
 target_link_libraries(${PROJECT_NAME} PRIVATE borealis lunasvg ${APP_PLATFORM_LIB})
 if (PLATFORM_PS4)
     target_link_options(${PROJECT_NAME} PRIVATE "LINKER:--wrap=clock_gettime")
+elseif (PLATFORM_PSV)
+    # vita-elf-create appends the SCE module info after the first segment, which needs room before the next one.
+    target_link_options(${PROJECT_NAME} PRIVATE "LINKER:--defsym=__sce_headroom=0x10000")
 endif ()
 target_compile_definitions(${PROJECT_NAME} PRIVATE
     APP_VERSION=${VERSION_MAJOR}.${VERSION_MINOR}.${VERSION_ALTER}

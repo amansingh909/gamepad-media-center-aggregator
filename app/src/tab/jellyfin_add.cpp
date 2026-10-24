@@ -19,6 +19,7 @@
 #include "api/jellyfin/auth.hpp"
 #include "api/jellyfin/types.hpp"
 #include "utils/config.hpp"
+#include "utils/net_error.hpp"
 
 using namespace brls::literals;
 
@@ -65,6 +66,11 @@ void JellyfinAdd::submit() {
         return;
     }
 
+    if (net::unresolvableHost(url)) {
+        this->labelStatus->setText(net::dnsHelp(url));
+        return;
+    }
+
     std::string user = this->cellUser->getValue();
     std::string pass = this->cellPasswd->getValue();
 
@@ -84,6 +90,8 @@ void JellyfinAdd::submit() {
             r = jellyfin::login(url, user, pass);
             r.serverName = name;
             ok = true;
+        } catch (const HTTP::Error& ex) {
+            error = net::errorText(ex, url);
         } catch (const std::exception& ex) {
             error = ex.what();
         }
