@@ -9,6 +9,7 @@
 #include "tab/offline_collection.hpp"
 #include "utils/offline_library.hpp"
 #include "utils/network_state.hpp"
+#include "utils/sidebar_layout.hpp"
 #include "api/plex.hpp"
 #include "api/backend.hpp"
 #include <borealis/views/bottom_bar.hpp>
@@ -17,6 +18,20 @@
 #include <borealis/views/dialog.hpp>
 
 using namespace brls::literals;  // for _i18n
+
+/// Saved sidebar layout of server `sid` (empty when none).
+static void readSidebarLayout(const std::string& sid, std::vector<std::string>& order, std::set<std::string>& hidden) {
+    if (sid.empty()) return;
+    auto all = AppConfig::instance().getItem(AppConfig::SIDEBAR_LAYOUT, nlohmann::json::object());
+    if (!all.is_object() || !all.contains(sid) || !all.at(sid).is_object()) return;
+    auto& node = all.at(sid);
+    if (node.contains("order") && node.at("order").is_array())
+        for (auto& e : node.at("order"))
+            if (e.is_string()) order.push_back(e.get<std::string>());
+    if (node.contains("hidden") && node.at("hidden").is_array())
+        for (auto& e : node.at("hidden"))
+            if (e.is_string()) hidden.insert(e.get<std::string>());
+}
 
 /// One-time "pleNx is now GMCA" welcome notice. Shown only to users whose data
 /// dir was just relocated from a legacy pleNx/Switchlex build (never on a fresh
@@ -194,6 +209,7 @@ void MainTabFrame::loadLibraries() {
             ASYNC_RELEASE
             // network failure: the static sidebar stays fully usable
             brls::Logger::warning("MainTabFrame: sections {}", ex);
+            this->applySidebarLayout();
         });
 }
 
@@ -245,7 +261,7 @@ void MainTabFrame::addLibraryTabs(const std::vector<plex::Section>& sections) {
     }
 
     // apply the saved per-server order + visibility (also groups Playlists /
-    // Watchlist into the reorderable block, right after Home)
+    // Watchlist / Search / Files into the reorderable block, right after Home)
     this->applySidebarLayout();
 }
 
@@ -262,50 +278,16 @@ std::vector<std::string> MainTabFrame::naturalOrder() {
     for (auto& s : this->libs_) ids.push_back("lib/" + s.key);
     if (present("tab/playlists")) ids.push_back("tab/playlists");
     if (present("tab/watchlist")) ids.push_back("tab/watchlist");
+    if (present("tab/search")) ids.push_back("tab/search");
+    if (present("tab/remote")) ids.push_back("tab/remote");
     return ids;
 }
 
 void MainTabFrame::computeLayout(std::vector<std::string>& order, std::set<std::string>& hidden) {
-    order.clear();
-    hidden.clear();
-
-    std::vector<std::string> natural = this->naturalOrder();
-    std::set<std::string> present(natural.begin(), natural.end());
-    if (present.empty()) return;
-
-    // read the saved layout for the active server
     std::vector<std::string> savedOrder;
     std::set<std::string> savedHidden;
-    const std::string& sid = AppConfig::instance().getUser().server_id;
-    if (!sid.empty()) {
-        auto all = AppConfig::instance().getItem(AppConfig::SIDEBAR_LAYOUT, nlohmann::json::object());
-        if (all.is_object() && all.contains(sid) && all.at(sid).is_object()) {
-            auto& node = all.at(sid);
-            if (node.contains("order") && node.at("order").is_array())
-                for (auto& e : node.at("order"))
-                    if (e.is_string()) savedOrder.push_back(e.get<std::string>());
-            if (node.contains("hidden") && node.at("hidden").is_array())
-                for (auto& e : node.at("hidden"))
-                    if (e.is_string()) savedHidden.insert(e.get<std::string>());
-        }
-    }
-
-    // saved ids first (present only, deduped), then new present ids in natural order
-    std::set<std::string> placed;
-    for (auto& id : savedOrder)
-        if (present.count(id) && !placed.count(id)) {
-            order.push_back(id);
-            placed.insert(id);
-        }
-    for (auto& id : natural)
-        if (!placed.count(id)) {
-            order.push_back(id);
-            placed.insert(id);
-        }
-
-    // keep only hidden ids that still exist
-    for (auto& id : savedHidden)
-        if (present.count(id)) hidden.insert(id);
+    readSidebarLayout(AppConfig::instance().getUser().server_id, savedOrder, savedHidden);
+    sidebar::resolve(this->naturalOrder(), savedOrder, savedHidden, order, hidden);
 }
 
 void MainTabFrame::applySidebarLayout() {
@@ -359,11 +341,16 @@ MainTabFrame::~MainTabFrame() {
 void MainTabFrame::setSidebarLayout(const std::vector<std::string>& order, const std::set<std::string>& hidden) {
     const std::string& sid = AppConfig::instance().getUser().server_id;
     if (!sid.empty()) {
+        std::vector<std::string> savedOrder, mergedOrder;
+        std::set<std::string> savedHidden, mergedHidden;
+        readSidebarLayout(sid, savedOrder, savedHidden);
+        sidebar::merge(savedOrder, savedHidden, order, hidden, mergedOrder, mergedHidden);
+
         auto all = AppConfig::instance().getItem(AppConfig::SIDEBAR_LAYOUT, nlohmann::json::object());
         if (!all.is_object()) all = nlohmann::json::object();
         nlohmann::json node;
-        node["order"] = order;
-        node["hidden"] = std::vector<std::string>(hidden.begin(), hidden.end());
+        node["order"] = mergedOrder;
+        node["hidden"] = std::vector<std::string>(mergedHidden.begin(), mergedHidden.end());
         all[sid] = node;
         AppConfig::instance().setItem(AppConfig::SIDEBAR_LAYOUT, all);
     }
@@ -389,6 +376,12 @@ std::vector<MainTabFrame::SidebarEntry> MainTabFrame::getReorderableEntries() {
             e.label = caps.listKind == media::ListKind::Favorites ? brls::getStr("main/favorites/title")
                                                                   : brls::getStr("main/watchlist/title");
             e.icon = "@res/icon/ico-bookmark-fill.svg";
+        } else if (id == "tab/search") {
+            e.label = brls::getStr("main/tabs/search");
+            e.icon = "@res/icon/ico-search.svg";
+        } else if (id == "tab/remote") {
+            e.label = brls::getStr("main/remote/local");
+            e.icon = "@res/icon/ico-download.svg";
         } else {
             // "lib/<sectionKey>"
             std::string key = id.substr(4);
@@ -417,11 +410,17 @@ std::vector<MainTabFrame::SidebarEntry> MainTabFrame::getReorderableEntries() {
 void MainTabFrame::addOfflineLibraryTabs() {
     if (this->librariesLoaded) return;
     this->librariesLoaded = true;
+    this->libs_.clear();
 
+    // offline sections are keyed by the server librarySectionID, so they share
+    // the ids (and the saved layout) of their online libraries
     size_t position = 1;
     for (auto& s : OfflineLibrary::instance().sections()) {
+        this->libs_.push_back(s);
+
         auto* item = new AutoSidebarItem();
         item->setTabStyle(AutoTabBarStyle::ACCENT);
+        item->setId("lib/" + s.key);
         if (s.type == plex::mediaTypeShow) {
             item->applyXMLAttribute("icon", "@res/icon/ico-tv.svg");
             item->applyXMLAttribute("iconActivate", "@res/icon/ico-tv-activate.svg");
@@ -432,4 +431,6 @@ void MainTabFrame::addOfflineLibraryTabs() {
         std::string key = s.key;
         this->addTab(item, [key]() { return new OfflineCollection(key); }, position++);
     }
+
+    this->applySidebarLayout();
 }

@@ -47,13 +47,14 @@ public:
     /// (personal-list tab if ListKind::None, Playlists tab if !caps.playlists)
     void applyCapabilities();
 
-    /// Reorderable entries (server libraries + Playlists + Watchlist) in their
-    /// current display order, for the libraries manager.
+    /// Reorderable entries (libraries + Playlists + Watchlist + Search + Files)
+    /// in their current display order, for the sidebar manager.
     std::vector<SidebarEntry> getReorderableEntries();
 
     /// Persist (per active server) then apply live: reorder + show/hide of the
-    /// reorderable block. `order` lists ALL reorderable ids; `hidden` the ones
-    /// to hide.
+    /// reorderable block. `order` lists the reorderable ids present; `hidden`
+    /// the ones to hide. Ids saved but absent right now are kept (see
+    /// sidebar::merge).
     void setSidebarLayout(const std::vector<std::string>& order, const std::set<std::string>& hidden);
 
     static brls::View* create();
@@ -72,17 +73,15 @@ private:
     /// moves/hides existing items, never recreates them.
     void applySidebarLayout();
 
-    /// Reconciles the saved per-server layout with the tabs actually present:
-    /// fills `order` with the reorderable ids (saved order first, new tabs
-    /// appended in natural order) and `hidden` with the hidden ids (pruned to
-    /// present ids).
+    /// Reconciles the saved per-server layout with the tabs actually present
+    /// (sidebar::resolve).
     void computeLayout(std::vector<std::string>& order, std::set<std::string>& hidden);
 
     /// Natural (default) order of the reorderable ids actually present:
-    /// libraries in server order, then Playlists, then Watchlist.
+    /// libraries in server order, then Playlists, Watchlist, Search, Files.
     std::vector<std::string> naturalOrder();
 
-    std::vector<plex::Section> libs_;  // qualifying libraries (movie/show/photo)
+    std::vector<plex::Section> libs_;  // library tabs: qualifying server sections, or offline sections
     /// Hidden reorderable tabs are removed from the sidebar tree (NOT set
     /// Visibility::GONE — display:none breaks the yoga layout of the grow spacer
     /// when a tab is shown again) and kept alive here, keyed by tab id, so they
