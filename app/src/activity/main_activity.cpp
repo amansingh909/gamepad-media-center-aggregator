@@ -57,8 +57,9 @@ static void maybeShowRenameNotice() {
 MainActivity::MainActivity() { brls::Logger::debug("MainActivity: create"); }
 
 void MainActivity::onContentAvailable() {
-    this->tabFrame->loadLibraries();
+    // caps first: offline, loadLibraries applies the saved layout synchronously
     this->tabFrame->applyCapabilities();
+    this->tabFrame->loadLibraries();
 
     // The footer is now button hints only, floating bottom-right over the
     // content (no band, no separator). Inset its gradient scrim by the sidebar
@@ -411,8 +412,8 @@ void MainTabFrame::addOfflineLibraryTabs() {
     this->librariesLoaded = true;
     this->libs_.clear();
 
-    // offline sections are keyed by the server librarySectionID, so they share
-    // the ids (and the saved layout) of their online libraries
+    // offline sections captured with their librarySectionID share the ids (and
+    // the saved layout) of their online libraries
     size_t position = 1;
     for (auto& s : OfflineLibrary::instance().sections()) {
         this->libs_.push_back(s);

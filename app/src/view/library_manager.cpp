@@ -201,7 +201,7 @@ LibraryManager::LibraryManager(MainTabFrame* frame) : frame(frame) {
     if (auto* desc = dynamic_cast<brls::Label*>(this->getView("lib_manager/desc"))) {
         desc->setTextColor(brls::Application::getTheme().getColor("font/grey"));
         if (NetworkState::isOffline())
-            desc->setText("main/setting/libraries/description"_i18n + " " + "main/setting/libraries/offline"_i18n);
+            desc->setText("main/setting/libraries/description"_i18n + "\n" + "main/setting/libraries/offline"_i18n);
     }
 
     this->rebuild();

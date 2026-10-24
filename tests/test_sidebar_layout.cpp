@@ -44,6 +44,15 @@ int main() {
     }
 
     {
+        // an absent id follows the id saved right before it when that one moves
+        Ids out;
+        Set outHidden;
+        sidebar::merge({"lib/5", "lib/741", "lib/3", "tab/playlists"}, {}, {"lib/3", "tab/playlists", "lib/5"}, {},
+            out, outHidden);
+        CHECK((out == Ids {"lib/3", "tab/playlists", "lib/5", "lib/741"}));
+    }
+
+    {
         // absent ids leading the saved order stay in front, in their order
         Ids out;
         Set outHidden;
