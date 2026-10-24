@@ -8,7 +8,7 @@ here so app icons and site logos stay regenerable.
 | File | Role | Generated derivative(s) |
 |------|------|-------------------------|
 | `logo-switch.png` | Full-bleed Nintendo Switch app-icon master (edge-to-edge, opaque) | `resources/icon/icon.jpg` + `icon.png` (the Switch NRO icon / forwarder tile, 1024²) |
-| `logo-switch-web.png` | Squircle Switch variant (rounded, round-buttons) | site logo variants |
+| `logo-switch-web.png` | Squircle Switch variant (rounded, round-buttons) | `resources/icon/icon-rounded.png` (in-app logo on the sign-in and hint screens, 512², transparent) + site logo variants |
 | `logo-psvita.png` | Round D-pad puck (for the Vita's circular icon mask) | `app/platform/vita/sce_sys/icon0.png` (128², no alpha) + Vita LiveArea |
 | `logo-psvita-web.png` | Squircle D-pad variant | `app/platform/ps4/sce_sys/icon0.png` (512², transparent) + site device art |
 | `gmca-logo-src.png` | Master GMCA wordmark/logo | `site/assets/img/gmca-logo.webp` |
@@ -25,6 +25,18 @@ Per-console constraints when regenerating the others:
 - **PS Vita** `icon0.png`: the file is a **square** the system masks to a **circle**; **no alpha** allowed → composite the round puck on an opaque (black) ground.
 - **PS4** `icon0.png`: square/rounded-square display; alpha OK → squircle D-pad on transparent.
 - **Switch** HOME tile corner radius is system-fixed and theme-independent → ship a square, the system rounds it.
+
+### In-app icon regeneration
+
+The sign-in and hint screens show the squircle on its transparent ground, with
+no `cornerRadius`: `icon.png` is full-bleed, and a radius would cut into the art.
+
+```sh
+magick brand/logos/logo-switch-web.png -trim +repage -background none \
+  -gravity center -extent 1918x1918 -resize 512x512 resources/icon/icon-rounded.png
+```
+
+`-extent` squares the trimmed squircle (1918×1909) without cropping it.
 
 ## `mockups/` — device frames (gitignored)
 
