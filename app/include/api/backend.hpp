@@ -17,6 +17,7 @@
 
 #include <functional>
 #include <memory>
+#include <optional>
 #include <string>
 #include <utility>
 #include <vector>
@@ -145,6 +146,11 @@ public:
     /// worker thread), may throw. Empty key when unknown: Plex keeps this
     /// default, its metadata already carries librarySectionID.
     virtual Section sectionOfSync(const std::string& id) { return {}; }
+    /// Item fiche and direct children, for the offline catalog. Synchronous
+    /// (download worker thread), may throw. Backends without an offline
+    /// catalog (Stremio) keep these defaults: nothing is captured.
+    virtual std::optional<Item> getItemDetailSync(const std::string& id) { return std::nullopt; }
+    virtual std::vector<Item> getChildrenSync(const std::string& id) { return {}; }
     virtual void getChildren(const std::string& id, Then<Container<Item>> then, OnError error) = 0;
     /// Albums of a music artist. Hierarchical backends (Plex) resolve this like
     /// getChildren; Jellyfin/Emby must override (artists are virtual entities,

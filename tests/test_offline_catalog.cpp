@@ -9,6 +9,9 @@
 // tree, including synthesis of missing ancestors for legacy downloads.
 
 #include <cstdio>
+#include <map>
+#include <set>
+#include <stdexcept>
 #include <utils/offline_catalog.hpp>
 
 static int failures = 0;
@@ -191,6 +194,114 @@ int main() {
         media::Media back = j.get<media::Media>();
         CHECK(back.sourceId == "mediasource_743");
         CHECK(back.width == 1920);
+    }
+
+    {
+        // capture of an Emby episode: the server's own shape (episode 747 under
+        // season 745 under series 744, library 5 "Series"), no librarySectionID
+        // in the metadata
+        std::map<std::string, plex::Item> server;
+        auto node = [&](const std::string& key, const std::string& type, const std::string& parent,
+                        const std::string& grandparent, int64_t index) {
+            plex::Item it;
+            it.ratingKey = key;
+            it.type = type;
+            it.title = type + " " + key;
+            it.parentRatingKey = parent;
+            it.grandparentRatingKey = grandparent;
+            it.index = index;
+            it.parentIndex = type == plex::mediaTypeEpisode ? 1 : 0;
+            server[key] = it;
+        };
+        node("744", plex::mediaTypeShow, "4", "", 0);
+        node("745", plex::mediaTypeSeason, "744", "744", 1);
+        node("746", plex::mediaTypeEpisode, "745", "744", 2);
+        node("747", plex::mediaTypeEpisode, "745", "744", 1);
+        node("743", plex::mediaTypeMovie, "742", "", 0);
+        server["747"].summary = "full fiche";
+        plex::Section series;
+        series.key = "5";
+        series.title = "Series";
+
+        std::vector<plex::Item> stored;
+        std::vector<std::string> withArt;
+        std::set<std::string> failing;
+        auto fetch = [&](const std::string& id) -> std::optional<plex::Item> {
+            if (failing.count(id)) throw std::runtime_error("unreachable");
+            auto it = server.find(id);
+            if (it == server.end()) return std::nullopt;
+            return it->second;
+        };
+        auto children = [&](const std::string& id) {
+            std::vector<plex::Item> out;
+            for (auto& [k, it] : server)
+                if (it.parentRatingKey == id) {
+                    plex::Item ep = it;
+                    ep.summary.clear();  // list endpoints return a lighter shape
+                    out.push_back(ep);
+                }
+            return out;
+        };
+        auto has = [&](const std::string& id) {
+            for (auto& it : stored)
+                if (it.ratingKey == id) return true;
+            return false;
+        };
+        auto put = [&](plex::Item it, bool art) {
+            if (art) withArt.push_back(it.ratingKey);
+            stored.push_back(std::move(it));
+        };
+
+        offline::capture("747", series, fetch, children, has, put);
+
+        CHECK(stored.size() == 4);  // leaf, show, season, one sibling
+        CHECK(stored.size() > 0 && stored[0].ratingKey == "747");
+        CHECK(stored.size() > 0 && stored[0].summary == "full fiche");  // leaf not overwritten by the list
+        CHECK((withArt == std::vector<std::string>{"747", "744", "745"}));
+        for (auto& it : stored) CHECK(it.librarySectionID == "5" && it.librarySectionTitle == "Series");
+
+        auto full = offline::synthesizeAncestors(stored);
+        auto secs = offline::buildSections(full);
+        CHECK(secs.size() == 1);
+        CHECK(secs.size() == 1 && secs[0].key == "5" && secs[0].title == "Series");
+        auto top = offline::sectionItems(full, "5");
+        CHECK(top.size() == 1 && top[0].ratingKey == "744");
+        auto seasons = offline::childrenOf(full, "744");
+        CHECK(seasons.size() == 1 && seasons[0].ratingKey == "745");
+        auto eps = offline::childrenOf(full, "745");
+        CHECK(eps.size() == 2 && eps[0].ratingKey == "747" && eps[1].ratingKey == "746");
+
+        // second episode of a captured season: only its own fiche
+        stored.erase(std::remove_if(stored.begin(), stored.end(),
+                         [](const plex::Item& it) { return it.ratingKey == "746"; }),
+            stored.end());
+        size_t before = stored.size();
+        offline::capture("746", series, fetch, children, has, put);
+        CHECK(stored.size() == before + 1 && stored.back().ratingKey == "746");
+
+        // a movie keeps a library its metadata already carries (Plex)
+        stored.clear();
+        server["743"].librarySectionID = "1";
+        server["743"].librarySectionTitle = "Films";
+        offline::capture("743", series, fetch, children, has, put);
+        CHECK(stored.size() == 1 && stored[0].librarySectionID == "1" && stored[0].librarySectionTitle == "Films");
+
+        // an unreachable show never loses the leaf already put
+        stored.clear();
+        failing.insert("744");
+        bool threw = false;
+        try {
+            offline::capture("747", series, fetch, children, has, put);
+        } catch (const std::exception&) {
+            threw = true;
+        }
+        CHECK(threw);
+        CHECK(stored.size() == 1 && stored[0].ratingKey == "747");
+
+        // unknown leaf: nothing
+        stored.clear();
+        offline::capture("999", series, fetch, children, has, put);
+        CHECK(stored.empty());
     }
 
     if (failures == 0) {
