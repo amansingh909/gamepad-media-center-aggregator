@@ -572,7 +572,8 @@ def log(n=40):
     conf = PLATFORMS[load_state()["platform"]]
     try:
         with open(conf["log"], errors="replace") as f:
-            lines = [l.split(conf["app_line"], 1)[1] for l in f if conf["app_line"] in l]
+            mark = conf["app_line"]
+            lines = [l.split(mark, 1)[1] if mark else l for l in f if mark in l]
     except FileNotFoundError:
         die(f"pas encore de log : {conf['log']}")
     sys.stdout.writelines(lines[-n:])
