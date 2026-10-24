@@ -12,7 +12,8 @@ Everything downloaded lives in EMU_HOME (default ~/.cache/gmca-emu).
 Usage:
   ctl.py setup                     # emulators, Vita firmware (Sony), vpad.dylib
   ctl.py fetch <run-id>            # CI artifacts -> EMU_HOME/artifacts/<run-id>/
-  ctl.py launch psvita <artifact>  # run-id or path to .vpk/.nro; --fresh wipes app data
+  ctl.py launch psvita <artifact>  # run-id or path to .vpk/.nro; --fresh wipes app data,
+                                   # --jellyfin starts signed in to the test Jellyfin
   ctl.py key down down a           # up/down/left/right/a/b/x/y/l/r/zl/zr/plus/minus
   ctl.py shot home                 # captures the window -> SHOTS_DIR/home.png
   ctl.py log [lines]               # app lines of the emulator log (default 40)
@@ -23,7 +24,7 @@ Usage:
 Scenario: a text file, one command per line (# = comment). `launch` takes the
 platform and artifact from the command line of `run`:
   ctl.py run scenarios/smoke.txt psvita 40083100934
-Commands: launch [--fresh], key, shot, sleep, check, quit.
+Commands: launch [--fresh|--jellyfin], key, shot, sleep, check, quit.
 
 Buttons are named after the Switch layout, the one borealis uses: a = confirm,
 b = back, x = context menu. On Vita, a is Cross and b is Circle.
@@ -38,6 +39,7 @@ import signal
 import subprocess
 import sys
 import time
+import urllib.request
 import zipfile
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
@@ -50,6 +52,12 @@ VPAD = os.path.join(EMU_HOME, "vpad.dylib")
 KEY_HOLD = float(os.environ.get("KEY_HOLD", "0.12"))
 KEY_DELAY = float(os.environ.get("KEY_DELAY", "0.4"))
 FREEZE_SECS = float(os.environ.get("FREEZE_SECS", "10"))
+
+# Test server of plenx-media-servers/docker-compose.yml; the password lives in
+# the macOS keychain, never in the repository.
+JELLYFIN_URL = os.environ.get("JELLYFIN_URL", "http://127.0.0.1:8096")
+JELLYFIN_USER = os.environ.get("JELLYFIN_USER", "plenx")
+JELLYFIN_KEYCHAIN = "gmca-emu-jellyfin"
 
 # Sony's official download, linked from
 # https://www.playstation.com/en-us/support/hardware/psvita/system-software/
@@ -98,6 +106,13 @@ def load_state():
 
 
 def alive(pid):
+    # Launched by this same process (a scenario), a dead emulator stays a zombie
+    # until it is reaped, and kill(pid, 0) still succeeds on a zombie.
+    try:
+        if os.waitpid(pid, os.WNOHANG)[0] == pid:
+            return False
+    except ChildProcessError:
+        pass
     try:
         os.kill(pid, 0)
         return True
@@ -204,12 +219,42 @@ def command(platform, artifact):
     die(f"plateforme inconnue : {platform}")
 
 
-def launch(platform, ref, fresh=False):
+def seed_jellyfin(data_dir):
+    """Writes the config the Jellyfin sign-in screen would write
+    (app/src/tab/jellyfin_add.cpp, JellyfinAdd::finish): the emulators have no
+    usable on-screen keyboard without the window focus."""
+    password = subprocess.run(["security", "find-generic-password", "-s", JELLYFIN_KEYCHAIN,
+                               "-a", JELLYFIN_USER, "-w"], capture_output=True, text=True)
+    if password.returncode != 0:
+        die(f"mot de passe absent du trousseau : item {JELLYFIN_KEYCHAIN}, compte {JELLYFIN_USER}")
+    req = urllib.request.Request(
+        f"{JELLYFIN_URL}/Users/AuthenticateByName",
+        data=json.dumps({"Username": JELLYFIN_USER, "Pw": password.stdout.strip()}).encode(),
+        headers={"Content-Type": "application/json",
+                 "Authorization": 'MediaBrowser Client="gmca-emu", Device="ctl.py", '
+                                  'DeviceId="gmca-emu", Version="1"'})
+    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+    try:
+        auth = json.load(opener.open(req, timeout=10))
+    except OSError as e:
+        die(f"connexion à Jellyfin {JELLYFIN_URL} impossible : {e}")
+    server = {"id": auth["ServerId"], "name": "Jellyfin", "access_token": auth["AccessToken"],
+              "urls": [JELLYFIN_URL], "type": "jellyfin"}
+    user = {"id": auth["User"]["Id"], "name": auth["User"]["Name"],
+            "access_token": auth["AccessToken"], "server_id": auth["ServerId"]}
+    os.makedirs(data_dir, exist_ok=True)
+    with open(os.path.join(data_dir, "config.json"), "w") as f:
+        json.dump({"user_id": user["id"], "users": [user], "servers": [server]}, f)
+
+
+def launch(platform, ref, fresh=False, jellyfin=False):
     quit_emu()
     conf = PLATFORMS[platform]
     artifact = artifact_path(platform, ref)
-    if fresh:
+    if fresh or jellyfin:
         shutil.rmtree(conf["data"], ignore_errors=True)
+    if jellyfin:
+        seed_jellyfin(conf["data"])
     if not os.path.exists(VPAD):
         die("manette virtuelle absente, faire `ctl.py setup`")
     if os.path.exists(FIFO):
@@ -241,6 +286,8 @@ def quit_emu():
         with open(STATE) as f:
             pid = json.load(f)["pid"]
     except FileNotFoundError:
+        # An emulator left over by an interrupted run would share the FIFO.
+        subprocess.run(["pkill", "-f", VITA3K])
         return
     if alive(pid):
         os.killpg(pid, signal.SIGTERM)
@@ -325,20 +372,27 @@ def log(n=40):
     sys.stdout.writelines(app_lines(n))
 
 
-def check():
-    """Crash: the emulator died or logged a fatal error. Freeze: the window and
-    the log stay identical for FREEZE_SECS. An idle screen also stays identical,
-    so `check` belongs right after an input that must change the screen."""
+def crash():
+    """The reason the emulator crashed, or None: the process died or its log
+    holds a fatal error."""
     state = load_state()
     conf = PLATFORMS[state["platform"]]
     if not alive(state["pid"]):
-        print("PLANTAGE : l'émulateur s'est arrêté")
-        return False
+        return "l'émulateur s'est arrêté"
     with open(conf["log"], errors="replace") as f:
         fatal = [l.strip() for l in f if any(p in l for p in conf["fatal"])]
-    if fatal:
-        print("PLANTAGE : " + fatal[-1])
+    return fatal[-1] if fatal else None
+
+
+def check():
+    """Crash, then freeze: the window and the log stay identical for
+    FREEZE_SECS. An idle screen also stays identical, so `check` belongs right
+    after an input that must keep the screen moving, a playback for instance."""
+    reason = crash()
+    if reason:
+        print("PLANTAGE : " + reason)
         return False
+    conf = PLATFORMS[load_state()["platform"]]
     tmp = os.path.join(EMU_HOME, "check")
     before, size = sha256(capture(tmp + "-a.png")), os.path.getsize(conf["log"])
     time.sleep(FREEZE_SECS)
@@ -359,7 +413,7 @@ def run_scenario(path, platform, ref):
             cmd, *args = line.split()
             print(f"{n:3} {line}", flush=True)
             if cmd == "launch":
-                launch(platform, ref, fresh="--fresh" in args)
+                launch(platform, ref, fresh="--fresh" in args, jellyfin="--jellyfin" in args)
             elif cmd == "quit":
                 quit_emu()
             elif cmd == "key":
@@ -372,8 +426,9 @@ def run_scenario(path, platform, ref):
                 ok = check() and ok
             else:
                 die(f"commande inconnue ligne {n} : {line}")
-            if cmd != "quit" and os.path.exists(STATE) and not alive(load_state()["pid"]):
-                print("PLANTAGE : l'émulateur s'est arrêté")
+            reason = crash() if cmd != "quit" and os.path.exists(STATE) else None
+            if reason:
+                print("PLANTAGE : " + reason)
                 ok = False
                 break
     print("VERDICT : " + ("OK" if ok else "ÉCHEC"))
@@ -389,8 +444,8 @@ def main():
     elif cmd == "fetch":
         fetch(args[0])
     elif cmd == "launch":
-        rest = [a for a in args if a != "--fresh"]
-        launch(rest[0], rest[1], fresh="--fresh" in args)
+        rest = [a for a in args if not a.startswith("--")]
+        launch(rest[0], rest[1], fresh="--fresh" in args, jellyfin="--jellyfin" in args)
     elif cmd == "quit":
         quit_emu()
     elif cmd == "key":

@@ -1,0 +1,16 @@
+# Signed in to the test Jellyfin (plenx-media-servers, :8096, keychain item
+# gmca-emu-jellyfin): home, the movie, a few seconds of playback, back.
+launch --jellyfin
+sleep 10
+shot 00-home
+key right a
+sleep 4
+shot 01-movie
+key a
+sleep 10
+shot 02-playback
+check
+key b
+sleep 2
+shot 03-after-playback
+quit
