@@ -20,8 +20,7 @@ inline bool exceedsResolution(int width, int height, int maxHeight) {
     return height > maxHeight || width > resolutionBoxWidth(maxHeight);
 }
 
-/// Label of the smallest box holding the source: 1920x800 is "1080p",
-/// 3840x1600 "4K", 640x360 "SD". Empty for an unknown size.
+/// The smallest box holding the source: 1920x800 is "1080p"; empty for an unknown size.
 inline const char* resolutionLabel(int width, int height) {
     if (width <= 0 || height <= 0) return "";
     if (!exceedsResolution(width, height, 360)) return "SD";

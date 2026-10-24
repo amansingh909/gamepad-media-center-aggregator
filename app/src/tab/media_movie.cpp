@@ -169,7 +169,7 @@ MediaMovie::MediaMovie(const plex::Item& item, bool localContext)
                 this->updateDownloadButton();
             });
         } else {
-            // multiple versions: the one picked in the selector, like Play
+            // several versions: the one picked in the selector
             if (this->selectedVersion >= 0)
                 this->downloadSource(this->selectedVersion);
             else

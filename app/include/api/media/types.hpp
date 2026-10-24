@@ -223,9 +223,7 @@ inline void from_json(const nlohmann::json& j, Media& r) {
     if (j.contains("Part") && j["Part"].is_array()) r.parts = j["Part"].get<std::vector<Part>>();
 }
 
-/// Version selector label: "1080p · HEVC · 7.6 Mbps", without the bitrate for
-/// the closed selector. Falls back to the server's version name (`label`) when
-/// nothing was probed; empty if there is none.
+/// "1080p · HEVC · 7.6 Mbps", or the server's version name when nothing was probed.
 inline std::string versionLabel(const Media& m, bool withBitrate = true) {
     std::string res = resolutionLabel(m.width, m.height);
     if (res.empty()) res = m.videoResolution;

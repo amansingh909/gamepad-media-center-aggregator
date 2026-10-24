@@ -4,8 +4,7 @@
 //       -Ilibrary/borealis/library/include/borealis/extern \
 //       tests/test_version_label.cpp -o /tmp/t && /tmp/t
 //
-// Sizes and bitrates are those of issue #96 (Emby) and of the local test
-// servers: Jellyfin/Emby leave videoResolution empty, Plex fills it.
+// Jellyfin/Emby leave videoResolution empty, Plex fills it.
 
 #include <cstdio>
 #include <api/media/types.hpp>
@@ -56,7 +55,7 @@ int main() {
     plex.videoResolution = "1080";
     CHECK(versionLabel(plex) == "1080 · H264 · 7.6 Mbps");
 
-    // nothing probed (issue #96, "(0 kbps)"): the server's version name
+    // nothing probed: the server's version name
     media::Media bare = source(0, 0, "", 0);
     CHECK(versionLabel(bare).empty());
     bare.label = "Patriot - Remux";
