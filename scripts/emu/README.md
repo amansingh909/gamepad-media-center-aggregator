@@ -6,8 +6,8 @@ the logs and catch a crash or a freeze without a console.
 
 | Platform (`ctl.py`) | CI artifact | Emulator | Input | `log` shows |
 |---|---|---|---|---|
-| `nx` | `GMCA-NintendoSwitch-<n>/GMCA.nro` | [Eden](https://git.eden-emu.dev/eden-emu/eden) v0.2.1, pinned by SHA-256 | DSU | Eden's log |
-| `psvita` | `GMCA-Vita-<n>/GMCA.vpk` | [Vita3K](https://github.com/Vita3K/Vita3K), rolling `continuous` release, not pinned | `vpad.dylib` | the app's lines of `vita3k.log` |
+| `nx` | `GMCA-NintendoSwitch-<n>/GMCA.nro` | [Eden](https://git.eden-emu.dev/eden-emu/eden) v0.2.1, pinned by SHA-256 | DSU over UDP | Eden's log |
+| `psvita` | `GMCA-Vita-<n>/GMCA.vpk` | [Vita3K](https://github.com/Vita3K/Vita3K), rolling `continuous` release, not pinned | virtual gamepad (`vpad.dylib`) | the app's lines of `vita3k.log` |
 
 Both emulators stay in the background and never take the focus:
 
@@ -68,8 +68,8 @@ Buttons follow the Switch layout borealis uses: `a` confirms, `b` goes back, `y`
 settings, `plus` and `minus` are Start and Select on Vita. On Vita, `a` is Cross, `b` Circle,
 `x` Square, `y` Triangle; `zl` and `zr` only matter on Switch.
 
-`launch --fresh` wipes the app data and writes a config without the one-time prompts: the HOME
-tile (forwarder) install on Switch, and the update prompt when the build comes from a run id,
+`launch --fresh` wipes the app data and writes a config without the one-time prompts: the Switch
+prompt to install a HOME menu tile, and the update prompt when the build comes from a run id,
 whose version `fetch` reads in `CMakeLists.txt`. `launch --jellyfin` also signs in to the test
 Jellyfin, which must be running (`plenx-media-servers/docker-compose.yml`, see `CLAUDE.md`),
 with the `gmca-emu` account. Its password is in the keychain item `gmca-emu-jellyfin`
@@ -78,8 +78,8 @@ an on-screen keyboard usable without the window focus, so the sign-in screen its
 exercised.
 
 Environment: `EMU_HOME`, `SHOTS_DIR` (default `EMU_HOME/shots`), `KEY_HOLD` and `KEY_DELAY`
-(seconds a button is held, and waited after), `FREEZE_SECS` (default 10), `JELLYFIN_URL`,
-`JELLYFIN_USER`.
+(seconds a button is held, and waited after), `FREEZE_SECS` (default 10), `EMU_UNTRUSTED`,
+`JELLYFIN_URL`, `JELLYFIN_USER`.
 
 ## Scenarios
 
