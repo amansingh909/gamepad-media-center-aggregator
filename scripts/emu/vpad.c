@@ -1,16 +1,8 @@
-// Virtual gamepad loaded into an emulator with DYLD_INSERT_LIBRARIES.
-//
-// SDL only delivers keyboard input to the key window, so keystrokes cannot reach
-// an emulator running in the background. Gamepad input can, with
-// SDL_JOYSTICK_ALLOW_BACKGROUND_EVENTS=1. This library attaches an SDL3 virtual
-// gamepad inside the emulator process and drives it from a FIFO, one command
-// per line:
-//   button <SDL_GamepadButton> <0|1>
-//   axis <SDL_GamepadAxis> <-32768..32767>
-//
-// Build: clang -dynamiclib -arch arm64 -I$(brew --prefix sdl3)/include \
-//          -undefined dynamic_lookup -o vpad.dylib vpad.c
-// Run:   GMCA_VPAD=/path/to/fifo DYLD_INSERT_LIBRARIES=vpad.dylib <emulator>
+// Virtual gamepad loaded into an emulator with DYLD_INSERT_LIBRARIES (see ctl.py).
+// SDL only delivers keyboard input to the key window; gamepad input also reaches a
+// background window with SDL_JOYSTICK_ALLOW_BACKGROUND_EVENTS=1. Commands come from
+// the FIFO named by GMCA_VPAD, one per line: "button <SDL_GamepadButton> <0|1>" or
+// "axis <SDL_GamepadAxis> <-32768..32767>".
 
 #include <SDL3/SDL.h>
 #include <dlfcn.h>

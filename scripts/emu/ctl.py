@@ -64,7 +64,6 @@ JELLYFIN_URL = os.environ.get("JELLYFIN_URL", "http://127.0.0.1:8096")
 JELLYFIN_USER = os.environ.get("JELLYFIN_USER", "gmca-emu")
 JELLYFIN_KEYCHAIN = "gmca-emu-jellyfin"
 
-# --- PS Vita: Vita3K --------------------------------------------------------
 
 # Sony's official download, linked from
 # https://www.playstation.com/en-us/support/hardware/psvita/system-software/
@@ -85,9 +84,7 @@ SOUTH, EAST, WEST, NORTH, BACK, START = 0, 1, 2, 3, 4, 6
 LSHOULDER, RSHOULDER, UP, DOWN, LEFT, RIGHT = 9, 10, 11, 12, 13, 14
 LTRIGGER, RTRIGGER = 4, 5
 
-# --- Switch: Eden -----------------------------------------------------------
 
-# Ryubing was the first choice; its servers have been down since September 2026.
 EDEN_VERSION = "v0.2.1"
 EDEN_DMG = f"https://stable.eden-emu.dev/{EDEN_VERSION}/Eden-macOS-{EDEN_VERSION}.dmg"
 EDEN_SHA256 = "40575fc79a61550fbb9e332cbae94ccd20f5de20ff61b4b60fe1d42f2525c0b5"
@@ -121,7 +118,7 @@ EDEN_INI = {
                              ("plus", "options"), ("minus", "share"), ("dup", "up"),
                              ("ddown", "down"), ("dleft", "left"), ("dright", "right")]},
     },
-    # The multi-core JIT crashed GMCA after two seconds (dynarmic assert !is_executing).
+    # Eden's multi-core JIT crashes GMCA (dynarmic: assert !is_executing).
     "Core": {"use_multi_core": "false"},
     "UI": {"check_for_updates": "false"},
 }
@@ -137,9 +134,8 @@ PLATFORMS = {
     },
     "nx": {
         "artifact": "GMCA-NintendoSwitch-[0-9]*/GMCA.nro",
-        # Eden passes program_args the NSO way (src/core/loader/nro.cpp), not
-        # through the homebrew loader argv libnx reads: GMCA never gets -o and
-        # its own log stays out of reach. `log` shows Eden's.
+        # Eden passes program_args the NSO way, libnx reads the homebrew loader
+        # argv: GMCA never gets -o, `log` shows Eden's log.
         "emu_log": EDEN_LOG,
         "app_log": EDEN_LOG,
         "app_line": "",
@@ -189,8 +185,6 @@ def sha256(path):
             h.update(chunk)
     return h.hexdigest()
 
-
-# --- setup -----------------------------------------------------------------
 
 def copy_app(dmg, app, dest_dir):
     mnt = os.path.join(DL, "mnt")
@@ -272,8 +266,6 @@ def setup():
     setup_eden()
 
 
-# --- artifacts -------------------------------------------------------------
-
 def fetch(run_id):
     dest = os.path.join(EMU_HOME, "artifacts", run_id)
     names = subprocess.run(
@@ -311,8 +303,6 @@ def artifact_path(platform, ref):
         die(f"aucun artefact {platform} dans le run {ref}")
     return found[0]
 
-
-# --- emulator --------------------------------------------------------------
 
 def seed_config(data_dir, artifact):
     """A fresh config without the one-time prompts that would swallow the first
@@ -557,8 +547,6 @@ def log(n=40):
 
 
 def crash():
-    """The reason the emulator crashed, or None: the process died or its log
-    holds a fatal error."""
     state = load_state()
     conf = PLATFORMS[state["platform"]]
     if not alive(state["pid"]):
