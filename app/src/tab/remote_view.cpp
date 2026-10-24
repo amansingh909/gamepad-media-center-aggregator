@@ -8,7 +8,8 @@
 #include "view/video_view.hpp"
 #include "view/video_profile.hpp"
 #include "view/mpv_core.hpp"
-#include "view/music_view.hpp"
+#include "view/audio_player.hpp"
+#include "view/music_now_playing.hpp"
 #include "view/player_setting.hpp"
 #include "client/local.hpp"
 #include "view/remote_filter.hpp"
@@ -22,6 +23,9 @@ using namespace brls::literals;
 class RemotePlayer : public brls::Box {
 public:
     RemotePlayer(const remote::DirEntry& item, const std::string& method = "") {
+        // same handover as PlayerView: a music queue left owning MPVCore would
+        // auto-advance over this video at its end of file
+        AudioPlayer::instance().release();
         float width = brls::Application::contentWidth;
         float height = brls::Application::contentHeight;
         view->setDimensions(width, height);
@@ -260,6 +264,21 @@ static std::set<std::string> imageExt = {".jpg", ".jpeg", ".png", ".bmp", ".gif"
 static std::set<std::string> playlistExt = {".m3u", ".m3u8"};
 static std::set<std::string> subtitleExt = {".srt", ".ass", ".ssa", ".sub", ".smi"};
 
+/// Shape AudioPlayer::playFiles expects; mpv's tags replace the title once loaded.
+static media::Item fileTrack(const remote::DirEntry& entry) {
+    media::Item track;
+    track.type = media::mediaTypeTrack;
+    track.ratingKey = entry.url();
+    auto pos = entry.name.find_last_of('.');
+    track.title = pos == std::string::npos ? entry.name : entry.name.substr(0, pos);
+    media::Part part;
+    part.key = entry.url();
+    media::Media version;
+    version.parts.push_back(part);
+    track.media.push_back(version);
+    return track;
+}
+
 class FileDataSource : public RecyclingGridDataSource {
 public:
     /// isRoot: the Files root screen (devices + pinned shortcuts). Its order is
@@ -384,15 +403,16 @@ public:
         }
 
         if (item.type == remote::EntryType::AUDIO) {
-            DirList urls;
+            std::vector<media::Item> tracks;
             for (size_t i = 1; i < this->list.size(); i++) {
                 auto& it = this->list.at(i);
                 if (it.type == remote::EntryType::AUDIO) {
-                    if (i == index) index = urls.size();
-                    urls.push_back(it);
+                    if (i == index) index = tracks.size();
+                    tracks.push_back(fileTrack(it));
                 }
             }
-            MusicView::instance().load(urls, index, client->extraOption());
+            AudioPlayer::instance().playFiles(tracks, index, client->extraOption());
+            MusicNowPlaying::open();
             return;
         }
 
@@ -573,9 +593,6 @@ RemoteView::~RemoteView() {
     this->setDimensions(View::AUTO, View::AUTO);
     PlayerSetting::selectedSubtitle = 0;
     PlayerSetting::selectedAudio = 0;
-
-    /// 通知 MusicView 已关闭
-    MusicView::instance().setParent(nullptr);
 }
 
 brls::View* RemoteView::getDefaultFocus() { return this->recycler; }

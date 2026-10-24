@@ -26,13 +26,20 @@ public:
         this->imgCover->clear();  // transparent -> note placeholder behind shows
         std::string art = !t.thumb.empty() ? t.thumb : t.parentThumb;
         if (!art.empty()) Image::load(this->imgCover, art, 88);
+        this->setText(t);
+        this->setNowPlaying(nowPlaying);
+        this->setGrabbed(grabbed);
+    }
+
+    /// Text only, so a track change can refresh it without reloading the cover.
+    void setText(const media::Item& t) {
         this->labelTitle->setText(t.title);
         std::string who = !t.grandparentTitle.empty() ? t.grandparentTitle : t.parentTitle;
         this->labelArtist->setText(who);
         this->labelArtist->setVisibility(who.empty() ? brls::Visibility::GONE : brls::Visibility::VISIBLE);
+        // an empty label collapses the whole row (title included): hide it instead
         this->labelDur->setText(t.duration > 0 ? misc::sec2Time(t.duration / 1000) : "");
-        this->setNowPlaying(nowPlaying);
-        this->setGrabbed(grabbed);
+        this->labelDur->setVisibility(t.duration > 0 ? brls::Visibility::VISIBLE : brls::Visibility::GONE);
     }
 
     void setNowPlaying(bool on) {
@@ -300,6 +307,8 @@ void MusicNowPlaying::refreshTrack() {
     this->labelTitle->setText(t.title);
     std::string artist = !t.grandparentTitle.empty() ? t.grandparentTitle : t.parentTitle;
     this->labelArtist->setText(artist);
+    // UPDATE_DURATION fires once per load, never when reopening over a playing track
+    if (t.duration > 0) this->rightStatus->setText(misc::sec2Time(t.duration / 1000));
     // seed the play/pause glyph from the live state (MPV_RESUME/PAUSE only fire on
     // change; opening over an already-playing queue would keep the stale glyph)
     this->toggleIcon->setImageFromSVGRes(MPVCore::instance().isPaused() ? "icon/ico-play.svg" : "icon/ico-pause.svg");
@@ -342,9 +351,12 @@ void MusicNowPlaying::rebuildQueue() {
 void MusicNowPlaying::refreshQueueHighlight() {
     // move the now-playing marker on the visible rows without a reload (which
     // would reset scroll / focus while the user browses the queue)
-    int pos = AudioPlayer::instance().queuePos();
+    auto& player = AudioPlayer::instance();
+    int pos = player.queuePos();
     for (auto* item : this->queueList->getGridItems()) {
         auto* cell = dynamic_cast<QueueCell*>(item);
-        if (cell) cell->setNowPlaying((int)cell->getIndex() == pos);
+        if (!cell) continue;
+        cell->setText(player.queueItemAt(cell->getIndex()));
+        cell->setNowPlaying((int)cell->getIndex() == pos);
     }
 }
