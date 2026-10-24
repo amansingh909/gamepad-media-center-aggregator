@@ -1,5 +1,6 @@
 # Signed in to the test Jellyfin (plenx-media-servers, :8096, keychain item
-# gmca-emu-jellyfin): home, the movie, a few seconds of playback, back.
+# gmca-emu-jellyfin, account gmca-emu): home, the movie, a few seconds of
+# playback, back.
 launch --jellyfin
 sleep 10
 shot 00-home

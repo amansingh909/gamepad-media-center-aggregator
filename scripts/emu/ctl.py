@@ -61,7 +61,7 @@ FREEZE_SECS = float(os.environ.get("FREEZE_SECS", "10"))
 # Test server of plenx-media-servers/docker-compose.yml; the password lives in
 # the macOS keychain, never in the repository.
 JELLYFIN_URL = os.environ.get("JELLYFIN_URL", "http://127.0.0.1:8096")
-JELLYFIN_USER = os.environ.get("JELLYFIN_USER", "plenx")
+JELLYFIN_USER = os.environ.get("JELLYFIN_USER", "gmca-emu")
 JELLYFIN_KEYCHAIN = "gmca-emu-jellyfin"
 
 # --- PS Vita: Vita3K --------------------------------------------------------
@@ -315,12 +315,15 @@ def artifact_path(platform, ref):
 # --- emulator --------------------------------------------------------------
 
 def seed_config(data_dir, artifact):
-    """A fresh config. When the CI run is known, `app_update` holds the app
-    version, which skips the update prompt (app/src/main.cpp, checkUpdate)."""
-    config = {}
+    """A fresh config without the one-time prompts that would swallow the first
+    inputs of a scenario: the HOME tile nudge after sign-in on Switch
+    (app/src/main.cpp, proposeForwarderInstall) and, when the CI run is known,
+    the update prompt, skipped when `app_update` holds the app version."""
+    setting = {"hint_forwarder": True, "hint_forwarder_gmca": True}
     version_file = os.path.join(os.path.dirname(os.path.dirname(artifact)), "version.txt")
     if os.path.exists(version_file):
-        config["setting"] = {"app_update": open(version_file).read().strip()}
+        setting["app_update"] = open(version_file).read().strip()
+    config = {"setting": setting}
     os.makedirs(data_dir, exist_ok=True)
     with open(os.path.join(data_dir, "config.json"), "w") as f:
         json.dump(config, f)
