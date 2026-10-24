@@ -38,6 +38,7 @@ import signal
 import subprocess
 import sys
 import time
+import zipfile
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
 REPO = "thcolin/gamepad-media-center-aggregator"
@@ -60,6 +61,7 @@ VITA3K = os.path.join(VITA3K_DIR, "Vita3K.app", "Contents", "MacOS", "Vita3K")
 # A "portable" folder next to the bundle keeps config, firmware and apps out of
 # ~/Library (vita3k/app/src/app_init.cpp, init_paths).
 VITA3K_HOME = os.path.join(VITA3K_DIR, "portable")
+VITA_TITLEID = "GMCA00001"  # VITA_TITLEID in CMakeLists.txt
 
 # SDL_GamepadButton indices (SDL3/SDL_gamepad.h).
 SOUTH, EAST, WEST, NORTH, BACK, GUIDE, START = 0, 1, 2, 3, 4, 5, 6
@@ -191,8 +193,14 @@ def artifact_path(platform, ref):
 
 def command(platform, artifact):
     if platform == "psvita":
-        # A .vpk given as content path is installed, then run; -l 2 drops trace logs.
-        return [VITA3K, "--frontend", "sdl", "-l", "2", artifact]
+        # Installing through Vita3K (a .vpk as content path) brings its window to
+        # the front; a .vpk is a zip that Vita3K also accepts unpacked in ux0:app.
+        app = os.path.join(VITA3K_HOME, "fs", "ux0", "app", VITA_TITLEID)
+        shutil.rmtree(app, ignore_errors=True)
+        with zipfile.ZipFile(artifact) as z:
+            z.extractall(app)
+        # -l 2 drops the trace logs.
+        return [VITA3K, "--frontend", "sdl", "-l", "2", "-r", VITA_TITLEID]
     die(f"plateforme inconnue : {platform}")
 
 
@@ -207,9 +215,10 @@ def launch(platform, ref, fresh=False):
     if os.path.exists(FIFO):
         os.remove(FIFO)
     os.mkfifo(FIFO)
-    # SDL_MAC_BACKGROUND_APP: the emulator never takes the focus, even at launch.
+    # The SDL hints keep the emulator from taking the focus, at launch included.
     env = {**os.environ, "GMCA_VPAD": FIFO, "DYLD_INSERT_LIBRARIES": VPAD,
-           "SDL_JOYSTICK_ALLOW_BACKGROUND_EVENTS": "1", "SDL_MAC_BACKGROUND_APP": "1"}
+           "SDL_JOYSTICK_ALLOW_BACKGROUND_EVENTS": "1", "SDL_MAC_BACKGROUND_APP": "1",
+           "SDL_WINDOW_ACTIVATE_WHEN_SHOWN": "0", "SDL_WINDOW_ACTIVATE_WHEN_RAISED": "0"}
     out = open(os.path.join(EMU_HOME, f"{platform}.stdout"), "w")
     proc = subprocess.Popen(command(platform, artifact), env=env, stdout=out, stderr=subprocess.STDOUT,
                             start_new_session=True)
