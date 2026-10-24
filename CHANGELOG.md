@@ -9,6 +9,44 @@ prepared with [git-cliff](https://git-cliff.org/) from conventional commits
 hand. For the history of the upstream project this fork is based on, see the
 [Switchfin changelog](https://github.com/dragonflylee/switchfin/blob/dev/CHANGELOG.md).
 
+## [1.4.0] - 2026-10-24
+
+### Added
+
+- **Audio files from Files play in the music player (#33).** An audio file
+  picked in Files opens Now Playing and the persistent mini-bar, like a Plex,
+  Jellyfin or Emby track. The folder's audio files become the queue, in the
+  order shown. Title, artist, album and length come from the file tags.
+- **Search and Files can be reordered and hidden (#34).** They move and hide
+  like libraries. Home and the profile stay in place, and the settings screen
+  is renamed Sidebar.
+
+### Fixed
+
+- **Offline sidebar (#34).** Offline, library tabs follow the order and
+  visibility saved for the server, and Jellyfin and Emby show Favorites
+  instead of Watchlist.
+- **Offline details of Jellyfin and Emby downloads.** A movie or show
+  downloaded from Jellyfin or Emby now keeps its summary, poster, backdrop,
+  cast and versions offline, plus the show, season and episodes for an
+  episode. Downloads made before this release keep their minimal details.
+- **Jellyfin and Emby versions.** The Version selector reads
+  "1080p · HEVC · 1.4 Mbps" on every backend, and Download takes the version
+  picked in the selector, like Play.
+- **Resumed Plex transcodes (#72).** The OSD shows the resume time, chapter
+  markers sit in the right place, and seeking works anywhere, before the
+  resume point too.
+- **FTP folders (#54).** Folders on FTP servers without MLSD (vsftpd,
+  busybox, most routers) open again. On those servers a non-media file such
+  as `readme.txt` shows as a folder.
+- **Edit and Delete in the server menu (#54)** open their screen again.
+- **macOS: crash at launch when the active server does not answer.** Errors
+  from the C++ standard library escaped the app's error handling.
+- **Rounded icon on the sign-in screens.** The icon on the connection type,
+  sign-in and hint screens was clipped at its corners.
+- **Server image paths.** An image path from the server that does not start
+  with `/` is refused, so the access token cannot be sent to another host.
+
 ## [1.3.1] - 2026-10-24
 
 ### Fixed
