@@ -309,6 +309,16 @@ void JellyfinBackend::getItemDetail(
     fetchItem(url, then, error);
 }
 
+media::Section JellyfinBackend::sectionOfSync(const std::string& id) {
+    // the library is the CollectionFolder ancestor, with the same Id as its
+    // entry in /Users/{id}/Views
+    auto j = getSync(base() + fmt::format(fmt::runtime(apiAncestors), id, userId()), token());
+    if (j.is_array())
+        for (auto& a : j)
+            if (jstr(a, "Type") == "CollectionFolder") return parseSection(a);
+    return {};
+}
+
 void JellyfinBackend::getChildren(
     const std::string& id, media::Then<media::Container<media::Item>> then, media::OnError error) {
     // direct children of any item (a show -> its seasons; a season -> its episodes)

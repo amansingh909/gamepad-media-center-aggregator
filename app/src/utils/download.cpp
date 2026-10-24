@@ -295,6 +295,20 @@ std::string DownloadManager::buildDownloadUrl(const DownloadItem& item) const {
 // guarded, http.cpp).
 void DownloadManager::captureOfflineSync(const std::string& itemId) {
     auto& conf = AppConfig::instance();
+    if (conf.backend().type() != media::BackendType::Plex) {
+        // no Plex metadata to snapshot: record the owning library so the legacy
+        // back-fill (OfflineLibrary::migrateLegacy) files the item under it
+        auto sec = conf.backend().sectionOfSync(itemId);
+        if (sec.key.empty()) return;
+        std::lock_guard<std::mutex> lock(this->mutex);
+        for (auto& item : this->items)
+            if (item.itemId == itemId) {
+                item.sectionKey = sec.key;
+                item.sectionTitle = sec.title;
+                break;
+            }
+        return;
+    }
     const std::string base = conf.getUrl();
     const std::string token = conf.getToken();
     auto& lib = OfflineLibrary::instance();

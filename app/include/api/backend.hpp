@@ -145,6 +145,10 @@ public:
         const std::string& hubKey, size_t start, size_t size, Then<Container<Item>> then, OnError error) = 0;
     /// Single item detail. `full` requests heavy includes (streams/chapters/markers).
     virtual void getItemDetail(const std::string& id, bool full, Then<Item> then, OnError error) = 0;
+    /// Library owning an item, for the offline catalog. Synchronous (download
+    /// worker thread), may throw. Empty key when unknown: Plex keeps this
+    /// default, its metadata already carries librarySectionID.
+    virtual Section sectionOfSync(const std::string& id) { return {}; }
     virtual void getChildren(const std::string& id, Then<Container<Item>> then, OnError error) = 0;
     /// Albums of a music artist. Hierarchical backends (Plex) resolve this like
     /// getChildren; Jellyfin/Emby must override (artists are virtual entities,

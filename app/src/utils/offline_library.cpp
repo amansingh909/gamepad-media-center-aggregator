@@ -199,6 +199,8 @@ void OfflineLibrary::migrateLegacy() {
         it.year = dl.productionYear;
         it.duration = dl.durationMs;
         it.thumb = dl.thumb;
+        it.librarySectionID = dl.sectionKey;
+        it.librarySectionTitle = dl.sectionTitle;
         if (dl.type == plex::mediaTypeEpisode) {
             it.type = plex::mediaTypeEpisode;
             it.index = dl.episodeIndex;
