@@ -316,6 +316,7 @@ media::Section JellyfinBackend::sectionOfSync(const std::string& id) {
     if (j.is_array())
         for (auto& a : j)
             if (jstr(a, "Type") == "CollectionFolder") return parseSection(a);
+    brls::Logger::warning("JellyfinBackend: no library for {}", id);
     return {};
 }
 

@@ -299,10 +299,7 @@ void DownloadManager::captureOfflineSync(const std::string& itemId) {
         // no Plex metadata to snapshot: record the owning library so the legacy
         // back-fill (OfflineLibrary::migrateLegacy) files the item under it
         auto sec = conf.backend().sectionOfSync(itemId);
-        if (sec.key.empty()) {
-            brls::Logger::warning("Offline capture: no library for {}", itemId);
-            return;
-        }
+        if (sec.key.empty()) return;
         std::lock_guard<std::mutex> lock(this->mutex);
         for (auto& item : this->items)
             if (item.itemId == itemId) {
