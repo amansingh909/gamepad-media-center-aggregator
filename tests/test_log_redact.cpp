@@ -65,7 +65,8 @@ int main() {
         CHECK_EQ(out, std::string(199, 'x') + "…");
     }
 
-    CHECK_EQ(redactTokens("http://192.168.1.10:8097/emby/Videos/42/stream.mkv?Static=true&MediaSourceId=abc&api_key=SECRET"),
+    CHECK_EQ(redactTokens("http://192.168.1.10:8097/emby/Videos/42/stream.mkv"
+                          "?Static=true&MediaSourceId=abc&api_key=SECRET"),
         "http://192.168.1.10:8097/emby/Videos/42/stream.mkv?Static=true&MediaSourceId=abc&api_key=***");
 
     CHECK_EQ(redactTokens("https://1-2-3-4.abcdef.plex.direct:32400/library/parts/1/2/file.mkv?X-Plex-Token=SECRET"),
@@ -88,6 +89,10 @@ int main() {
     CHECK_EQ(redactUrl("sftp://bob@nas.lan:22/a.mkv"), "sftp://***@nas.lan:22/a.mkv");
 
     CHECK_EQ(redactUrl("http://h:8096/a@b.mkv?api_key=K"), "http://h:8096/a@b.mkv?api_key=***");
+
+    CHECK_EQ(redactUrl("sftp://bob:p ss@nas.lan:22/a.mkv"), "sftp://***@nas.lan:22/a.mkv");
+
+    CHECK_EQ(redactUrl("ftp://bob:p\"ss@nas.lan"), "ftp://***@nas.lan");
 
     CHECK_EQ(redactUrl("/Volumes/Films/a.mkv"), "/Volumes/Films/a.mkv");
 

@@ -69,7 +69,7 @@ inline std::string redactTokens(std::string text) {
 inline std::string redactUrl(std::string text) {
     for (size_t pos = 0; (pos = text.find("://", pos)) != std::string::npos;) {
         pos += 3;
-        size_t hostEnd = text.find_first_of("/?# \"'<>", pos);
+        size_t hostEnd = text.find_first_of("/?#", pos);
         if (hostEnd == std::string::npos) hostEnd = text.size();
         size_t at = text.rfind('@', hostEnd);
         if (at != std::string::npos && at >= pos) {
