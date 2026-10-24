@@ -3,7 +3,7 @@
 
     Owns the music queue and drives MPVCore per track (resolvePlayback +
     server progress/scrobble), mirroring PlayerView's playback engine without
-    its video UI. Observed by the mini-bar (MusicView) and the Now Playing
+    its video UI. Observed by the mini-bar (MusicMiniBar) and the Now Playing
     screen. Local files and server tracks both funnel through play().
 */
 
@@ -24,6 +24,9 @@ public:
     /// Replace the queue and start playing `tracks[index]`. `shuffle` seeds the
     /// shuffle state (e.g. "play artist"). Reused by local + server callers.
     void play(const std::vector<media::Item>& tracks, size_t index, bool shuffle = false);
+    /// Files browser queue: each track's mpv URL is media[0].parts[0].key, played with
+    /// the client's `extra` options. No backend resolve, progress report or scrobble.
+    void playFiles(const std::vector<media::Item>& tracks, size_t index, const std::string& extra);
 
     void toggle();
     void next();
@@ -67,7 +70,10 @@ public:
     brls::VoidEvent* trackEvent() { return &this->trackChanged; }
 
 private:
+    void load(const std::vector<media::Item>& tracks, size_t index, bool shuffle, bool fromFiles,
+        const std::string& extra);
     void playCurrent();
+    void readFileTags();
     void resolveAndPlay(const media::Item& track);
     void advanceAuto();  // natural end-of-file: honor repeat mode
     void reportTimeline(const std::string& state, int64_t timeMs);
@@ -87,6 +93,8 @@ private:
     bool owns = false;   // this controller currently drives MPVCore
     bool scrobbled = false;
     std::string sessionId;
+    bool files = false;      // queue comes from the Files browser (playFiles)
+    std::string filesExtra;  // mpv options of the Files client
 
     MPVEvent::Subscription eventSubscribeID;
     bool subscribed = false;
