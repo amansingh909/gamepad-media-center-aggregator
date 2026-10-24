@@ -53,13 +53,26 @@ int main() {
     // no size: Plex's own videoResolution
     media::Media plex = source(0, 0, "h264", 7607);
     plex.videoResolution = "1080";
-    CHECK(versionLabel(plex) == "1080 · H264 · 7.6 Mbps");
+    CHECK(versionLabel(plex) == "1080p · H264 · 7.6 Mbps");
+    plex.videoResolution = "4k";
+    CHECK(versionLabel(plex, false) == "4K · H264");
+
+    CHECK(versionLabel(source(1920, 1080, "hevc", 30)) == "1080p · HEVC");
 
     // nothing probed: the server's version name
     media::Media bare = source(0, 0, "", 0);
     CHECK(versionLabel(bare).empty());
     bare.label = "Patriot - Remux";
     CHECK(versionLabel(bare) == "Patriot - Remux");
+
+    // closed selector: the bitrate only where two versions would read the same
+    std::vector<media::Media> local = {source(1920, 1080, "hevc", 1430), source(720, 480, "mpeg2video", 3078),
+                                       source(640, 360, "h264", 1812), source(426, 240, "h264", 1087)};
+    auto shorts = media::versionShortLabels(local);
+    CHECK(shorts[0] == "1080p · HEVC");
+    CHECK(shorts[1] == "480p · MPEG2VIDEO");
+    CHECK(shorts[2] == "SD · H264 · 1.8 Mbps");
+    CHECK(shorts[3] == "SD · H264 · 1.1 Mbps");
 
     if (failures) {
         printf("%d failure(s)\n", failures);

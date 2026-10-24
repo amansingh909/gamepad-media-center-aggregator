@@ -22,6 +22,7 @@
 #include <cstring>
 #include <cstdio>
 #include <cctype>
+#include <algorithm>
 #include <nlohmann/json.hpp>
 #include "api/media/resolution.hpp"
 
@@ -226,7 +227,14 @@ inline void from_json(const nlohmann::json& j, Media& r) {
 /// "1080p · HEVC · 7.6 Mbps", or the server's version name when nothing was probed.
 inline std::string versionLabel(const Media& m, bool withBitrate = true) {
     std::string res = resolutionLabel(m.width, m.height);
-    if (res.empty()) res = m.videoResolution;
+    if (res.empty()) {
+        // Plex: "1080", "4k", "sd"
+        res = m.videoResolution;
+        if (!res.empty() && std::isdigit((unsigned char)res.back()))
+            res += "p";
+        else
+            for (auto& c : res) c = (char)std::toupper((unsigned char)c);
+    }
     std::string codec = m.videoCodec;
     for (auto& c : codec) c = (char)std::toupper((unsigned char)c);
     std::string out;
@@ -237,12 +245,22 @@ inline std::string versionLabel(const Media& m, bool withBitrate = true) {
     };
     add(res);
     add(codec);
-    if (withBitrate && m.bitrate > 0) {
+    if (withBitrate && m.bitrate >= 50) {
         char buf[32];
         std::snprintf(buf, sizeof(buf), "%.1f Mbps", m.bitrate / 1000.0);
         add(buf);
     }
     return out.empty() ? m.label : out;
+}
+
+/// Closed selector labels: without the bitrate, unless two versions would then read the same.
+inline std::vector<std::string> versionShortLabels(const std::vector<Media>& media) {
+    std::vector<std::string> labels;
+    for (auto& m : media) labels.push_back(versionLabel(m, false));
+    std::vector<std::string> out = labels;
+    for (size_t i = 0; i < media.size(); i++)
+        if (std::count(labels.begin(), labels.end(), labels[i]) > 1) out[i] = versionLabel(media[i]);
+    return out;
 }
 
 struct Chapter {
