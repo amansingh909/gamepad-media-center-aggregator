@@ -128,6 +128,20 @@ void PlexBackend::getChildren(
     getJSON<media::Container<media::Item>>(conf.getUrl(), conf.getToken(), then, error, apiChildren, id, "");
 }
 
+std::optional<media::Item> PlexBackend::getItemDetailSync(const std::string& id) {
+    auto& conf = AppConfig::instance();
+    std::string url = conf.getUrl() + fmt::format(fmt::runtime(apiMetadata), id, "");
+    auto c = getSync(url, conf.getToken()).get<media::Container<media::Item>>();
+    if (c.Items.empty()) return std::nullopt;
+    return c.Items.front();
+}
+
+std::vector<media::Item> PlexBackend::getChildrenSync(const std::string& id) {
+    auto& conf = AppConfig::instance();
+    std::string url = conf.getUrl() + fmt::format(fmt::runtime(apiChildren), id, "");
+    return getSync(url, conf.getToken()).get<media::Container<media::Item>>().Items;
+}
+
 void PlexBackend::getArtistTracks(
     const std::string& artistId, media::Then<media::Container<media::Item>> then, media::OnError error) {
     // all tracks of an artist (across albums): Plex exposes them via allLeaves,
@@ -507,7 +521,7 @@ std::string PlexBackend::imageUrl(const std::string& path, int width, int height
         };
         return conf.getUrl() + "/photo/:/transcode?" + HTTP::encode_form(form);
     }
-    return conf.getUrl() + path + "?X-Plex-Token=" + conf.getToken();
+    return withToken(conf.getUrl() + path, conf.getToken());
 }
 
 std::string PlexBackend::imageUrlExternal(const std::string& absoluteUrl, int width, int height) const {

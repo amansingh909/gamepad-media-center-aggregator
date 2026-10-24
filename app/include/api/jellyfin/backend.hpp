@@ -36,6 +36,8 @@ public:
         media::Then<media::Container<media::Item>> then, media::OnError error) override;
     void getItemDetail(const std::string& id, bool full, media::Then<media::Item> then, media::OnError error) override;
     media::Section sectionOfSync(const std::string& id) override;
+    std::optional<media::Item> getItemDetailSync(const std::string& id) override;
+    std::vector<media::Item> getChildrenSync(const std::string& id) override;
     void getChildren(const std::string& id, media::Then<media::Container<media::Item>> then, media::OnError error) override;
     void getArtistAlbums(
         const std::string& artistId, media::Then<media::Container<media::Item>> then, media::OnError error) override;

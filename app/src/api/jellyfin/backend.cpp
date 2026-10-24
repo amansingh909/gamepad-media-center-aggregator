@@ -320,12 +320,27 @@ media::Section JellyfinBackend::sectionOfSync(const std::string& id) {
     return {};
 }
 
-void JellyfinBackend::getChildren(
-    const std::string& id, media::Then<media::Container<media::Item>> then, media::OnError error) {
+std::optional<media::Item> JellyfinBackend::getItemDetailSync(const std::string& id) {
+    media::Item it = parseItem(getSync(base() + fmt::format(fmt::runtime(apiItem), userId(), id), token()));
+    if (it.ratingKey.empty()) return std::nullopt;
+    return it;
+}
+
+namespace {
+std::string childrenUrl(const std::string& id) {
     // direct children of any item (a show -> its seasons; a season -> its episodes)
     HTTP::Form form = {{"ParentId", id}, {"UserId", userId()}, {"Fields", itemFieldsValue}};
-    std::string url = base() + fmt::format(fmt::runtime(apiItems), userId(), HTTP::encode_form(form));
-    fetchContainer<media::Item>(url, parseItem, then, error);
+    return base() + fmt::format(fmt::runtime(apiItems), userId(), HTTP::encode_form(form));
+}
+}  // namespace
+
+void JellyfinBackend::getChildren(
+    const std::string& id, media::Then<media::Container<media::Item>> then, media::OnError error) {
+    fetchContainer<media::Item>(childrenUrl(id), parseItem, then, error);
+}
+
+std::vector<media::Item> JellyfinBackend::getChildrenSync(const std::string& id) {
+    return parseContainer<media::Item>(getSync(childrenUrl(id), token()), parseItem).Items;
 }
 
 void JellyfinBackend::getAllEpisodes(const std::string& showId, bool,
