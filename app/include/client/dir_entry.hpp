@@ -11,6 +11,7 @@
 #include <cctype>
 #include <cstdint>
 #include <ctime>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -50,6 +51,26 @@ struct DirEntry {
 
     const std::string& url() const { return this->path; }
 };
+
+inline EntryType typeFromName(const std::string& name) {
+    static const std::set<std::string> videoExt = {".mp4", ".mkv", ".avi", ".flv", ".mov", ".wmv", ".webm", ".rm",
+        ".rmvb", ".mpg", ".m2ts", ".mts", ".ts"};
+    static const std::set<std::string> audioExt = {".mp3", ".flac", ".wav", ".ogg", ".m4a", ".aac", ".wma", ".ape"};
+    static const std::set<std::string> imageExt = {".jpg", ".jpeg", ".png", ".bmp", ".gif", ".webp"};
+    static const std::set<std::string> playlistExt = {".m3u", ".m3u8"};
+    static const std::set<std::string> subtitleExt = {".srt", ".ass", ".ssa", ".sub", ".smi"};
+
+    auto pos = name.find_last_of('.');
+    if (pos == std::string::npos) return EntryType::FILE;
+    std::string ext = name.substr(pos);
+    std::transform(ext.begin(), ext.end(), ext.begin(), ::tolower);
+    if (videoExt.count(ext)) return EntryType::VIDEO;
+    if (audioExt.count(ext)) return EntryType::AUDIO;
+    if (imageExt.count(ext)) return EntryType::IMAGE;
+    if (subtitleExt.count(ext)) return EntryType::SUBTITLE;
+    if (playlistExt.count(ext)) return EntryType::PLAYLIST;
+    return EntryType::FILE;
+}
 
 /// User-facing sort criteria for the file browser (issue #23).
 enum class SortKey { NAME, DATE, SIZE };
