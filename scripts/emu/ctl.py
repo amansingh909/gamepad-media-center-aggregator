@@ -472,8 +472,11 @@ ObjC.import('CoreGraphics');
 function run(argv) {
   const list = ObjC.deepUnwrap(ObjC.castRefToObject(
     $.CGWindowListCopyWindowInfo($.kCGWindowListOptionAll, 0)));
+  // Not only on-screen windows: on another Space the emulator still renders and
+  // screencapture -l still captures it. Eden also owns a hidden 500x500 window.
+  const area = w => w.kCGWindowBounds.Width * w.kCGWindowBounds.Height;
   const wins = list.filter(w => w.kCGWindowOwnerPID == argv[0] && w.kCGWindowLayer == 0
-                            && w.kCGWindowIsOnscreen && w.kCGWindowBounds.Height > 100);
+                            && w.kCGWindowName).sort((a, b) => area(b) - area(a));
   return wins.length ? String(wins[0].kCGWindowNumber) : '';
 }
 """
