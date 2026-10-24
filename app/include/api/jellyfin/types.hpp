@@ -41,6 +41,7 @@ const std::string_view apiNextUp = "/Shows/NextUp?{}";
 const std::string_view apiLatest = "/Users/{}/Items/Latest?{}";
 const std::string_view apiItems = "/Users/{}/Items?{}";
 const std::string_view apiItem = "/Users/{}/Items/{}";
+const std::string_view apiAncestors = "/Items/{}/Ancestors?UserId={}";
 const std::string_view apiSimilar = "/Items/{}/Similar?{}";
 const std::string_view apiSeasons = "/Shows/{}/Seasons?{}";
 const std::string_view apiEpisodes = "/Shows/{}/Episodes?{}";

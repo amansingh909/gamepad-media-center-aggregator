@@ -468,7 +468,7 @@ void SettingTab::onCreate() {
         return true;
     });
 
-    // Reorder / hide the sidebar tabs (libraries + Playlists + Watchlist).
+    // Reorder / hide the sidebar tabs (all but Home and the profile).
     // Presented as a detail view so the sidebar stays visible and previews the
     // changes live; needs the MainTabFrame (outermost AutoTabFrame) to rebuild.
     btnLibraries->registerClickAction([](brls::View* view) -> bool {

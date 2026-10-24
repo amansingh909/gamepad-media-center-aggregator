@@ -344,8 +344,9 @@
       "font_a3": "Copiez le fichier de police TTF approprié dans {}/subfont.ttf"
     },
     "libraries": {
-      "header": "Bibliothèques",
-      "description": "Réorganisez et masquez les onglets de la barre latérale (bibliothèques, listes de lecture, Watchlist). Réglage propre à ce serveur.",
+      "header": "Barre latérale",
+      "description": "Réorganisez et masquez les onglets de la barre latérale. L'onglet Accueil et le profil restent fixes. Réglage propre à ce serveur.",
+      "offline": "Hors ligne, seules les bibliothèques téléchargées sont listées ; les autres gardent leur place.",
       "grab": "Déplacer",
       "drop": "Poser",
       "toggle": "Afficher / Masquer",
