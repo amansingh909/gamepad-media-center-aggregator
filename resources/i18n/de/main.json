@@ -334,6 +334,7 @@
     "libraries": {
       "header": "Seitenleiste",
       "description": "Ordne die Tabs der Seitenleiste neu an oder blende sie aus. Home und Profil bleiben an ihrem Platz. Diese Einstellung wird pro Server gespeichert.",
+      "offline": "Offline werden nur heruntergeladene Bibliotheken angezeigt, die anderen behalten ihren Platz.",
       "grab": "Verschieben",
       "drop": "Ablegen",
       "toggle": "Anzeigen / Ausblenden",

@@ -334,6 +334,7 @@
     "libraries": {
       "header": "Thanh bên",
       "description": "Sắp xếp lại và ẩn các thẻ ở thanh bên. Nhà và hồ sơ giữ nguyên vị trí. Cài đặt này được lưu riêng cho từng máy chủ.",
+      "offline": "Khi ngoại tuyến, chỉ các thư viện đã tải xuống được liệt kê; các thư viện khác giữ nguyên vị trí.",
       "grab": "Di chuyển",
       "drop": "Thả",
       "toggle": "Hiện / Ẩn",

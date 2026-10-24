@@ -19,7 +19,6 @@
 
 using namespace brls::literals;  // for _i18n
 
-/// Saved sidebar layout of server `sid` (empty when none).
 static void readSidebarLayout(const std::string& sid, std::vector<std::string>& order, std::set<std::string>& hidden) {
     if (sid.empty()) return;
     auto all = AppConfig::instance().getItem(AppConfig::SIDEBAR_LAYOUT, nlohmann::json::object());

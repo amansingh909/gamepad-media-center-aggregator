@@ -334,6 +334,7 @@
     "libraries": {
       "header": "Barra lateral",
       "description": "Reordene e oculte as abas da barra lateral. O Início e o perfil ficam no lugar. Esta definição é guardada por servidor.",
+      "offline": "Offline, só são listadas as bibliotecas transferidas; as restantes mantêm o seu lugar.",
       "grab": "Mover",
       "drop": "Soltar",
       "toggle": "Mostrar / Ocultar",

@@ -334,6 +334,7 @@
     "libraries": {
       "header": "Barra lateral",
       "description": "Reordena y oculta las pestañas de la barra lateral. Inicio y el perfil se quedan en su sitio. Este ajuste se guarda por servidor.",
+      "offline": "Sin conexión, solo se muestran las bibliotecas descargadas; las demás conservan su lugar.",
       "grab": "Mover",
       "drop": "Soltar",
       "toggle": "Mostrar / Ocultar",

@@ -346,6 +346,7 @@
     "libraries": {
       "header": "Sidebar",
       "description": "Reorder and hide the sidebar tabs. Home and the profile stay in place. This setting is saved per server.",
+      "offline": "Offline, only downloaded libraries are listed; the others keep their place.",
       "grab": "Move",
       "drop": "Drop",
       "toggle": "Show / Hide",

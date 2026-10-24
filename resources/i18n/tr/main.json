@@ -334,6 +334,7 @@
     "libraries": {
       "header": "Kenar çubuğu",
       "description": "Kenar çubuğu sekmelerini yeniden sıralayın ve gizleyin. Ana Sayfa ve profil yerinde kalır. Bu ayar her sunucu için ayrı kaydedilir.",
+      "offline": "Çevrimdışıyken yalnızca indirilen kitaplıklar listelenir; diğerleri yerlerini korur.",
       "grab": "Taşı",
       "drop": "Bırak",
       "toggle": "Göster / Gizle",

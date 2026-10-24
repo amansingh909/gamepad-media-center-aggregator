@@ -1,4 +1,4 @@
-// Standalone logic test — per-server sidebar layout (issue #34).
+// Standalone logic test — per-server sidebar layout.
 //
 //   c++ -std=gnu++17 -arch x86_64 -Iapp/include tests/test_sidebar_layout.cpp -o /tmp/t && /tmp/t
 //
