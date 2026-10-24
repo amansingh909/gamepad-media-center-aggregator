@@ -33,10 +33,11 @@ no `cornerRadius`: `icon.png` is full-bleed, and a radius would cut into the art
 
 ```sh
 magick brand/logos/logo-switch-web.png -trim +repage -background none \
-  -gravity center -extent 1918x1918 -resize 512x512 resources/icon/icon-rounded.png
+  -gravity center -extent "%[fx:max(w,h)]x%[fx:max(w,h)]" -resize 512x512 \
+  resources/icon/icon-rounded.png
 ```
 
-`-extent` squares the trimmed squircle (1918×1909) without cropping it.
+`-extent` squares the trimmed squircle (1918×1909 today) without cropping it.
 
 ## `mockups/` — device frames (gitignored)
 
