@@ -579,6 +579,17 @@ media::Backend& AppConfig::backend() {
                 break;
             }
         }
+        // offline server_url is empty (never persisted, and checkLogin found no
+        // reachable endpoint): the active user's server instead
+        if (this->server_url.empty()) {
+            auto u = std::find_if(this->users.begin(), this->users.end(),
+                [this](const AppUser& u) { return u.id == this->user_id; });
+            if (u != this->users.end()) {
+                auto s = std::find_if(this->servers.begin(), this->servers.end(),
+                    [&u](const AppServer& s) { return s.id == u->server_id; });
+                if (s != this->servers.end()) type = s->type;
+            }
+        }
         switch (backendTypeFromString(type)) {
             case media::BackendType::Jellyfin:
                 this->activeBackend = new jellyfin::JellyfinBackend(media::BackendType::Jellyfin);
