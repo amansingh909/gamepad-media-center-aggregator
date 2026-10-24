@@ -284,6 +284,17 @@ def fetch(run_id):
             if not os.path.isdir(os.path.join(dest, name)):
                 subprocess.run(["gh", "run", "download", run_id, "-R", REPO, "-n", name,
                                 "-D", os.path.join(dest, name)], check=True)
+    # The app version, so a fresh config can skip the update prompt.
+    version_file = os.path.join(dest, "version.txt")
+    if not os.path.exists(version_file):
+        sha = subprocess.run(["gh", "api", f"repos/{REPO}/actions/runs/{run_id}", "--jq", ".head_sha"],
+                             capture_output=True, text=True, check=True).stdout.strip()
+        cmake = subprocess.run(["gh", "api", f"repos/{REPO}/contents/CMakeLists.txt?ref={sha}",
+                                "-H", "Accept: application/vnd.github.raw"],
+                               capture_output=True, text=True, check=True).stdout
+        parts = [re.search(rf'set\(VERSION_{p} "(\d+)"\)', cmake).group(1) for p in ("MAJOR", "MINOR", "ALTER")]
+        with open(version_file, "w") as f:
+            f.write(".".join(parts))
     for path in sorted(glob.glob(os.path.join(dest, "*", "GMCA.*"))):
         print(path)
 
@@ -302,6 +313,18 @@ def artifact_path(platform, ref):
 
 
 # --- emulator --------------------------------------------------------------
+
+def seed_config(data_dir, artifact):
+    """A fresh config. When the CI run is known, `app_update` holds the app
+    version, which skips the update prompt (app/src/main.cpp, checkUpdate)."""
+    config = {}
+    version_file = os.path.join(os.path.dirname(os.path.dirname(artifact)), "version.txt")
+    if os.path.exists(version_file):
+        config["setting"] = {"app_update": open(version_file).read().strip()}
+    os.makedirs(data_dir, exist_ok=True)
+    with open(os.path.join(data_dir, "config.json"), "w") as f:
+        json.dump(config, f)
+
 
 def seed_jellyfin(data_dir):
     """Writes the config the Jellyfin sign-in screen would write
@@ -326,9 +349,12 @@ def seed_jellyfin(data_dir):
               "urls": [JELLYFIN_URL], "type": "jellyfin"}
     user = {"id": auth["User"]["Id"], "name": auth["User"]["Name"],
             "access_token": auth["AccessToken"], "server_id": auth["ServerId"]}
-    os.makedirs(data_dir, exist_ok=True)
-    with open(os.path.join(data_dir, "config.json"), "w") as f:
-        json.dump({"user_id": user["id"], "users": [user], "servers": [server]}, f)
+    path = os.path.join(data_dir, "config.json")
+    with open(path) as f:
+        config = json.load(f)
+    config.update({"user_id": user["id"], "users": [user], "servers": [server]})
+    with open(path, "w") as f:
+        json.dump(config, f)
 
 
 def start(platform, artifact):
@@ -381,6 +407,7 @@ def launch(platform, ref, fresh=False, jellyfin=False):
     artifact = artifact_path(platform, ref)
     if fresh or jellyfin:
         shutil.rmtree(conf["data"], ignore_errors=True)
+        seed_config(conf["data"], artifact)
     if jellyfin:
         seed_jellyfin(conf["data"])
     proc, extra = start(platform, artifact)
