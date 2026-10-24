@@ -39,18 +39,20 @@ const media::Item& AudioPlayer::current() const {
 }
 
 void AudioPlayer::play(const std::vector<media::Item>& tracks, size_t index, bool shuffle) {
-    this->load(tracks, index, shuffle, false, "");
+    if (tracks.empty()) return;
+    this->fromFiles = false;
+    this->filesExtra.clear();
+    this->start(tracks, index, shuffle);
 }
 
 void AudioPlayer::playFiles(const std::vector<media::Item>& tracks, size_t index, const std::string& extra) {
-    this->load(tracks, index, false, true, extra);
+    if (tracks.empty()) return;
+    this->fromFiles = true;
+    this->filesExtra = extra;
+    this->start(tracks, index, false);
 }
 
-void AudioPlayer::load(
-    const std::vector<media::Item>& tracks, size_t index, bool shuffle, bool fromFiles, const std::string& extra) {
-    if (tracks.empty()) return;
-    this->files = fromFiles;
-    this->filesExtra = extra;
+void AudioPlayer::start(const std::vector<media::Item>& tracks, size_t index, bool shuffle) {
     this->queue = tracks;
     this->isShuffle = shuffle;
     // reset before rebuilding so rebuildOrder can never read a stale `order`
@@ -88,7 +90,7 @@ void AudioPlayer::playCurrent() {
     const media::Item& track = this->current();
     MPVCore::instance().enableVO(false);
     this->trackChanged.fire();
-    if (this->files) {
+    if (this->fromFiles) {
         MPVCore::instance().setUrl(track.media.front().parts.front().key, this->filesExtra);
     } else if (hasAccessible(track)) {
         this->resolveAndPlay(track);
@@ -266,7 +268,7 @@ void AudioPlayer::readFileTags() {
 }
 
 void AudioPlayer::reportTimeline(const std::string& state, int64_t timeMs) {
-    if (reportingDisabled() || this->files) return;
+    if (reportingDisabled() || this->fromFiles) return;
     const media::Item& track = this->current();
     if (track.ratingKey.empty()) return;
     media::PlayState st = state == "paused"    ? media::PlayState::Paused
@@ -276,7 +278,7 @@ void AudioPlayer::reportTimeline(const std::string& state, int64_t timeMs) {
 }
 
 void AudioPlayer::maybeScrobble(int64_t timeMs) {
-    if (reportingDisabled() || this->files || this->scrobbled) return;
+    if (reportingDisabled() || this->fromFiles || this->scrobbled) return;
     const media::Item& track = this->current();
     if (track.duration <= 0) return;
     if (double(timeMs) / double(track.duration) < SCROBBLE_THRESHOLD) return;
@@ -292,13 +294,20 @@ void AudioPlayer::subscribe() {
         auto& mpv = MPVCore::instance();
         switch (event) {
         case MpvEventEnum::MPV_LOADED:
-            if (this->files) this->readFileTags();
+            if (this->fromFiles) this->readFileTags();
             break;
         case MpvEventEnum::MPV_RESUME:
             this->reportTimeline("playing", int64_t(mpv.video_progress) * 1000);
             break;
         case MpvEventEnum::MPV_PAUSE:
             this->reportTimeline("paused", int64_t(mpv.video_progress) * 1000);
+            break;
+        case MpvEventEnum::UPDATE_DURATION:
+            // a stream may only learn its length after FILE_LOADED
+            if (this->fromFiles && this->pos >= 0 && mpv.duration > 0 && this->current().duration <= 0) {
+                this->queue[this->order[this->pos]].duration = mpv.duration * 1000;
+                this->trackChanged.fire();
+            }
             break;
         case MpvEventEnum::LOADING_END:
             this->reportTimeline("playing", int64_t(mpv.playback_time) * 1000);
