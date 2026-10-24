@@ -58,7 +58,10 @@ the window focus, so the sign-in screen itself is not exercised.
 ## Scenarios
 
 - `smoke.txt`: fresh config, Connections, connection types, settings. No network.
-- `jellyfin.txt`: signed in, home, the movie, ten seconds of playback with `check`, back.
+- `jellyfin.txt`: signed in, home, the movie, ten seconds of playback with `check`, back. On
+  `nx` the playback shows Eden's socket error, see below.
+
+`test_ctl.py` checks the DSU packet against what Eden validates.
 
 A scenario stops at the first crash and ends on `VERDICT : OK` or `VERDICT : ÉCHEC`. `check`
 catches a crash or a frozen screen; an error dialog is neither, the captures are there to be

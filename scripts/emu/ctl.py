@@ -32,6 +32,7 @@ Buttons are named after the Switch layout, the one borealis uses: a = confirm,
 b = back, y = settings. On Vita, a is Cross, b Circle, x Square, y Triangle.
 """
 
+import errno
 import glob
 import hashlib
 import json
@@ -126,8 +127,7 @@ EDEN_INI = {
 PLATFORMS = {
     "psvita": {
         "artifact": "GMCA-Vita-*/GMCA.vpk",
-        "emu_log": os.path.join(VITA3K_HOME, "vita3k.log"),
-        "app_log": os.path.join(VITA3K_HOME, "vita3k.log"),
+        "log": os.path.join(VITA3K_HOME, "vita3k.log"),
         "app_line": "[export_sceClibPrintf]: ",
         "data": os.path.join(VITA3K_HOME, "fs", "ux0", "data", "GMCA"),
         "fatal": ["|C|", "Unhandled exception", "Segmentation fault"],
@@ -136,8 +136,7 @@ PLATFORMS = {
         "artifact": "GMCA-NintendoSwitch-[0-9]*/GMCA.nro",
         # Eden passes program_args the NSO way, libnx reads the homebrew loader
         # argv: GMCA never gets -o, `log` shows Eden's log.
-        "emu_log": EDEN_LOG,
-        "app_log": EDEN_LOG,
+        "log": EDEN_LOG,
         "app_line": "",
         "data": os.path.join(EDEN_HOME, "sdmc", "switch", "GMCA"),
         # svcBreak from the app, or an exception Eden could not handle.
@@ -269,13 +268,17 @@ def setup():
 def fetch(run_id):
     dest = os.path.join(EMU_HOME, "artifacts", run_id)
     names = subprocess.run(
-        ["gh", "api", f"repos/{REPO}/actions/runs/{run_id}/artifacts", "--jq", ".artifacts[].name"],
+        ["gh", "api", f"repos/{REPO}/actions/runs/{run_id}/artifacts?per_page=100", "--jq", ".artifacts[].name"],
         capture_output=True, text=True, check=True).stdout.split()
     for name in names:
         if name.startswith(("GMCA-NintendoSwitch-", "GMCA-Vita-")) and "deko3d" not in name:
-            if not os.path.isdir(os.path.join(dest, name)):
+            target = os.path.join(dest, name)
+            if not os.path.isdir(target):
+                # Renamed once complete: an interrupted download is not mistaken for one.
+                shutil.rmtree(target + ".part", ignore_errors=True)
                 subprocess.run(["gh", "run", "download", run_id, "-R", REPO, "-n", name,
-                                "-D", os.path.join(dest, name)], check=True)
+                                "-D", target + ".part"], check=True)
+                os.rename(target + ".part", target)
     # The app version, so a fresh config can skip the update prompt.
     version_file = os.path.join(dest, "version.txt")
     if not os.path.exists(version_file):
@@ -284,9 +287,11 @@ def fetch(run_id):
         cmake = subprocess.run(["gh", "api", f"repos/{REPO}/contents/CMakeLists.txt?ref={sha}",
                                 "-H", "Accept: application/vnd.github.raw"],
                                capture_output=True, text=True, check=True).stdout
-        parts = [re.search(rf'set\(VERSION_{p} "(\d+)"\)', cmake).group(1) for p in ("MAJOR", "MINOR", "ALTER")]
+        parts = [re.search(rf'set\(VERSION_{p} "(\d+)"\)', cmake) for p in ("MAJOR", "MINOR", "ALTER")]
+        if not all(parts):
+            die(f"version introuvable dans CMakeLists.txt au commit {sha}")
         with open(version_file, "w") as f:
-            f.write(".".join(parts))
+            f.write(".".join(m.group(1) for m in parts))
     for path in sorted(glob.glob(os.path.join(dest, "*", "GMCA.*"))):
         print(path)
 
@@ -294,6 +299,8 @@ def fetch(run_id):
 def artifact_path(platform, ref):
     if os.path.isfile(ref):
         return os.path.abspath(ref)
+    if not ref.isdigit():
+        die(f"fichier introuvable : {ref}")
     pattern = os.path.join(EMU_HOME, "artifacts", ref, PLATFORMS[platform]["artifact"])
     found = glob.glob(pattern)
     if not found:
@@ -377,7 +384,7 @@ def start(platform, artifact):
     # The previous log would hold EDEN_READY before Eden rotates it.
     if os.path.exists(EDEN_LOG):
         os.remove(EDEN_LOG)
-    dsu =socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    dsu = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     try:
         dsu.bind(("127.0.0.1", DSU_PORT))
     except OSError as e:
@@ -388,6 +395,7 @@ def start(platform, artifact):
     try:
         _, (_, port) = dsu.recvfrom(128)
     except socket.timeout:
+        proc.kill()
         die("Eden n'a envoyé aucune requête DSU en 30 s")
     finally:
         dsu.close()
@@ -404,14 +412,16 @@ def launch(platform, ref, fresh=False, jellyfin=False):
     if jellyfin:
         seed_jellyfin(conf["data"])
     proc, extra = start(platform, artifact)
-    save_state({"platform": platform, "pid": proc.pid, "artifact": artifact, **extra})
+    save_state({"platform": platform, "pid": proc.pid, **extra})
     for _ in range(90):
         if not alive(proc.pid):
+            quit_emu()
             die(f"l'émulateur s'est arrêté au lancement, voir {EMU_HOME}/{platform}.stdout")
         if window_id(proc.pid) and (platform != "nx" or ready_nx()):
             break
         time.sleep(1)
     else:
+        quit_emu()
         die("l'app ne s'est pas affichée après 90 s")
     print(f"{platform} : pid {proc.pid}, {artifact}")
 
@@ -433,7 +443,9 @@ def quit_emu():
         for binary in (VITA3K, EDEN):
             subprocess.run(["pkill", "-9", "-f", binary])
         return
-    if alive(pid):
+    # A state left by a reboot may name a PID reused by another process.
+    comm = subprocess.run(["ps", "-o", "comm=", "-p", str(pid)], capture_output=True, text=True).stdout.strip()
+    if alive(pid) and comm in (VITA3K, EDEN):
         os.killpg(pid, signal.SIGTERM)
         for _ in range(20):
             if not alive(pid):
@@ -479,10 +491,20 @@ def shot(name):
 
 
 def vpad_send(line):
-    # Opening the FIFO blocks until vpad.dylib reads it; a dead emulator would hang here.
-    if not alive(load_state()["pid"]):
-        die("l'émulateur ne tourne plus")
-    with open(FIFO, "w") as f:
+    # A blocking open would wait forever if vpad.dylib never opened the FIFO.
+    for _ in range(50):
+        if not alive(load_state()["pid"]):
+            die("l'émulateur ne tourne plus")
+        try:
+            fd = os.open(FIFO, os.O_WRONLY | os.O_NONBLOCK)
+            break
+        except OSError as e:
+            if e.errno != errno.ENXIO:
+                raise
+            time.sleep(0.1)
+    else:
+        die(f"la manette virtuelle ne lit pas {FIFO}, voir les lignes vpad: de {EMU_HOME}/psvita.stdout")
+    with os.fdopen(fd, "w") as f:
         f.write(line + "\n")
 
 
@@ -494,7 +516,8 @@ def vita_press(name):
         axis = LTRIGGER if name == "zl" else RTRIGGER
         vpad_send(f"axis {axis} 32767")
         time.sleep(KEY_HOLD)
-        vpad_send(f"axis {axis} 0")
+        # A virtual gamepad trigger rests at the axis minimum.
+        vpad_send(f"axis {axis} -32768")
     else:
         # Vita3K maps SDL buttons by position: south = Cross, north = Triangle.
         vpad_send(f"button {buttons[name]} 1")
@@ -539,10 +562,10 @@ def key(names):
 def log(n=40):
     conf = PLATFORMS[load_state()["platform"]]
     try:
-        with open(conf["app_log"], errors="replace") as f:
+        with open(conf["log"], errors="replace") as f:
             lines = [l.split(conf["app_line"], 1)[1] for l in f if conf["app_line"] in l]
     except FileNotFoundError:
-        die(f"pas encore de log : {conf['app_log']}")
+        die(f"pas encore de log : {conf['log']}")
     sys.stdout.writelines(lines[-n:])
 
 
@@ -552,7 +575,7 @@ def crash():
     if not alive(state["pid"]):
         return "l'émulateur s'est arrêté"
     try:
-        with open(conf["emu_log"], errors="replace") as f:
+        with open(conf["log"], errors="replace") as f:
             fatal = [l.strip() for l in f if any(p in l for p in conf["fatal"])]
     except FileNotFoundError:
         return None
@@ -569,13 +592,10 @@ def check():
         return False
     conf = PLATFORMS[load_state()["platform"]]
 
-    def sizes():
-        return [os.path.getsize(p) if os.path.exists(p) else 0 for p in (conf["emu_log"], conf["app_log"])]
-
     tmp = os.path.join(EMU_HOME, "check")
-    before, logs = sha256(capture(tmp + "-a.png")), sizes()
+    before, size = sha256(capture(tmp + "-a.png")), os.path.getsize(conf["log"])
     time.sleep(FREEZE_SECS)
-    if sha256(capture(tmp + "-b.png")) == before and sizes() == logs:
+    if sha256(capture(tmp + "-b.png")) == before and os.path.getsize(conf["log"]) == size:
         print(f"GEL : écran et logs figés pendant {FREEZE_SECS:g} s")
         return False
     print("OK")
@@ -591,23 +611,30 @@ def run_scenario(path, platform, ref):
                 continue
             cmd, *args = line.split()
             print(f"{n:3} {line}", flush=True)
-            if cmd == "launch":
-                launch(platform, ref, fresh="--fresh" in args, jellyfin="--jellyfin" in args)
-            elif cmd == "quit":
+            try:
+                if cmd == "launch":
+                    launch(platform, ref, fresh="--fresh" in args, jellyfin="--jellyfin" in args)
+                elif cmd == "quit":
+                    quit_emu()
+                elif cmd == "key":
+                    key(args)
+                elif cmd == "shot":
+                    shot(f"{platform}-{args[0]}")
+                elif cmd == "sleep":
+                    time.sleep(float(args[0]))
+                elif cmd == "check":
+                    ok = check() and ok
+                else:
+                    die(f"commande inconnue ligne {n} : {line}")
+            except SystemExit as e:
+                print(e, flush=True)
                 quit_emu()
-            elif cmd == "key":
-                key(args)
-            elif cmd == "shot":
-                shot(f"{platform}-{args[0]}")
-            elif cmd == "sleep":
-                time.sleep(float(args[0]))
-            elif cmd == "check":
-                ok = check() and ok
-            else:
-                die(f"commande inconnue ligne {n} : {line}")
+                ok = False
+                break
             reason = crash() if cmd != "quit" and os.path.exists(STATE) else None
             if reason:
-                print("PLANTAGE : " + reason)
+                if cmd != "check":  # check already printed it
+                    print("PLANTAGE : " + reason)
                 ok = False
                 break
     print("VERDICT : " + ("OK" if ok else "ÉCHEC"))
