@@ -1,4 +1,5 @@
-// Standalone logic test — redaction of mpv log lines shown in the playback-error dialog.
+// Standalone logic test — redaction of mpv log lines shown in the playback-error dialog,
+// and of the token parameters in the URLs of the video info screen.
 //
 //   c++ -std=gnu++17 -arch x86_64 -Iapp/include tests/test_log_redact.cpp -o /tmp/t && /tmp/t
 
@@ -6,6 +7,7 @@
 #include <utils/log_redact.hpp>
 
 using misc::redactLogLine;
+using misc::redactTokens;
 
 static int failures = 0;
 #define CHECK_EQ(got, want)                                                              \
@@ -61,6 +63,24 @@ int main() {
         std::string out = redactLogLine(longLine);
         CHECK_EQ(out, std::string(199, 'x') + "…");
     }
+
+    CHECK_EQ(redactTokens("http://192.168.1.10:8097/emby/Videos/42/stream.mkv?Static=true&MediaSourceId=abc&api_key=SECRET"),
+        "http://192.168.1.10:8097/emby/Videos/42/stream.mkv?Static=true&MediaSourceId=abc&api_key=***");
+
+    CHECK_EQ(redactTokens("https://1-2-3-4.abcdef.plex.direct:32400/library/parts/1/2/file.mkv?X-Plex-Token=SECRET"),
+        "https://1-2-3-4.abcdef.plex.direct:32400/library/parts/1/2/file.mkv?X-Plex-Token=***");
+
+    CHECK_EQ(redactTokens("https://h:32400/video/:/transcode/universal/start.m3u8?path=%2Flibrary%2Fmetadata%2F7"
+                          "%3FX-Plex-Token%3DSECRET%26a%3D1&protocol=hls&X-Plex-Token=SECRET"),
+        "https://h:32400/video/:/transcode/universal/start.m3u8?path=%2Flibrary%2Fmetadata%2F7"
+        "%3FX-Plex-Token%3D***%26a%3D1&protocol=hls&X-Plex-Token=***");
+
+    CHECK_EQ(redactTokens("http://h:8096/videos/9/master.m3u8?DeviceId=d&ApiKey=SECRET&TranscodeReasons=AudioCodec"),
+        "http://h:8096/videos/9/master.m3u8?DeviceId=d&ApiKey=***&TranscodeReasons=AudioCodec");
+
+    CHECK_EQ(redactTokens("/Volumes/Films/Movie (2020)/movie.mkv"), "/Volumes/Films/Movie (2020)/movie.mkv");
+
+    CHECK_EQ(redactTokens(""), "");
 
     if (failures == 0) {
         printf("test_log_redact: OK\n");

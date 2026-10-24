@@ -1,5 +1,6 @@
 #include "view/video_profile.hpp"
 #include "utils/misc.hpp"
+#include "utils/log_redact.hpp"
 #include <fmt/ranges.h>
 
 VideoProfile::VideoProfile() {
@@ -20,12 +21,12 @@ VideoProfile::~VideoProfile() { brls::Logger::debug("View VideoProfile: delete")
 
 void VideoProfile::init(const std::string& method) {
     auto& mpv = MPVCore::instance();
-    labelUrl->setText(mpv.getString("path"));
+    labelUrl->setText(misc::redactTokens(mpv.getString("path")));
     labelFormat->setText(mpv.getString("file-format"));
     labelSize->setText(misc::formatSize(mpv.getInt("file-size")));
 
     if (method.empty())
-        labelMethod->setText(mpv.getString("playlist-path"));
+        labelMethod->setText(misc::redactTokens(mpv.getString("playlist-path")));
     else
         labelMethod->setText(method);
 
