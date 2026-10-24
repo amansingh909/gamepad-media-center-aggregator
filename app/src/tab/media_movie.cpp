@@ -612,6 +612,9 @@ void MediaMovie::applyMovie(const media::Item& item) {
             this->btnSource->init(
                 "main/setting/version"_i18n, names, 0, [this](int index) { this->selectedVersion = index; });
             this->btnSource->setShortData(shortNames);
+            // the cell is as wide as the poster: the value alone fits, the
+            // dropdown still shows the title
+            this->btnSource->title->setVisibility(brls::Visibility::GONE);
             this->btnSource->setVisibility(brls::Visibility::VISIBLE);
         } else {
             this->selectedVersion = -1;
