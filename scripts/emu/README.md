@@ -43,6 +43,9 @@ scripts/emu/ctl.py quit
 scripts/emu/ctl.py run scripts/emu/scenarios/smoke.txt psvita 40083100934
 ```
 
+`fetch` refuses a run built from a fork, whose code would run on this Mac and whose log would
+reach the agent reading it; `EMU_UNTRUSTED=1` accepts it.
+
 A CI run without a PR: `gh workflow run build.yaml -R thcolin/gamepad-media-center-aggregator
 --ref <branch> -f platform=nx` (or `psvita`), one run per platform.
 
@@ -58,7 +61,7 @@ the window focus, so the sign-in screen itself is not exercised.
 ## Scenarios
 
 - `smoke.txt`: fresh config, Connections, connection types, settings. No network.
-- `jellyfin.txt`: signed in, home, the movie, ten seconds of playback with `check`, back. On
+- `jellyfin.txt`: signed in, home, the Movies library, the movie, ten seconds of playback with `check`, back. On
   `nx` the playback shows Eden's socket error, see below.
 
 `test_ctl.py` checks the DSU packet against what Eden validates.

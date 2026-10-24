@@ -1,18 +1,23 @@
 # Signed in to the test Jellyfin (plenx-media-servers, :8096, keychain item
-# gmca-emu-jellyfin, account gmca-emu): home, the movie, a few seconds of
+# gmca-emu-jellyfin, account gmca-emu): home, the Movies library, the movie, a few seconds of
 # playback, back. On nx the playback ends on Eden's socket error (README.md):
 # check only proves Eden did not crash or freeze.
 launch --jellyfin
 sleep 10
 shot 00-home
+key down
+sleep 3
+shot 01-library
 key right a
+sleep 1
+key a
 sleep 4
-shot 01-movie
+shot 02-movie
 key a
 sleep 10
-shot 02-playback
+shot 03-playback
 check
 key b
 sleep 2
-shot 03-after-playback
+shot 04-after-playback
 quit

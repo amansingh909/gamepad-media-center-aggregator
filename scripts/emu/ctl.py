@@ -261,11 +261,21 @@ def setup_eden():
 
 def setup():
     os.makedirs(DL, exist_ok=True)
+    os.chmod(EMU_HOME, 0o700)  # app configs there hold Jellyfin tokens
     setup_vita3k()
     setup_eden()
 
 
 def fetch(run_id):
+    if not run_id.isdigit():
+        die(f"run-id invalide : {run_id}")
+    run = json.loads(subprocess.run(["gh", "api", f"repos/{REPO}/actions/runs/{run_id}"],
+                                    capture_output=True, text=True, check=True).stdout)
+    # A pull request from a fork builds artifacts here too: its code would run on
+    # this Mac and its log would reach the agent reading it.
+    source = run["head_repository"]["full_name"]
+    if source != REPO and os.environ.get("EMU_UNTRUSTED") != "1":
+        die(f"le run {run_id} vient de {source}, relancer avec EMU_UNTRUSTED=1 pour l'accepter")
     dest = os.path.join(EMU_HOME, "artifacts", run_id)
     names = subprocess.run(
         ["gh", "api", f"repos/{REPO}/actions/runs/{run_id}/artifacts?per_page=100", "--jq", ".artifacts[].name"],
@@ -282,8 +292,7 @@ def fetch(run_id):
     # The app version, so a fresh config can skip the update prompt.
     version_file = os.path.join(dest, "version.txt")
     if not os.path.exists(version_file):
-        sha = subprocess.run(["gh", "api", f"repos/{REPO}/actions/runs/{run_id}", "--jq", ".head_sha"],
-                             capture_output=True, text=True, check=True).stdout.strip()
+        sha = run["head_sha"]
         cmake = subprocess.run(["gh", "api", f"repos/{REPO}/contents/CMakeLists.txt?ref={sha}",
                                 "-H", "Accept: application/vnd.github.raw"],
                                capture_output=True, text=True, check=True).stdout
