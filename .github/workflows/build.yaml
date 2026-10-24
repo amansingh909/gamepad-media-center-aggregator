@@ -499,6 +499,10 @@ jobs:
       with:
         gradlePath: app/platform/android/app/build.gradle
         versionCode: ${{ github.run_number }}
+    - uses: actions/setup-java@v4
+      with:
+        distribution: temurin
+        java-version: 17
     - name: Build APK
       run: |
         ${{ github.workspace }}/library/borealis/build_libromfs_generator.sh
