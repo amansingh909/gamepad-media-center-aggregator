@@ -1,5 +1,5 @@
 // Standalone logic test — redaction of mpv log lines shown in the playback-error dialog,
-// and of the token parameters in the URLs of the video info screen.
+// and of the credentials and token parameters in the URLs of the video info screen.
 //
 //   c++ -std=gnu++17 -arch x86_64 -Iapp/include tests/test_log_redact.cpp -o /tmp/t && /tmp/t
 
@@ -8,6 +8,7 @@
 
 using misc::redactLogLine;
 using misc::redactTokens;
+using misc::redactUrl;
 
 static int failures = 0;
 #define CHECK_EQ(got, want)                                                              \
@@ -81,6 +82,14 @@ int main() {
     CHECK_EQ(redactTokens("/Volumes/Films/Movie (2020)/movie.mkv"), "/Volumes/Films/Movie (2020)/movie.mkv");
 
     CHECK_EQ(redactTokens(""), "");
+
+    CHECK_EQ(redactUrl("ftp://bob:hunter2@nas.lan:21/Films/a.mkv"), "ftp://***@nas.lan:21/Films/a.mkv");
+
+    CHECK_EQ(redactUrl("sftp://bob@nas.lan:22/a.mkv"), "sftp://***@nas.lan:22/a.mkv");
+
+    CHECK_EQ(redactUrl("http://h:8096/a@b.mkv?api_key=K"), "http://h:8096/a@b.mkv?api_key=***");
+
+    CHECK_EQ(redactUrl("/Volumes/Films/a.mkv"), "/Volumes/Films/a.mkv");
 
     if (failures == 0) {
         printf("test_log_redact: OK\n");

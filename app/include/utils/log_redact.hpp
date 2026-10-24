@@ -2,7 +2,7 @@
 
 /*
     Redaction of mpv/ffmpeg log lines before they reach an on-screen dialog, and
-    of the token parameters in the URLs of the video info screen.
+    of the credentials and token parameters in the URLs of the video info screen.
     Users post screenshots of it: URLs carry tokens in the query (Plex, Jellyfin),
     API keys in the path (Stremio debrid addons), credentials in the userinfo and
     the server's public IP in the host (*.plex.direct). Only the scheme and the
@@ -62,6 +62,22 @@ inline std::string redactTokens(std::string text) {
         }
     }
     return text;
+}
+
+/// Masks the credentials of URLs (ftp://user:pass@host) and the token parameters, and keeps
+/// the host and the path readable.
+inline std::string redactUrl(std::string text) {
+    for (size_t pos = 0; (pos = text.find("://", pos)) != std::string::npos;) {
+        pos += 3;
+        size_t hostEnd = text.find_first_of("/?# \"'<>", pos);
+        if (hostEnd == std::string::npos) hostEnd = text.size();
+        size_t at = text.rfind('@', hostEnd);
+        if (at != std::string::npos && at >= pos) {
+            text.replace(pos, at - pos, "***");
+            pos += 3;
+        }
+    }
+    return redactTokens(text);
 }
 
 inline std::string redactLogLine(std::string text) {

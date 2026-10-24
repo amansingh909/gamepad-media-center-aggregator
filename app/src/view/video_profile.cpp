@@ -21,12 +21,12 @@ VideoProfile::~VideoProfile() { brls::Logger::debug("View VideoProfile: delete")
 
 void VideoProfile::init(const std::string& method) {
     auto& mpv = MPVCore::instance();
-    labelUrl->setText(misc::redactTokens(mpv.getString("path")));
+    labelUrl->setText(misc::redactUrl(mpv.getString("path")));
     labelFormat->setText(mpv.getString("file-format"));
     labelSize->setText(misc::formatSize(mpv.getInt("file-size")));
 
     if (method.empty())
-        labelMethod->setText(misc::redactTokens(mpv.getString("playlist-path")));
+        labelMethod->setText(misc::redactUrl(mpv.getString("playlist-path")));
     else
         labelMethod->setText(method);
 
