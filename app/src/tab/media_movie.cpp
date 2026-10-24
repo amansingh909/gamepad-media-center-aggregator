@@ -130,10 +130,10 @@ MediaMovie::MediaMovie(const plex::Item& item, bool localContext)
             RemoteView::play(local, title, "Local");
             return true;
         }
-        // Enabled: play the best source. Muted (Stremio, no playable source):
+        // Enabled: play the selected version. Muted (Stremio, no playable source):
         // explain why instead of launching a player that would just fail.
         if (this->hasPlayableSource) {
-            this->playSource(-1);
+            this->playSource(this->selectedVersion);
         } else {
             Dialog::show("main/stremio/source/none"_i18n);
         }
@@ -594,16 +594,17 @@ void MediaMovie::applyMovie(const media::Item& item) {
     } else {
         this->sourcesBox->setVisibility(brls::Visibility::GONE);
         this->hasPlayableSource = true;
-        // multiple versions (item.media[]): the selector remembers the choice
-        // but v1 playback always uses the first accessible version.
+        // multiple versions (item.media[]): Play uses the one picked here
         if (item.media.size() > 1) {
             std::vector<std::string> names;
             for (auto& m : item.media)
                 names.push_back(fmt::format("{} {} ({} kbps)", m.videoResolution, m.videoCodec, m.bitrate));
+            this->selectedVersion = 0;
             this->btnSource->init(
                 "main/setting/version"_i18n, names, 0, [this](int index) { this->selectedVersion = index; });
             this->btnSource->setVisibility(brls::Visibility::VISIBLE);
         } else {
+            this->selectedVersion = -1;
             this->btnSource->setVisibility(brls::Visibility::GONE);
         }
         this->btnPlay->setMuted(false);
