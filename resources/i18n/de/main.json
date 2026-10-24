@@ -332,8 +332,8 @@
       "font_a3": "Lege eine beliebige ttf-Datei unter {}/subfont.ttf ab"
     },
     "libraries": {
-      "header": "Bibliotheken",
-      "description": "Ordne die Tabs der Seitenleiste neu an oder blende sie aus (Bibliotheken, Wiedergabelisten, Merkliste). Diese Einstellung wird pro Server gespeichert.",
+      "header": "Seitenleiste",
+      "description": "Ordne die Tabs der Seitenleiste neu an oder blende sie aus. Home und Profil bleiben an ihrem Platz. Diese Einstellung wird pro Server gespeichert.",
       "grab": "Verschieben",
       "drop": "Ablegen",
       "toggle": "Anzeigen / Ausblenden",

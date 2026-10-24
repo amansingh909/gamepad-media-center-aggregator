@@ -332,8 +332,8 @@
       "font_a3": "Herhangi bir TTF dosyasını {}/subfont.ttf konumuna yerleştirin."
     },
     "libraries": {
-      "header": "Kitaplıklar",
-      "description": "Kenar çubuğu sekmelerini yeniden sıralayın ve gizleyin (kitaplıklar, oynatma listeleri, izleme listesi). Bu ayar her sunucu için ayrı kaydedilir.",
+      "header": "Kenar çubuğu",
+      "description": "Kenar çubuğu sekmelerini yeniden sıralayın ve gizleyin. Ana Sayfa ve profil yerinde kalır. Bu ayar her sunucu için ayrı kaydedilir.",
       "grab": "Taşı",
       "drop": "Bırak",
       "toggle": "Göster / Gizle",

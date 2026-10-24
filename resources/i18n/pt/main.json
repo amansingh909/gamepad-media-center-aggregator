@@ -332,8 +332,8 @@
       "font_a3": "Coloque qualquer ficheiro ttf em {}/subfont.ttf"
     },
     "libraries": {
-      "header": "Bibliotecas",
-      "description": "Reordene e oculte as abas da barra lateral (bibliotecas, playlists, lista de interesses). Esta definição é guardada por servidor.",
+      "header": "Barra lateral",
+      "description": "Reordene e oculte as abas da barra lateral. O Início e o perfil ficam no lugar. Esta definição é guardada por servidor.",
       "grab": "Mover",
       "drop": "Soltar",
       "toggle": "Mostrar / Ocultar",
