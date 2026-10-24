@@ -20,6 +20,17 @@ inline bool exceedsResolution(int width, int height, int maxHeight) {
     return height > maxHeight || width > resolutionBoxWidth(maxHeight);
 }
 
+/// The smallest box holding the source: 1920x800 is "1080p"; empty for an unknown size.
+inline const char* resolutionLabel(int width, int height) {
+    if (width <= 0 || height <= 0) return "";
+    if (!exceedsResolution(width, height, 360)) return "SD";
+    if (!exceedsResolution(width, height, 480)) return "480p";
+    if (!exceedsResolution(width, height, 720)) return "720p";
+    if (!exceedsResolution(width, height, 1080)) return "1080p";
+    if (!exceedsResolution(width, height, 1440)) return "1440p";
+    return "4K";
+}
+
 /// bps, from the presets of the in-player quality menu
 inline int64_t resolutionBitrate(int maxHeight) {
     if (maxHeight >= 2160) return 20000000;

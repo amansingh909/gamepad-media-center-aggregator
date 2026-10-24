@@ -169,7 +169,11 @@ MediaMovie::MediaMovie(const plex::Item& item, bool localContext)
                 this->updateDownloadButton();
             });
         } else {
-            dm.addDownload(this->itemId);
+            // several versions: the one picked in the selector
+            if (this->selectedVersion >= 0)
+                this->downloadSource(this->selectedVersion);
+            else
+                dm.addDownload(this->itemId);
             this->updateDownloadButton();
         }
         return true;
@@ -315,7 +319,10 @@ void MediaMovie::playSource(int mediaIndex) {
 void MediaMovie::downloadSource(int mediaIndex) {
     if (mediaIndex < 0 || mediaIndex >= (int)this->movieItem.media.size()) return;
     const media::Media& m = this->movieItem.media[mediaIndex];
-    if (!m.playable()) return;  // only playable sources carry a downloadable URL
+    if (!m.playable()) {  // only playable sources carry a downloadable URL
+        brls::Application::notify("main/download/failed"_i18n);
+        return;
+    }
     // addDownload dedups by ratingKey (one download per movie); reflect the real
     // outcome instead of always claiming "queued".
     auto& dm = DownloadManager::instance();
@@ -596,12 +603,21 @@ void MediaMovie::applyMovie(const media::Item& item) {
         this->hasPlayableSource = true;
         // multiple versions (item.media[]): Play uses the one picked here
         if (item.media.size() > 1) {
-            std::vector<std::string> names;
-            for (auto& m : item.media)
-                names.push_back(fmt::format("{} {} ({} kbps)", m.videoResolution, m.videoCodec, m.bitrate));
+            std::vector<std::string> names, shortNames = media::versionShortLabels(item.media);
+            for (size_t i = 0; i < item.media.size(); i++) {
+                std::string fallback = fmt::format("{} {}", "main/setting/version"_i18n, i + 1);
+                names.push_back(media::versionLabel(item.media[i]));
+                if (names[i].empty()) names[i] = fallback;
+                if (shortNames[i].empty()) shortNames[i] = fallback;
+            }
             this->selectedVersion = 0;
             this->btnSource->init(
                 "main/setting/version"_i18n, names, 0, [this](int index) { this->selectedVersion = index; });
+            this->btnSource->setShortData(shortNames);
+            // the cell is as wide as the poster: the value alone fits, the
+            // dropdown still shows the title
+            this->btnSource->title->setVisibility(brls::Visibility::GONE);
+            this->btnSource->detail->setShrink(1);
             this->btnSource->setVisibility(brls::Visibility::VISIBLE);
         } else {
             this->selectedVersion = -1;
