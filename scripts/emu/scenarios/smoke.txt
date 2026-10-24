@@ -8,7 +8,7 @@ sleep 1.5
 shot 01-connection-types
 key b
 sleep 1
-key x
+key y
 sleep 2
 shot 02-settings
 key down down

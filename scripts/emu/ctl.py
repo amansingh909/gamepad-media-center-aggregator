@@ -1,54 +1,59 @@
 #!/usr/bin/env python3
 """GMCA console harness: runs CI artifacts in an emulator on macOS arm64.
 
-Switch builds (.nro) run in Ryubing, PS Vita builds (.vpk) in Vita3K. The
-emulator window stays in the background: input goes through a virtual SDL
-gamepad loaded into the emulator (vpad.c), captures through
-`screencapture -l <window id>`. Nothing here activates a window.
+Switch builds (.nro) run in Eden, PS Vita builds (.vpk) in Vita3K. The emulator
+window stays in the background and never takes the focus:
+- Vita3K gets its input from a virtual SDL gamepad loaded into the process
+  (vpad.c); SDL hints keep its window inactive;
+- Eden gets its input from the DSU ("cemuhook") protocol it listens to, this
+  script playing the DSU server; LSUIElement in its Info.plist keeps it inactive.
+Captures go through `screencapture -l <window id>`.
 
 The terminal running it needs the macOS "Screen Recording" permission.
 Everything downloaded lives in EMU_HOME (default ~/.cache/gmca-emu).
 
 Usage:
-  ctl.py setup                     # emulators, Vita firmware (Sony), vpad.dylib
-  ctl.py fetch <run-id>            # CI artifacts -> EMU_HOME/artifacts/<run-id>/
-  ctl.py launch psvita <artifact>  # run-id or path to .vpk/.nro; --fresh wipes app data,
-                                   # --jellyfin starts signed in to the test Jellyfin
-  ctl.py key down down a           # up/down/left/right/a/b/x/y/l/r/zl/zr/plus/minus
-  ctl.py shot home                 # captures the window -> SHOTS_DIR/home.png
-  ctl.py log [lines]               # app lines of the emulator log (default 40)
-  ctl.py check                     # crash and freeze detection, exit 1 on failure
-  ctl.py run scenarios/smoke.txt   # replays a scenario
-  ctl.py quit                      # stops the emulator
+  ctl.py setup                        # emulators, Vita firmware (Sony), vpad.dylib
+  ctl.py fetch <run-id>               # CI artifacts -> EMU_HOME/artifacts/<run-id>/
+  ctl.py launch nx|psvita <artifact>  # run-id or path to .nro/.vpk; --fresh wipes app data,
+                                      # --jellyfin starts signed in to the test Jellyfin
+  ctl.py key down down a              # up/down/left/right/a/b/x/y/l/r/zl/zr/plus/minus
+  ctl.py shot home                    # captures the window -> SHOTS_DIR/home.png
+  ctl.py log [lines]                  # last lines of the app log (default 40)
+  ctl.py check                        # crash and freeze detection, exit 1 on failure
+  ctl.py run scenarios/smoke.txt nx <artifact>   # replays a scenario
+  ctl.py quit                         # stops the emulator
 
-Scenario: a text file, one command per line (# = comment). `launch` takes the
-platform and artifact from the command line of `run`:
-  ctl.py run scenarios/smoke.txt psvita 40083100934
-Commands: launch [--fresh|--jellyfin], key, shot, sleep, check, quit.
+Scenario: a text file, one command per line (# = comment); `launch` takes the
+platform and artifact given to `run`. Commands: launch [--fresh|--jellyfin],
+key, shot, sleep, check, quit.
 
 Buttons are named after the Switch layout, the one borealis uses: a = confirm,
-b = back, x = context menu. On Vita, a is Cross and b is Circle.
+b = back, y = settings. On Vita, a is Cross, b Circle, x Square, y Triangle.
 """
 
 import glob
 import hashlib
 import json
 import os
+import re
 import shutil
 import signal
+import socket
+import struct
 import subprocess
 import sys
 import time
 import urllib.request
 import zipfile
+import zlib
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
 REPO = "thcolin/gamepad-media-center-aggregator"
 EMU_HOME = os.path.expanduser(os.environ.get("EMU_HOME", "~/.cache/gmca-emu"))
+DL = os.path.join(EMU_HOME, "dl")
 SHOTS_DIR = os.environ.get("SHOTS_DIR", os.path.join(EMU_HOME, "shots"))
 STATE = os.path.join(EMU_HOME, "state.json")
-FIFO = os.path.join(EMU_HOME, "vpad.fifo")
-VPAD = os.path.join(EMU_HOME, "vpad.dylib")
 KEY_HOLD = float(os.environ.get("KEY_HOLD", "0.12"))
 KEY_DELAY = float(os.environ.get("KEY_DELAY", "0.4"))
 FREEZE_SECS = float(os.environ.get("FREEZE_SECS", "10"))
@@ -58,6 +63,8 @@ FREEZE_SECS = float(os.environ.get("FREEZE_SECS", "10"))
 JELLYFIN_URL = os.environ.get("JELLYFIN_URL", "http://127.0.0.1:8096")
 JELLYFIN_USER = os.environ.get("JELLYFIN_USER", "plenx")
 JELLYFIN_KEYCHAIN = "gmca-emu-jellyfin"
+
+# --- PS Vita: Vita3K --------------------------------------------------------
 
 # Sony's official download, linked from
 # https://www.playstation.com/en-us/support/hardware/psvita/system-software/
@@ -70,25 +77,75 @@ VITA3K = os.path.join(VITA3K_DIR, "Vita3K.app", "Contents", "MacOS", "Vita3K")
 # ~/Library (vita3k/app/src/app_init.cpp, init_paths).
 VITA3K_HOME = os.path.join(VITA3K_DIR, "portable")
 VITA_TITLEID = "GMCA00001"  # VITA_TITLEID in CMakeLists.txt
+FIFO = os.path.join(EMU_HOME, "vpad.fifo")
+VPAD = os.path.join(EMU_HOME, "vpad.dylib")
 
-# SDL_GamepadButton indices (SDL3/SDL_gamepad.h).
-SOUTH, EAST, WEST, NORTH, BACK, GUIDE, START = 0, 1, 2, 3, 4, 5, 6
+# SDL_GamepadButton indices (SDL3/SDL_gamepad.h), SDL_GamepadAxis for triggers.
+SOUTH, EAST, WEST, NORTH, BACK, START = 0, 1, 2, 3, 4, 6
 LSHOULDER, RSHOULDER, UP, DOWN, LEFT, RIGHT = 9, 10, 11, 12, 13, 14
-# SDL_GamepadAxis indices for the triggers.
 LTRIGGER, RTRIGGER = 4, 5
 
-COMMON_BUTTONS = {"up": UP, "down": DOWN, "left": LEFT, "right": RIGHT,
-                  "l": LSHOULDER, "r": RSHOULDER, "plus": START, "minus": BACK}
+# --- Switch: Eden -----------------------------------------------------------
+
+# Ryubing was the first choice; its servers have been down since September 2026.
+EDEN_VERSION = "v0.2.1"
+EDEN_DMG = f"https://stable.eden-emu.dev/{EDEN_VERSION}/Eden-macOS-{EDEN_VERSION}.dmg"
+EDEN_SHA256 = "40575fc79a61550fbb9e332cbae94ccd20f5de20ff61b4b60fe1d42f2525c0b5"
+EDEN_DIR = os.path.join(EMU_HOME, "eden")
+EDEN = os.path.join(EDEN_DIR, "eden.app", "Contents", "MacOS", "eden")
+# A "user" folder next to the bundle is Eden's portable mode.
+EDEN_HOME = os.path.join(EDEN_DIR, "user")
+EDEN_LOG = os.path.join(EDEN_HOME, "log", "eden_log.txt")
+# Logged once the app opened its GPU channel: its first frame follows.
+EDEN_READY = "SetChannelPriority"
+
+# DSU protocol (Eden src/input_common/helpers/udp_protocol.h): Eden asks the
+# server on port 26760 every 3 s and reads PadData packets from any sender.
+DSU_PORT = 26760
+DSU_GUID = "0000000000000000000000007f000001"  # UDPClient::GetHostUUID("127.0.0.1")
+DSU = {"share": 0x0001, "options": 0x0008, "up": 0x0010, "right": 0x0020, "down": 0x0040,
+       "left": 0x0080, "l2": 0x0100, "r2": 0x0200, "l1": 0x0400, "r1": 0x0800,
+       "triangle": 0x1000, "circle": 0x2000, "cross": 0x4000, "square": 0x8000}
+# Eden's own DSU mapping (UDPClient::GetButtonMappingForDevice): A = Circle.
+NX_DSU = {"a": "circle", "b": "cross", "x": "triangle", "y": "square", "l": "l1", "r": "r1",
+          "zl": "l2", "zr": "r2", "plus": "options", "minus": "share",
+          "up": "up", "down": "down", "left": "left", "right": "right"}
+EDEN_INI = {
+    "Controls": {
+        "enable_udp_controller": "true",
+        "udp_input_servers": f"127.0.0.1:{DSU_PORT}",
+        **{f"player_0_button_{name}": f'"engine:cemuhookudp,guid:{DSU_GUID},port:{DSU_PORT},'
+                                       f'pad:0,button:{DSU[dsu]}"'
+           for name, dsu in [("a", "circle"), ("b", "cross"), ("x", "triangle"), ("y", "square"),
+                             ("l", "l1"), ("r", "r1"), ("zl", "l2"), ("zr", "r2"),
+                             ("plus", "options"), ("minus", "share"), ("dup", "up"),
+                             ("ddown", "down"), ("dleft", "left"), ("dright", "right")]},
+    },
+    # The multi-core JIT crashed GMCA after two seconds (dynarmic assert !is_executing).
+    "Core": {"use_multi_core": "false"},
+    "UI": {"check_for_updates": "false"},
+}
 
 PLATFORMS = {
     "psvita": {
         "artifact": "GMCA-Vita-*/GMCA.vpk",
-        "log": os.path.join(VITA3K_HOME, "vita3k.log"),
-        "data": os.path.join(VITA3K_HOME, "fs", "ux0", "data", "GMCA"),
-        # Vita3K maps SDL buttons by position: south = Cross, north = Triangle.
-        "buttons": {**COMMON_BUTTONS, "a": SOUTH, "b": EAST, "x": NORTH, "y": WEST},
+        "emu_log": os.path.join(VITA3K_HOME, "vita3k.log"),
+        "app_log": os.path.join(VITA3K_HOME, "vita3k.log"),
         "app_line": "[export_sceClibPrintf]: ",
+        "data": os.path.join(VITA3K_HOME, "fs", "ux0", "data", "GMCA"),
         "fatal": ["|C|", "Unhandled exception", "Segmentation fault"],
+    },
+    "nx": {
+        "artifact": "GMCA-NintendoSwitch-[0-9]*/GMCA.nro",
+        # Eden passes program_args the NSO way (src/core/loader/nro.cpp), not
+        # through the homebrew loader argv libnx reads: GMCA never gets -o and
+        # its own log stays out of reach. `log` shows Eden's.
+        "emu_log": EDEN_LOG,
+        "app_log": EDEN_LOG,
+        "app_line": "",
+        "data": os.path.join(EDEN_HOME, "sdmc", "switch", "GMCA"),
+        # svcBreak from the app, or an exception Eden could not handle.
+        "fatal": ["broke execution", "Unhandled exception", "Fatal error"],
     },
 }
 
@@ -103,6 +160,11 @@ def load_state():
             return json.load(f)
     except FileNotFoundError:
         die("aucun émulateur lancé, faire `ctl.py launch` d'abord")
+
+
+def save_state(state):
+    with open(STATE, "w") as f:
+        json.dump(state, f)
 
 
 def alive(pid):
@@ -120,8 +182,6 @@ def alive(pid):
         return False
 
 
-# --- setup -----------------------------------------------------------------
-
 def sha256(path):
     h = hashlib.sha256()
     with open(path, "rb") as f:
@@ -130,27 +190,30 @@ def sha256(path):
     return h.hexdigest()
 
 
+# --- setup -----------------------------------------------------------------
+
+def copy_app(dmg, app, dest_dir):
+    mnt = os.path.join(DL, "mnt")
+    subprocess.run(["hdiutil", "attach", "-nobrowse", "-readonly", "-quiet", "-mountpoint", mnt, dmg],
+                   check=True)
+    try:
+        os.makedirs(dest_dir, exist_ok=True)
+        shutil.copytree(os.path.join(mnt, app), os.path.join(dest_dir, app), symlinks=True)
+    finally:
+        subprocess.run(["hdiutil", "detach", mnt, "-quiet"])
+
+
 def setup_vita3k():
-    dl = os.path.join(EMU_HOME, "dl")
-    os.makedirs(dl, exist_ok=True)
     if not os.path.exists(VITA3K):
         # Vita3K only publishes a rolling "continuous" release.
         subprocess.run(["gh", "release", "download", "continuous", "-R", "Vita3K/Vita3K",
-                        "-p", "macos-arm64-latest.dmg", "-D", dl, "--clobber"], check=True)
-        mnt = os.path.join(dl, "vita3k-mnt")
-        subprocess.run(["hdiutil", "attach", "-nobrowse", "-readonly", "-quiet", "-mountpoint", mnt,
-                        os.path.join(dl, "macos-arm64-latest.dmg")], check=True)
-        try:
-            os.makedirs(VITA3K_DIR, exist_ok=True)
-            shutil.copytree(os.path.join(mnt, "Vita3K.app"), os.path.join(VITA3K_DIR, "Vita3K.app"),
-                            symlinks=True)
-        finally:
-            subprocess.run(["hdiutil", "detach", mnt, "-quiet"])
+                        "-p", "macos-arm64-latest.dmg", "-D", DL, "--clobber"], check=True)
+        copy_app(os.path.join(DL, "macos-arm64-latest.dmg"), "Vita3K.app", VITA3K_DIR)
     os.makedirs(VITA3K_HOME, exist_ok=True)
     print(subprocess.run([VITA3K, "-v"], capture_output=True, text=True).stdout.strip().splitlines()[-1])
 
     if not os.path.isdir(os.path.join(VITA3K_HOME, "fs", "vs0")):
-        pup = os.path.join(dl, "PSVUPDAT.PUP")
+        pup = os.path.join(DL, "PSVUPDAT.PUP")
         if not os.path.exists(pup) or sha256(pup) != VITA_FIRMWARE_SHA256:
             subprocess.run(["curl", "-fsSL", "-o", pup, VITA_FIRMWARE], check=True)
             if sha256(pup) != VITA_FIRMWARE_SHA256:
@@ -159,20 +222,54 @@ def setup_vita3k():
                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     print("Vita3K : firmware 3.74 installé")
 
-
-def setup_vpad():
     sdl = subprocess.run(["brew", "--prefix", "sdl3"], capture_output=True, text=True).stdout.strip()
     if not os.path.isdir(os.path.join(sdl, "include", "SDL3")):
         die("en-têtes SDL3 introuvables : brew install sdl3")
     subprocess.run(["clang", "-dynamiclib", "-arch", "arm64", "-Wall", "-I", os.path.join(sdl, "include"),
                     "-undefined", "dynamic_lookup", "-o", VPAD, os.path.join(ROOT, "vpad.c")], check=True)
-    print(f"manette virtuelle : {VPAD}")
+    print(f"Vita3K : manette virtuelle {VPAD}")
+
+
+def write_ini(path, values):
+    """Sets keys of a Qt ini file; `key\\default=false` makes Eden read the value."""
+    text = open(path).read() if os.path.exists(path) else ""
+    for section, keys in values.items():
+        if f"[{section}]" not in text:
+            text += f"\n[{section}]\n"
+        for k, v in keys.items():
+            lines = f"{k}\\default=false\n{k}={v}\n"
+            pattern = rf"^{re.escape(k)}\\default=.*\n{re.escape(k)}=.*\n"
+            if re.search(pattern, text, flags=re.M):
+                text = re.sub(pattern, lambda _: lines, text, flags=re.M)
+            else:
+                text = text.replace(f"[{section}]\n", f"[{section}]\n{lines}", 1)
+    with open(path, "w") as f:
+        f.write(text)
+
+
+def setup_eden():
+    if not os.path.exists(EDEN):
+        dmg = os.path.join(DL, os.path.basename(EDEN_DMG))
+        if not os.path.exists(dmg) or sha256(dmg) != EDEN_SHA256:
+            subprocess.run(["curl", "-fsSL", "-o", dmg, EDEN_DMG], check=True)
+            if sha256(dmg) != EDEN_SHA256:
+                die(f"{dmg} : empreinte SHA-256 inattendue")
+        copy_app(dmg, "eden.app", EDEN_DIR)
+        # An agent app (LSUIElement) is never activated at launch; the edited
+        # bundle needs a new ad hoc signature.
+        plist = os.path.join(EDEN_DIR, "eden.app", "Contents", "Info.plist")
+        subprocess.run(["/usr/libexec/PlistBuddy", "-c", "Add :LSUIElement bool true", plist], check=True)
+        subprocess.run(["codesign", "-s", "-", "--force", "--deep", os.path.join(EDEN_DIR, "eden.app")],
+                       check=True, capture_output=True)
+    os.makedirs(os.path.join(EDEN_HOME, "config"), exist_ok=True)
+    write_ini(os.path.join(EDEN_HOME, "config", "qt-config.ini"), EDEN_INI)
+    print(f"Eden {EDEN_VERSION} : {EDEN_DIR}")
 
 
 def setup():
-    os.makedirs(EMU_HOME, exist_ok=True)
-    setup_vpad()
+    os.makedirs(DL, exist_ok=True)
     setup_vita3k()
+    setup_eden()
 
 
 # --- artifacts -------------------------------------------------------------
@@ -206,23 +303,10 @@ def artifact_path(platform, ref):
 
 # --- emulator --------------------------------------------------------------
 
-def command(platform, artifact):
-    if platform == "psvita":
-        # Installing through Vita3K (a .vpk as content path) brings its window to
-        # the front; a .vpk is a zip that Vita3K also accepts unpacked in ux0:app.
-        app = os.path.join(VITA3K_HOME, "fs", "ux0", "app", VITA_TITLEID)
-        shutil.rmtree(app, ignore_errors=True)
-        with zipfile.ZipFile(artifact) as z:
-            z.extractall(app)
-        # -l 2 drops the trace logs.
-        return [VITA3K, "--frontend", "sdl", "-l", "2", "-r", VITA_TITLEID]
-    die(f"plateforme inconnue : {platform}")
-
-
 def seed_jellyfin(data_dir):
     """Writes the config the Jellyfin sign-in screen would write
-    (app/src/tab/jellyfin_add.cpp, JellyfinAdd::finish): the emulators have no
-    usable on-screen keyboard without the window focus."""
+    (app/src/tab/jellyfin_add.cpp, JellyfinAdd::finish): neither emulator offers
+    an on-screen keyboard usable without the window focus."""
     password = subprocess.run(["security", "find-generic-password", "-s", JELLYFIN_KEYCHAIN,
                                "-a", JELLYFIN_USER, "-w"], capture_output=True, text=True)
     if password.returncode != 0:
@@ -247,6 +331,50 @@ def seed_jellyfin(data_dir):
         json.dump({"user_id": user["id"], "users": [user], "servers": [server]}, f)
 
 
+def start(platform, artifact):
+    """Starts the emulator; returns the process and what `key` needs to reach it."""
+    out = open(os.path.join(EMU_HOME, f"{platform}.stdout"), "w")
+    if platform == "psvita":
+        if not os.path.exists(VPAD):
+            die("manette virtuelle absente, faire `ctl.py setup`")
+        # Installing through Vita3K (a .vpk as content path) brings its window to
+        # the front; a .vpk is a zip that Vita3K also accepts unpacked in ux0:app.
+        app = os.path.join(VITA3K_HOME, "fs", "ux0", "app", VITA_TITLEID)
+        shutil.rmtree(app, ignore_errors=True)
+        with zipfile.ZipFile(artifact) as z:
+            z.extractall(app)
+        if os.path.exists(FIFO):
+            os.remove(FIFO)
+        os.mkfifo(FIFO)
+        env = {**os.environ, "GMCA_VPAD": FIFO, "DYLD_INSERT_LIBRARIES": VPAD,
+               "SDL_JOYSTICK_ALLOW_BACKGROUND_EVENTS": "1", "SDL_MAC_BACKGROUND_APP": "1",
+               "SDL_WINDOW_ACTIVATE_WHEN_SHOWN": "0", "SDL_WINDOW_ACTIVATE_WHEN_RAISED": "0"}
+        # -l 2 drops the trace logs.
+        cmd = [VITA3K, "--frontend", "sdl", "-l", "2", "-r", VITA_TITLEID]
+        return subprocess.Popen(cmd, env=env, stdout=out, stderr=subprocess.STDOUT, start_new_session=True), {}
+
+    if not os.path.exists(EDEN):
+        die("Eden absent, faire `ctl.py setup`")
+    # The previous log would hold EDEN_READY before Eden rotates it.
+    if os.path.exists(EDEN_LOG):
+        os.remove(EDEN_LOG)
+    dsu =socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    try:
+        dsu.bind(("127.0.0.1", DSU_PORT))
+    except OSError as e:
+        die(f"port DSU {DSU_PORT} occupé : {e}")
+    proc = subprocess.Popen([EDEN, artifact], stdout=out, stderr=subprocess.STDOUT, start_new_session=True)
+    # Eden's first request tells the port it receives pad data on.
+    dsu.settimeout(30)
+    try:
+        _, (_, port) = dsu.recvfrom(128)
+    except socket.timeout:
+        die("Eden n'a envoyé aucune requête DSU en 30 s")
+    finally:
+        dsu.close()
+    return proc, {"dsu_port": port}
+
+
 def launch(platform, ref, fresh=False, jellyfin=False):
     quit_emu()
     conf = PLATFORMS[platform]
@@ -255,30 +383,25 @@ def launch(platform, ref, fresh=False, jellyfin=False):
         shutil.rmtree(conf["data"], ignore_errors=True)
     if jellyfin:
         seed_jellyfin(conf["data"])
-    if not os.path.exists(VPAD):
-        die("manette virtuelle absente, faire `ctl.py setup`")
-    if os.path.exists(FIFO):
-        os.remove(FIFO)
-    os.mkfifo(FIFO)
-    # The SDL hints keep the emulator from taking the focus, at launch included.
-    env = {**os.environ, "GMCA_VPAD": FIFO, "DYLD_INSERT_LIBRARIES": VPAD,
-           "SDL_JOYSTICK_ALLOW_BACKGROUND_EVENTS": "1", "SDL_MAC_BACKGROUND_APP": "1",
-           "SDL_WINDOW_ACTIVATE_WHEN_SHOWN": "0", "SDL_WINDOW_ACTIVATE_WHEN_RAISED": "0"}
-    out = open(os.path.join(EMU_HOME, f"{platform}.stdout"), "w")
-    proc = subprocess.Popen(command(platform, artifact), env=env, stdout=out, stderr=subprocess.STDOUT,
-                            start_new_session=True)
-    state = {"platform": platform, "pid": proc.pid, "artifact": artifact, "started": time.time()}
-    with open(STATE, "w") as f:
-        json.dump(state, f)
-    for _ in range(60):
+    proc, extra = start(platform, artifact)
+    save_state({"platform": platform, "pid": proc.pid, "artifact": artifact, **extra})
+    for _ in range(90):
         if not alive(proc.pid):
-            die(f"l'émulateur s'est arrêté au lancement, voir {out.name}")
-        if window_id(proc.pid):
+            die(f"l'émulateur s'est arrêté au lancement, voir {EMU_HOME}/{platform}.stdout")
+        if window_id(proc.pid) and (platform != "nx" or ready_nx()):
             break
         time.sleep(1)
     else:
-        die("aucune fenêtre après 60 s")
+        die("l'app ne s'est pas affichée après 90 s")
     print(f"{platform} : pid {proc.pid}, {artifact}")
+
+
+def ready_nx():
+    try:
+        with open(EDEN_LOG, errors="replace") as f:
+            return EDEN_READY in f.read()
+    except FileNotFoundError:
+        return False
 
 
 def quit_emu():
@@ -286,8 +409,9 @@ def quit_emu():
         with open(STATE) as f:
             pid = json.load(f)["pid"]
     except FileNotFoundError:
-        # An emulator left over by an interrupted run would share the FIFO.
-        subprocess.run(["pkill", "-f", VITA3K])
+        # An emulator left over by an interrupted run would hold the FIFO or the window.
+        for binary in (VITA3K, EDEN):
+            subprocess.run(["pkill", "-9", "-f", binary])
         return
     if alive(pid):
         os.killpg(pid, signal.SIGTERM)
@@ -296,6 +420,7 @@ def quit_emu():
                 break
             time.sleep(0.25)
         else:
+            # Eden ignores SIGTERM.
             os.killpg(pid, signal.SIGKILL)
     os.remove(STATE)
 
@@ -320,8 +445,7 @@ def window_id(pid):
 
 
 def capture(path):
-    state = load_state()
-    wid = window_id(state["pid"])
+    wid = window_id(load_state()["pid"])
     if not wid:
         die("fenêtre de l'émulateur introuvable")
     os.makedirs(os.path.dirname(path), exist_ok=True)
@@ -334,7 +458,7 @@ def shot(name):
     print(capture(os.path.join(SHOTS_DIR, f"{name}.png")))
 
 
-def send(line):
+def vpad_send(line):
     # Opening the FIFO blocks until vpad.dylib reads it; a dead emulator would hang here.
     if not alive(load_state()["pid"]):
         die("l'émulateur ne tourne plus")
@@ -342,34 +466,64 @@ def send(line):
         f.write(line + "\n")
 
 
+def vita_press(name):
+    # Borealis reads Square as X and Triangle as Y (platforms/psv/psv_input.cpp).
+    buttons = {"a": SOUTH, "b": EAST, "x": WEST, "y": NORTH, "l": LSHOULDER, "r": RSHOULDER,
+               "plus": START, "minus": BACK, "up": UP, "down": DOWN, "left": LEFT, "right": RIGHT}
+    if name in ("zl", "zr"):
+        axis = LTRIGGER if name == "zl" else RTRIGGER
+        vpad_send(f"axis {axis} 32767")
+        time.sleep(KEY_HOLD)
+        vpad_send(f"axis {axis} 0")
+    else:
+        # Vita3K maps SDL buttons by position: south = Cross, north = Triangle.
+        vpad_send(f"button {buttons[name]} 1")
+        time.sleep(KEY_HOLD)
+        vpad_send(f"button {buttons[name]} 0")
+
+
+def dsu_packet(buttons):
+    """A DSU PadData message (Response::PadData, 80 bytes) for pad 0."""
+    counter = int(time.monotonic() * 1000) & 0xFFFFFFFF  # Eden drops a repeated counter
+    data = struct.pack("<BBBB6sBBIHBB4B12B12xQ6f",
+                       0, 2, 2, 1, b"\0" * 6, 0x05, 1,  # pad 0, connected, full gyro, usb, full battery
+                       counter, buttons, 0, 0,
+                       128, 128, 128, 128,              # sticks at rest
+                       *([0] * 12), 0, *([0.0] * 6))
+    header = struct.pack("<IHHIII", 0x53555344, 1001, len(data) + 4, 0, 0, 0x00100002)
+    crc = zlib.crc32(header + data)
+    return header[:8] + struct.pack("<I", crc) + header[12:] + data
+
+
+def nx_press(name):
+    state = load_state()
+    if not alive(state["pid"]):
+        die("l'émulateur ne tourne plus")
+    mask = DSU[NX_DSU[name]]
+    with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
+        s.sendto(dsu_packet(mask), ("127.0.0.1", state["dsu_port"]))
+        time.sleep(KEY_HOLD)
+        s.sendto(dsu_packet(0), ("127.0.0.1", state["dsu_port"]))
+
+
 def key(names):
-    buttons = PLATFORMS[load_state()["platform"]]["buttons"]
+    press = nx_press if load_state()["platform"] == "nx" else vita_press
     for name in names:
         name = name.lower()
-        if name in ("zl", "zr"):
-            axis = LTRIGGER if name == "zl" else RTRIGGER
-            send(f"axis {axis} 32767")
-            time.sleep(KEY_HOLD)
-            send(f"axis {axis} 0")
-        elif name in buttons:
-            send(f"button {buttons[name]} 1")
-            time.sleep(KEY_HOLD)
-            send(f"button {buttons[name]} 0")
-        else:
+        if name not in NX_DSU:
             die(f"bouton inconnu : {name}")
+        press(name)
         time.sleep(KEY_DELAY)
 
 
-def app_lines(n):
-    state = load_state()
-    conf = PLATFORMS[state["platform"]]
-    with open(conf["log"], errors="replace") as f:
-        lines = [l.split(conf["app_line"], 1)[1] for l in f if conf["app_line"] in l]
-    return lines[-n:]
-
-
 def log(n=40):
-    sys.stdout.writelines(app_lines(n))
+    conf = PLATFORMS[load_state()["platform"]]
+    try:
+        with open(conf["app_log"], errors="replace") as f:
+            lines = [l.split(conf["app_line"], 1)[1] for l in f if conf["app_line"] in l]
+    except FileNotFoundError:
+        die(f"pas encore de log : {conf['app_log']}")
+    sys.stdout.writelines(lines[-n:])
 
 
 def crash():
@@ -379,13 +533,16 @@ def crash():
     conf = PLATFORMS[state["platform"]]
     if not alive(state["pid"]):
         return "l'émulateur s'est arrêté"
-    with open(conf["log"], errors="replace") as f:
-        fatal = [l.strip() for l in f if any(p in l for p in conf["fatal"])]
+    try:
+        with open(conf["emu_log"], errors="replace") as f:
+            fatal = [l.strip() for l in f if any(p in l for p in conf["fatal"])]
+    except FileNotFoundError:
+        return None
     return fatal[-1] if fatal else None
 
 
 def check():
-    """Crash, then freeze: the window and the log stay identical for
+    """Crash, then freeze: the window and the logs stay identical for
     FREEZE_SECS. An idle screen also stays identical, so `check` belongs right
     after an input that must keep the screen moving, a playback for instance."""
     reason = crash()
@@ -393,11 +550,15 @@ def check():
         print("PLANTAGE : " + reason)
         return False
     conf = PLATFORMS[load_state()["platform"]]
+
+    def sizes():
+        return [os.path.getsize(p) if os.path.exists(p) else 0 for p in (conf["emu_log"], conf["app_log"])]
+
     tmp = os.path.join(EMU_HOME, "check")
-    before, size = sha256(capture(tmp + "-a.png")), os.path.getsize(conf["log"])
+    before, logs = sha256(capture(tmp + "-a.png")), sizes()
     time.sleep(FREEZE_SECS)
-    if sha256(capture(tmp + "-b.png")) == before and os.path.getsize(conf["log"]) == size:
-        print(f"GEL : écran et log figés pendant {FREEZE_SECS:g} s")
+    if sha256(capture(tmp + "-b.png")) == before and sizes() == logs:
+        print(f"GEL : écran et logs figés pendant {FREEZE_SECS:g} s")
         return False
     print("OK")
     return True
