@@ -307,6 +307,8 @@ void MusicNowPlaying::refreshTrack() {
     this->labelTitle->setText(t.title);
     std::string artist = !t.grandparentTitle.empty() ? t.grandparentTitle : t.parentTitle;
     this->labelArtist->setText(artist);
+    // UPDATE_DURATION fires once per load, never when reopening over a playing track
+    if (t.duration > 0) this->rightStatus->setText(misc::sec2Time(t.duration / 1000));
     // seed the play/pause glyph from the live state (MPV_RESUME/PAUSE only fire on
     // change; opening over an already-playing queue would keep the stale glyph)
     this->toggleIcon->setImageFromSVGRes(MPVCore::instance().isPaused() ? "icon/ico-play.svg" : "icon/ico-pause.svg");
