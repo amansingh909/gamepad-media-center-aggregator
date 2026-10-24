@@ -507,6 +507,8 @@ std::string PlexBackend::imageUrl(const std::string& path, int width, int height
     if (path.empty()) return "";
     // external agent paths (cast faces...) are absolute
     if (path.rfind("http", 0) == 0) return path;
+    // a server path not rooted at "/" ("@host/x") would move the token to another host
+    if (path[0] != '/') return "";
     auto& conf = AppConfig::instance();
     if (width > 0 || height > 0) {
         if (width <= 0) width = height;

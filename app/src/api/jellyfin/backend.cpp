@@ -585,6 +585,7 @@ void JellyfinBackend::reportProgress(
 std::string JellyfinBackend::imageUrl(const std::string& path, int width, int height) const {
     if (path.empty()) return "";
     if (path.rfind("http", 0) == 0) return path;  // external (passed through)
+    if (path[0] != '/') return "";  // "@host/x" would move the api_key to another host
     std::string url = base() + path;
     std::string sep = url.find('?') == std::string::npos ? "?" : "&";
     // Emby ignores fillWidth/fillHeight and serves the original image.
