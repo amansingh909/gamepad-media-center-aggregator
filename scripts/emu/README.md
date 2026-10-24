@@ -107,6 +107,10 @@ a crash nor a freeze: the captures are there to be read.
   in the app log), the picture comes from another path than on the console.
 - **Network playback on Switch**: Eden's sockets fail ffmpeg's connection (`Bad file number`,
   `assert flags == 0` in Eden's log). API calls work, playback does not.
+- **Stremio on Vita**: with a Stremio account, Vita3K freezes on the home screen while the app
+  loads the addons over HTTPS, on every build tested. Jellyfin over HTTP works.
+- **Torrent playback on Switch**: the player cannot open the torrent engine's local URL, with the
+  same `Bad file number` as above, so peers, speed and playback cannot be measured.
 - **App log on Switch**: the app writes its log to a file only with `-o <path>`, and Eden does
   not pass command-line arguments the way a homebrew `.nro` reads them.
 - **Speed**: Eden runs single-core (its multi-core JIT crashes the app), the Switch build takes
