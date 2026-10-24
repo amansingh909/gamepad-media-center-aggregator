@@ -169,7 +169,11 @@ MediaMovie::MediaMovie(const plex::Item& item, bool localContext)
                 this->updateDownloadButton();
             });
         } else {
-            dm.addDownload(this->itemId);
+            // multiple versions: the one picked in the selector, like Play
+            if (this->selectedVersion >= 0)
+                this->downloadSource(this->selectedVersion);
+            else
+                dm.addDownload(this->itemId);
             this->updateDownloadButton();
         }
         return true;
@@ -596,12 +600,18 @@ void MediaMovie::applyMovie(const media::Item& item) {
         this->hasPlayableSource = true;
         // multiple versions (item.media[]): Play uses the one picked here
         if (item.media.size() > 1) {
-            std::vector<std::string> names;
-            for (auto& m : item.media)
-                names.push_back(fmt::format("{} {} ({} kbps)", m.videoResolution, m.videoCodec, m.bitrate));
+            std::vector<std::string> names, shortNames;
+            for (size_t i = 0; i < item.media.size(); i++) {
+                std::string fallback = fmt::format("{} {}", "main/setting/version"_i18n, i + 1);
+                std::string name = media::versionLabel(item.media[i]);
+                std::string shortName = media::versionLabel(item.media[i], false);
+                names.push_back(name.empty() ? fallback : name);
+                shortNames.push_back(shortName.empty() ? fallback : shortName);
+            }
             this->selectedVersion = 0;
             this->btnSource->init(
                 "main/setting/version"_i18n, names, 0, [this](int index) { this->selectedVersion = index; });
+            this->btnSource->setShortData(shortNames);
             this->btnSource->setVisibility(brls::Visibility::VISIBLE);
         } else {
             this->selectedVersion = -1;

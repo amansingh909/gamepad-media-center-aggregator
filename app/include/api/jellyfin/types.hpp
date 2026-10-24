@@ -152,6 +152,7 @@ inline media::Media parseMediaSource(const nlohmann::json& j, const std::string&
     std::string msId = jstr(j, "Id");
     if (msId.empty()) msId = itemId;
     m.sourceId = msId;
+    m.label = jstr(j, "Name");
     m.container = jstr(j, "Container");
     m.bitrate = jint(j, "Bitrate") / 1000;  // bps -> kbps (parity with Plex Media.bitrate)
     m.duration = jint(j, "RunTimeTicks") / TICKS_PER_MS;
@@ -169,13 +170,11 @@ inline media::Media parseMediaSource(const nlohmann::json& j, const std::string&
             media::Stream st = parseStream(s);
             if (st.streamType == media::streamTypeSubtitle && jbool(s, "IsExternal"))
                 st.key = subtitleKey(s, itemId, msId, st.index);
-            if (st.streamType == media::streamTypeVideo && m.width == 0) {
+            if (st.streamType == media::streamTypeVideo && m.videoCodec.empty()) {
                 m.width = (int)jint(s, "Width");
                 m.height = (int)jint(s, "Height");
-            }
-            if (st.codec == "h264" || st.codec == "hevc" || st.codec == "av1")
                 m.videoCodec = st.codec;
-            else if (st.streamType == media::streamTypeAudio && m.audioCodec.empty())
+            } else if (st.streamType == media::streamTypeAudio && m.audioCodec.empty())
                 m.audioCodec = st.codec;
             p.streams.push_back(st);
         }

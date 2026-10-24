@@ -20,7 +20,10 @@
 #include <string>
 #include <vector>
 #include <cstring>
+#include <cstdio>
+#include <cctype>
 #include <nlohmann/json.hpp>
+#include "api/media/resolution.hpp"
 
 namespace media {
 
@@ -199,7 +202,7 @@ struct Media {
     int64_t duration = 0;  // ms
     std::vector<Part> parts;
     // ---- source presentation (Stremio picker; empty/default on Plex/Jellyfin) ----
-    std::string label;   // primary line: source/addon name (+ release group)
+    std::string label;   // primary line: source/addon name (+ release group); Jellyfin/Emby: version name
     std::string detail;  // secondary line: codec · size · seeders (our own re-render)
     SourceKind kind = SourceKind::Direct;
     bool cached = true;  // debrid cache hint (best-effort; ⚡ vs pending). false = uncached
@@ -218,6 +221,30 @@ inline void from_json(const nlohmann::json& j, Media& r) {
     r.height = (int)jint(j, "height");
     r.duration = jint(j, "duration");
     if (j.contains("Part") && j["Part"].is_array()) r.parts = j["Part"].get<std::vector<Part>>();
+}
+
+/// Version selector label: "1080p · HEVC · 7.6 Mbps", without the bitrate for
+/// the closed selector. Falls back to the server's version name (`label`) when
+/// nothing was probed; empty if there is none.
+inline std::string versionLabel(const Media& m, bool withBitrate = true) {
+    std::string res = resolutionLabel(m.width, m.height);
+    if (res.empty()) res = m.videoResolution;
+    std::string codec = m.videoCodec;
+    for (auto& c : codec) c = (char)std::toupper((unsigned char)c);
+    std::string out;
+    auto add = [&out](const std::string& part) {
+        if (part.empty()) return;
+        if (!out.empty()) out += " · ";
+        out += part;
+    };
+    add(res);
+    add(codec);
+    if (withBitrate && m.bitrate > 0) {
+        char buf[32];
+        std::snprintf(buf, sizeof(buf), "%.1f Mbps", m.bitrate / 1000.0);
+        add(buf);
+    }
+    return out.empty() ? m.label : out;
 }
 
 struct Chapter {

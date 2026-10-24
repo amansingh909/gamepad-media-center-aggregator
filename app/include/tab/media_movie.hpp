@@ -9,6 +9,7 @@
 #include <api/plex/types.hpp>
 #include <utils/download.hpp>
 #include <view/svg_image.hpp>
+#include <view/selector_cell.hpp>
 
 class HRecyclerFrame;
 class TextBox;
@@ -41,7 +42,7 @@ private:
     BRLS_BIND(brls::Label, labelGenres, "movie/label/genres");
     BRLS_BIND(brls::Box, noticeBox, "movie/notice");
     BRLS_BIND(brls::Box, sourcesBox, "movie/sources");
-    BRLS_BIND(brls::SelectorCell, btnSource, "movie/source");
+    BRLS_BIND(SelectorCell, btnSource, "movie/source");
     BRLS_BIND(IconButton, btnPlay, "movie/play");
     BRLS_BIND(IconButton, btnDownload, "movie/download");
     BRLS_BIND(IconButton, btnWatchlist, "movie/watchlist");
