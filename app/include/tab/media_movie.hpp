@@ -79,7 +79,7 @@ private:
     media::Item listItem;  // item backing the personal-list (watchlist/favorite) button
     bool localContext = false;  // opened from the offline downloads area
     bool watchlisted = false;
-    /// selected version (item.media[]) — no effect in v1 (playback = first
-    /// accessible version, cf. activity/player_view.cpp)
-    size_t selectedVersion = 0;
+    /// version picked in the selector (item.media[]); -1 = no selector, the
+    /// player takes the first accessible version
+    int selectedVersion = -1;
 };

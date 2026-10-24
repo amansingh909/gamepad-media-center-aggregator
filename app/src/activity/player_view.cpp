@@ -244,9 +244,10 @@ void PlayerView::playMedia(const int64_t seekMs) {
     this->transcodeFallback = false;
 
     // Fast path: the caller already resolved the exact source (Stremio source
-    // picker passes the fully-resolved item + chosen index). Re-fetching would
-    // re-resolve streams and could return a different order/set, silently playing
-    // a different release than the one selected — so play the chosen one directly.
+    // picker and movie version selector pass the fully-resolved item + chosen
+    // index). Re-fetching would re-resolve streams and could return a different
+    // order/set, silently playing a different release than the one selected — so
+    // play the chosen one directly.
     {
         auto accessible = [](const plex::Media& m) {
             for (auto& p : m.parts)
