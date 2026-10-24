@@ -9,6 +9,39 @@ prepared with [git-cliff](https://git-cliff.org/) from conventional commits
 hand. For the history of the upstream project this fork is based on, see the
 [Switchfin changelog](https://github.com/dragonflylee/switchfin/blob/dev/CHANGELOG.md).
 
+## [1.3.1] - 2026-10-24
+
+### Fixed
+
+- **Play uses the version picked on a movie (#96).** On a movie with several
+  versions, Play started the first accessible one whatever the Version
+  selector showed, on Plex, Jellyfin and Emby.
+- **The video info screen no longer shows tokens or passwords.** The Url and
+  play method lines mask `X-Plex-Token`, `api_key` and `ApiKey`, and the
+  user and password of FTP and SFTP addresses, so a screenshot of that screen
+  can be shared. mpv still gets the full address.
+- **Plex: remote playback refused with HTTP 403 (#88).** Plex refuses remote
+  playback from third-party apps when the account has neither Plex Pass nor
+  Remote Watch Pass. A dialog now names that rule, instead of a retry into a
+  transcode ending on "mpv -13". A download refused the same way says so in
+  the Downloads tab.
+- **Server addresses that don't resolve (#57).** Adding a Jellyfin or Emby
+  server or a remote whose host doesn't resolve names the host and asks for
+  its IPv4 address. On Switch and Vita, a `.local` address is refused before
+  the request, since neither has an mDNS resolver.
+- **PS4 fixes from @amansingh909 (#91, #92, #93, #94, #95).**
+  - Initialized globals no longer read as zero, and two threads starting
+    the same static no longer abort the app.
+  - Network timeouts fire again: they counted CPU time, so a server that
+    didn't answer kept the app waiting.
+  - A closed connection no longer kills the app (SIGPIPE).
+  - The system keyboard confirms with the console's enter button.
+  - Text subtitles (SRT, VTT, SSA/ASS) are drawn.
+  - The Files tab lists folders, and the USB drives mounted before GMCA
+    starts (#97).
+  - HDR video plays instead of a blue screen, and a bigger audio buffer
+    keeps the sound from going choppy.
+
 ## [1.3.0] - 2026-09-24
 
 ### Added
