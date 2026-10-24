@@ -228,6 +228,9 @@ Params essentiels : `hasMDE=1`, `path=/library/metadata/{key}`, `mediaIndex`, `p
 
 Seek pendant transcode : régénérer `session`, relancer `start` avec `offset=<s>`, et décaler la timeline
 affichée (plezy : `timelineOffset`) (`plezy/lib/screens/video_player/parts/seeking.dart`).
+GMCA (HLS) n'envoie pas `offset` : la playlist couvre toute la durée, mais une session démarrée
+avec `offset` rebase l'horloge de mpv et mpv ne peut plus y chercher hors de son cache (PMS, #72).
+La reprise passe par l'option mpv `start=`, comme en direct play.
 Le profil DeviceProfile Jellyfin (`device.hpp`) disparaît au profit des params ci-dessus
 (adapter `videoCodec=` selon les capacités : Switch = h264,hevc[,av1 sur modèles récents] —
 reprendre la logique existante de `player_view.cpp:182-300`).

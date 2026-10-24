@@ -395,8 +395,6 @@ media::PlaybackSource PlexBackend::resolvePlayback(
         {"X-Plex-Version", AppVersion::getVersion()},
         {"X-Plex-Token", conf.getToken()},
     };
-    if (opts.seekMs > 0) form["offset"] = std::to_string(opts.seekMs / 1000);  // whole seconds
-
     if (opts.audioStreamId > 0) form["audioStreamID"] = std::to_string(opts.audioStreamId);
     if (opts.subtitleStreamId > 0) {
         form["subtitleStreamID"] = std::to_string(opts.subtitleStreamId);
@@ -450,11 +448,13 @@ media::PlaybackSource PlexBackend::resolvePlayback(
         return directSource(version, opts.seekMs, download);
     }
 
+    // resume with mpv's start= rather than the transcoder offset: an offset
+    // session rebases mpv's clock and mpv cannot seek outside its cache there
     std::string extra = fmt::format("network-timeout={}", HTTP::TIMEOUT / 100);
+    if (opts.seekMs > 0) extra += ",start=" + misc::sec2Time(opts.seekMs / 1000);
     if (HTTP::PROXY_STATUS) extra += fmt::format(",http-proxy=\"{}\"", HTTP::PROXY);
     std::string play = conf.getUrl() + "/video/:/transcode/universal/start.m3u8?" + query;
-    // server-side offset, in whole seconds like the offset sent: mpv's clock starts at 0 there
-    return {play, extra, true, "transcode", session, opts.seekMs / 1000 * 1000};
+    return {play, extra, true, "transcode", session};
 }
 
 std::string PlexBackend::subtitleSidecarUrl(const std::string& streamKey) const {

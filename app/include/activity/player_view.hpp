@@ -106,10 +106,6 @@ private:
     /// seekMs of the last startPlayback call: a load that fails to open leaves
     /// mpv playback_time at 0, so the fallbacks resume from this instead.
     int64_t lastSeekMs = 0;
-    /// PlaybackSource::timelineOffsetMs of the current load; every position
-    /// read from mpv goes through mediaTimeMs().
-    int64_t timelineOffsetMs = 0;
-    int64_t mediaTimeMs(double mpvTimeSec) const { return this->timelineOffsetMs + int64_t(mpvTimeSec) * 1000; }
     /// bitrate cap armed by tryTranscodeFallback (0 = none): once the transcoder
     /// rescued playback, later reloads stay on it. Cleared when the user picks a
     /// quality (toggleQuality).
