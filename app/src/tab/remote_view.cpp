@@ -257,13 +257,6 @@ private:
     BRLS_BIND(brls::Label, size, "file/misc");
 };
 
-static std::set<std::string> videoExt = {".mp4", ".mkv", ".avi", ".flv", ".mov", ".wmv", ".webm", ".rm",
-    ".rmvb", ".mpg", ".m2ts", ".mts", ".ts"};
-static std::set<std::string> audioExt = {".mp3", ".flac", ".wav", ".ogg", ".m4a", ".aac", ".wma", ".ape"};
-static std::set<std::string> imageExt = {".jpg", ".jpeg", ".png", ".bmp", ".gif", ".webp"};
-static std::set<std::string> playlistExt = {".m3u", ".m3u8"};
-static std::set<std::string> subtitleExt = {".srt", ".ass", ".ssa", ".sub", ".smi"};
-
 /// Shape AudioPlayer::playFiles expects; mpv's tags replace the title once loaded.
 static media::Item fileTrack(const remote::DirEntry& entry) {
     media::Item track;
@@ -288,23 +281,7 @@ public:
         // pinning targets the local storage only (issue #24)
         this->isLocal = (bool)std::dynamic_pointer_cast<remote::Local>(c);
         for (auto& it : this->list) {
-            if (it.type != remote::EntryType::FILE) continue;
-
-            auto pos = it.name.find_last_of('.');
-            if (pos == std::string::npos) continue;
-            std::string ext = it.name.substr(pos);
-            std::transform(ext.begin(), ext.end(), ext.begin(), ::tolower);
-            if (videoExt.count(ext)) {
-                it.type = remote::EntryType::VIDEO;
-            } else if (audioExt.count(ext)) {
-                it.type = remote::EntryType::AUDIO;
-            } else if (imageExt.count(ext)) {
-                it.type = remote::EntryType::IMAGE;
-            } else if (subtitleExt.count(ext)) {
-                it.type = remote::EntryType::SUBTITLE;
-            } else if (playlistExt.count(ext)) {
-                it.type = remote::EntryType::PLAYLIST;
-            }
+            if (it.type == remote::EntryType::FILE) it.type = remote::typeFromName(it.name);
         }
         this->resort();
     }
