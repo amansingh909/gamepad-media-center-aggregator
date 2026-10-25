@@ -9,6 +9,24 @@ prepared with [git-cliff](https://git-cliff.org/) from conventional commits
 hand. For the history of the upstream project this fork is based on, see the
 [Switchfin changelog](https://github.com/dragonflylee/switchfin/blob/dev/CHANGELOG.md).
 
+## [1.4.3] - 2026-10-25
+
+### Added
+
+- USB drives are now readable in Files on the PS4. A plugged-in drive shows up
+  when it holds something, opens, and plays.
+- Netflix-style player controls on the PS4. Left and right on the D-pad seek ten
+  seconds, Triangle opens Audio and Subtitles, Square locks the controls, and
+  Circle hides them and then leaves the player. The lock button moved into the
+  bottom row so it is never more than a press or two away.
+- A "Loading" hint while a folder listing is still running, so a slow USB read
+  no longer looks like the app has frozen.
+
+### Fixed
+
+- Opening the player settings on a video played from a USB drive no longer
+  crashes the app.
+
 ## [1.4.2] - 2026-10-14
 
 ### Fixed
