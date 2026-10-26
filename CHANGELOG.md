@@ -9,6 +9,37 @@ prepared with [git-cliff](https://git-cliff.org/) from conventional commits
 hand. For the history of the upstream project this fork is based on, see the
 [Switchfin changelog](https://github.com/dragonflylee/switchfin/blob/dev/CHANGELOG.md).
 
+## [1.4.6] - 2026-11-10
+
+Merged upstream GMCA 1.3.1 and 1.4.0, so everything in them is in the fork
+too.
+
+### Added
+
+- Audio files picked in Files play in the music player, with Now Playing and
+  the mini-bar. The folder's audio files become the queue.
+- Search and Files can be moved and hidden in the sidebar like libraries. The
+  settings screen for it is now called Sidebar.
+
+### Fixed
+
+- After an in-app update on the PS4, GMCA now empties the update helper's
+  files in the system folder, since the console won't let them be deleted.
+  It tries once per update, instead of retrying every time GMCA opens.
+- Movies and episodes downloaded from Jellyfin or Emby keep their summary,
+  poster, cast and versions offline, and the offline sidebar follows the
+  order you saved.
+- On a movie with several versions, Play and Download use the version picked
+  in the selector, and Jellyfin and Emby versions are labeled with
+  resolution, codec and bitrate.
+- A Plex transcode resumed partway shows the right time, and seeking works
+  anywhere in it.
+- Folders on FTP servers without MLSD (vsftpd, busybox, most routers) open
+  again, and Edit and Delete in a server's menu open their screen again.
+- The video info screen no longer shows tokens or passwords.
+- A server address that doesn't resolve now names the host instead of
+  failing with a generic error.
+
 ## [1.4.5] - 2026-10-25
 
 ### Fixed
