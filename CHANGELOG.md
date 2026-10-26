@@ -9,6 +9,20 @@ prepared with [git-cliff](https://git-cliff.org/) from conventional commits
 hand. For the history of the upstream project this fork is based on, see the
 [Switchfin changelog](https://github.com/dragonflylee/switchfin/blob/dev/CHANGELOG.md).
 
+## [1.4.4] - 2026-10-25
+
+### Added
+
+- Updates install from inside the app on the PS4. When a new version is out,
+  GMCA downloads it, asks before installing, then closes while the PS4 installs
+  it over the old one. Your settings and library are kept. The PS4 shows a
+  notification when it is done, and you open GMCA again. If an install fails,
+  the version you have keeps working and GMCA tells you why the next time it
+  opens.
+
+  This version still has to be installed by hand, because older versions only
+  open the release page. Updates after this one install from the app.
+
 ## [1.4.3] - 2026-10-25
 
 ### Added
