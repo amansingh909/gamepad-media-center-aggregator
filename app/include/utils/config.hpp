@@ -30,7 +30,7 @@ public:
     static void checkUpdate(int delay = 2000, bool showUpToDateDialog = false);
 
     inline static std::shared_ptr<std::atomic_bool> updating = std::make_shared<std::atomic_bool>(true);
-    inline static std::string git_repo = "thcolin/gamepad-media-center-aggregator";
+    inline static std::string git_repo = "amansingh909/gamepad-media-center-aggregator";
 
     /// Real path of the running NRO (argv[0] provided by hbloader or the
     /// forwarder), filled in main(). THIS is the file the auto-update must
@@ -120,6 +120,8 @@ public:
         PLAYER_ASPECT,
         PLAYER_SUBS_FALLBACK,
         PLAYER_SUBTITLE_LANG,  // preferred external-subtitle language: "auto" (= app locale), "off", or a 2-letter code
+        PLAYER_LIGHT_HEVC,     // PS4: skip the loop filter for HEVC video (default on)
+        PLAYER_AUDIO_LANG,     // preferred audio language (mpv alang): "auto" (= app locale), "file" (none) or a 2-letter code
         PLAYER_TV_MODE,
         ALWAYS_ON_TOP,
         SINGLE,
@@ -131,6 +133,9 @@ public:
         REQUEST_TIMEOUT,
         HTTP_PROXY_STATUS,
         HTTP_PROXY,
+        TORRENT_STREAMING,     // torrent streaming on/off (USE_TORRENT builds); on by default
+        TORRENT_UPLOAD_LIMIT,  // torrent upload limit, bytes per second; 1 MB/s by default
+        TORRENT_PORT_MAPPING,  // allow incoming connections (UPnP, NAT-PMP); off by default
 
         /// Library sorts/filters, persisted locally (json object
         /// {itemId: "sortBy,sortOrder,filter"} — /DisplayPreferences does not

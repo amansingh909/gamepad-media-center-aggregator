@@ -90,6 +90,7 @@
     "seasons_title": "Mùa",
     "go_series": "Đến phim bộ",
     "go_season": "Đến mùa",
+    "choose_source": "Chọn nguồn",
     "director": "Đạo diễn",
     "open": "Mở"
   },
@@ -246,6 +247,7 @@
     "playback": {
       "header": "Phát lại",
       "low_quality": "Giải mã chất lượng thấp (sử dụng ít CPU hơn)",
+      "light_hevc": "Giải mã HEVC nhẹ (ít tốn CPU hơn trên PS4)",
       "in_memory_cache": "Bộ nhớ đệm trong RAM",
       "subs_fallback": "Tự động tải phụ đề",
       "subtitle_lang": {
@@ -491,5 +493,54 @@
       "torrents_help": "Những nguồn này là torrent thô. Nền tảng này không có ứng dụng torrent: hãy cài một addon hỗ trợ debrid (Torrentio + Real-Debrid, Comet, MediaFusion…) trong tài khoản Stremio của bạn để có các liên kết phát được.",
       "links_help": "Những nguồn này là liên kết bên ngoài (trình duyệt hoặc dịch vụ của bên thứ ba) không thể phát trực tiếp trong ứng dụng trên nền tảng này."
     }
+  },
+  "torrent": {
+    "setting": {
+      "header": "Torrent",
+      "streaming": "Phát trực tuyến torrent",
+      "upload_limit": "Giới hạn tải lên",
+      "incoming": "Cho phép kết nối đến (UPnP)"
+    },
+    "loading": {
+      "finding_peers": "Đang tìm peer",
+      "getting_info": "Đang lấy thông tin torrent",
+      "buffering": "Đang tải bộ đệm {}%",
+      "peers": "{} peer"
+    },
+    "source": {
+      "seeders": "{} seeder",
+      "unavailable": "{} nguồn torrent hiện không phát được"
+    },
+    "error": {
+      "no_peers": "Không tìm thấy peer cho nguồn này, hãy thử nguồn khác",
+      "no_space": "Không đủ dung lượng lưu trữ",
+      "unplayable": "Không thể phát nguồn này",
+      "off": "Phát trực tuyến torrent đang tắt. Hãy bật trong Cài đặt.",
+      "start": "Không thể khởi động phát trực tuyến torrent: cổng 11470 đang được sử dụng."
+    }
+  },
+  "sources": {
+    "finding": "Đang tìm luồng...",
+    "none_found": "Không tìm thấy luồng nào",
+    "ps4_note": "Có thể không phát được trên PS4",
+    "show_all": "Hiện tất cả",
+    "may_buffer": "Có thể bị giật"
+  },
+  "audio_lang": {
+    "header": "Ngôn ngữ âm thanh",
+    "auto": "Tự động (ngôn ngữ ứng dụng)",
+    "file": "Mặc định của tệp"
+  },
+  "resume": {
+    "min_left": "Còn {} phút",
+    "hours_left": "Còn {} giờ {} phút",
+    "just_now": "Vừa xong",
+    "min_ago": "{} phút trước",
+    "hours_ago": "{} giờ trước",
+    "yesterday": "Hôm qua",
+    "days_ago": "{} ngày trước",
+    "up_next": "Tiếp theo",
+    "start_over": "Xem lại từ đầu",
+    "remove": "Xóa khỏi danh sách"
   }
 }

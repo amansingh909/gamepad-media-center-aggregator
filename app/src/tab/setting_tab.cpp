@@ -15,6 +15,7 @@
 */
 
 #include "tab/setting_tab.hpp"
+#include "view/hdr_options.hpp"
 #include "activity/server_list.hpp"
 #include "activity/hint_activity.hpp"
 #include "activity/changelog_activity.hpp"
@@ -33,6 +34,10 @@
 #endif
 #ifdef __linux__
 #include <borealis/platforms/desktop/steam_deck.hpp>
+#endif
+#ifdef USE_TORRENT
+#include <torrent/torrent_service.hpp>
+#include <torrent/upload_limits.hpp>
 #endif
 
 using namespace brls::literals;  // for _i18n
@@ -146,6 +151,16 @@ void SettingTab::onCreate() {
         conf.setItem(AppConfig::PLAYER_LOW_QUALITY, value);
     });
 
+    // Light HEVC decoding: a PS4 setting, read per file by the on_preloaded hook (no restart)
+#ifdef MPV_LIGHT_HEVC
+    btnLightHevc->init("main/setting/playback/light_hevc"_i18n, MPVCore::LIGHT_HEVC, [&conf](bool value) {
+        MPVCore::LIGHT_HEVC = value;
+        conf.setItem(AppConfig::PLAYER_LIGHT_HEVC, value);
+    });
+#else
+    btnLightHevc->setVisibility(brls::Visibility::GONE);
+#endif
+
     btnSubFallback->init("main/setting/playback/subs_fallback"_i18n, MPVCore::SUBS_FALLBACK, [&conf](bool value) {
         if (MPVCore::SUBS_FALLBACK == value) return;
         MPVCore::SUBS_FALLBACK = value;
@@ -173,6 +188,38 @@ void SettingTab::onCreate() {
         [subLangValues](int selected) {
             AppConfig::instance().setItem(AppConfig::PLAYER_SUBTITLE_LANG, subLangValues[selected]);
         });
+
+    // Preferred audio language (mpv alang): "auto" follows the app language, "file" sets none
+    // (the file's default track), otherwise a 2-letter code; mpv picks that track whenever the
+    // file has one, from the next file on.
+    std::vector<std::string> audioLangValues = {"auto", "file"};
+    std::vector<std::string> audioLangLabels = {"main/audio_lang/auto"_i18n, "main/audio_lang/file"_i18n};
+    for (auto& l : media::subtitleLangCatalog()) {
+        audioLangValues.push_back(l.code);
+        audioLangLabels.push_back(l.display);
+    }
+    auto audioLangIt = std::find(audioLangValues.begin(), audioLangValues.end(), MPVCore::AUDIO_LANG);
+    int audioLangIndex = audioLangIt != audioLangValues.end() ? (int)(audioLangIt - audioLangValues.begin()) : 0;
+    selectorAudioLang->init("main/audio_lang/header"_i18n, audioLangLabels, audioLangIndex,
+        [audioLangValues](int selected) {
+            MPVCore::AUDIO_LANG = audioLangValues[selected];
+            AppConfig::instance().setItem(AppConfig::PLAYER_AUDIO_LANG, MPVCore::AUDIO_LANG);
+            const std::string alang = media::audioLangList(MPVCore::AUDIO_LANG, brls::Application::getLocale());
+            MPVCore::instance().command("set", "alang", alang.c_str());
+        });
+#ifdef MPV_DIAG_LOG
+    // diag builds only, never shipped: the HEVC test switch (English on purpose)
+    {
+        auto* diagVideo = new brls::SelectorCell();
+        diagVideo->init("HEVC test (diag build)",
+            hdr::testLabels(),
+            MPVCore::DIAG_VIDEO_TEST, [](int selected) {
+                MPVCore::DIAG_VIDEO_TEST = selected;
+                MPVCore::instance().restart();
+            });
+        selectorSubLang->getParent()->addView(diagVideo);
+    }
+#endif
 
     btnDirectPlay->init("main/setting/playback/force_directplay"_i18n, MPVCore::FORCE_DIRECTPLAY, [&conf](bool value) {
         if (MPVCore::FORCE_DIRECTPLAY == value) return;
@@ -437,6 +484,31 @@ void SettingTab::onCreate() {
         AppConfig::instance().setItem(AppConfig::HTTP_PROXY, value);
     });
     inputProxy->setVisibility(HTTP::PROXY_STATUS ? brls::Visibility::VISIBLE : brls::Visibility::GONE);
+
+#ifdef USE_TORRENT
+    // Torrents: streaming on/off and the upload limit, applied at once. Off doesn't stop the
+    // server (that can't be undone): it refuses new streams, downloads and prefetches.
+    torrentHeader->setVisibility(brls::Visibility::VISIBLE);
+    torrentBox->setVisibility(brls::Visibility::VISIBLE);
+    btnTorrentStreaming->init("main/torrent/setting/streaming"_i18n, conf.getItem(AppConfig::TORRENT_STREAMING, true),
+        [](bool value) {
+            AppConfig::instance().setItem(AppConfig::TORRENT_STREAMING, value);
+            if (auto* service = torrent::TorrentService::current()) service->setEnabled(value);
+        });
+    selectorTorrentUpload->init("main/torrent/setting/upload_limit"_i18n, torrent::uploadLimitLabels(),
+        torrent::uploadLimitIndex(conf.getItem(AppConfig::TORRENT_UPLOAD_LIMIT, int64_t(torrent::defaultUploadLimit))),
+        [](int selected) {
+            const int bytesPerSec = torrent::uploadLimitOptions[selected].bytesPerSec;
+            AppConfig::instance().setItem(AppConfig::TORRENT_UPLOAD_LIMIT, int64_t(bytesPerSec));
+            if (auto* service = torrent::TorrentService::current()) service->setUploadLimit(bytesPerSec);
+        });
+    // UPnP and NAT-PMP: the router forwards peers to this device; off by default
+    btnTorrentIncoming->init("main/torrent/setting/incoming"_i18n, conf.getItem(AppConfig::TORRENT_PORT_MAPPING, false),
+        [](bool value) {
+            AppConfig::instance().setItem(AppConfig::TORRENT_PORT_MAPPING, value);
+            if (auto* service = torrent::TorrentService::current()) service->setPortMapping(value);
+        });
+#endif
 
     btnSync->init("main/setting/others/sync"_i18n, AppConfig::SYNC, [](bool value) {
         AppConfig::SYNC = value;

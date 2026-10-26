@@ -5,6 +5,7 @@
     transcoder offset in whole seconds.
 */
 
+#include <algorithm>
 #include <cstdlib>
 
 #include "activity/player_view.hpp"
@@ -14,11 +15,18 @@
 #include "api/media/resolution.hpp"
 #include "utils/dialog.hpp"
 #include "utils/misc.hpp"
+#include "utils/playback_end.hpp"
 #include "view/mpv_core.hpp"
 #include "view/player_setting.hpp"
 #include "view/video_view.hpp"
 #include "view/video_profile.hpp"
 #include "view/audio_player.hpp"
+#ifdef USE_TORRENT
+#include <torrent/stremio_source.hpp>
+#include <torrent/torrent_service.hpp>
+#include <torrent/ui_model.hpp>
+#include "view/torrent_loading.hpp"
+#endif
 
 using namespace brls::literals;
 
@@ -41,6 +49,12 @@ PlayerView::PlayerView(const plex::Item& item, const int64_t seekMs, int version
     view->setId("video");
     this->setDimensions(width, height);
     this->addView(view);
+#ifdef USE_TORRENT
+    // over the video, hidden until a torrent source loads; B closes the player
+    this->torrentLoading = new TorrentLoadingView();
+    this->torrentLoading->setCancelAction([]() { VideoView::close(); });
+    this->addView(this->torrentLoading);
+#endif
     view->registerVideoQuality([this](...) { return this->toggleQuality(); });
     // direct-access OSD pickers; &stream lets them switch transcode-side
     // tracks (the Vita default) as well as embedded ones
@@ -56,8 +70,32 @@ PlayerView::PlayerView(const plex::Item& item, const int64_t seekMs, int version
     // dialog (Vita hardware decode can reject a transcoded stream, a server
     // can refuse the raw part)
     view->registerError([this](...) {
+#ifdef USE_TORRENT
+        if (this->explainTorrentError()) return true;
+#endif
         return this->tryDirectPlayFallback() || this->tryPlainUrlFallback() || this->explainRefusal() ||
                this->tryTranscodeFallback();
+    });
+    // An end of file reports no stop (mpv's END_FILE with reason EOF, not MPV_STOP), so the
+    // final position goes here, while itemId is still what ended: the next episode or the close
+    // comes after. A torrent stream the engine gave up on during playback (no data for 60 s, a
+    // full disk) reaches mpv as an early end of the file: its last position, and the player
+    // says why instead of the next episode or a Repeat One reload of a dead torrent.
+    view->registerEnd([this](...) {
+        auto& mpv = MPVCore::instance();
+        // mpv's clock and the file's length are still those of the file that ended
+        const int64_t lastMs = this->mediaTimeMs(mpv.playback_time);
+#ifdef USE_TORRENT
+        if (this->explainTorrentEnd()) {
+            this->reportEnd(lastMs);
+            return true;
+        }
+#endif
+        // the length only when mpv's clock reached mpv's length: mpv also ends a file whose
+        // connection dropped mid-file (Wi-Fi, a dying transcoder), and that one stopped where
+        // it stopped, not watched to the end
+        this->reportEnd(playback::endPositionMs(lastMs, this->durationMs(), mpv.duration, mpv.playback_time));
+        return false;
     });
 
     // Repeat::One: reload from 0 rather than mpv loop-file, which would restart
@@ -95,6 +133,10 @@ PlayerView::PlayerView(const plex::Item& item, const int64_t seekMs, int version
             break;
         case MpvEventEnum::LOADING_END:
             this->reportTimeline("playing", this->mediaTimeMs(mpv.playback_time));
+#ifdef USE_TORRENT
+            // mpv has data (before it had the URL, its events were the previous file's)
+            if (this->warmupReady) this->endTorrentLoading();
+#endif
             break;
         case MpvEventEnum::MPV_STOP:
             this->mpvLoaded = false;
@@ -119,6 +161,10 @@ PlayerView::PlayerView(const plex::Item& item, const int64_t seekMs, int version
             break;
         }
         case MpvEventEnum::UPDATE_PROGRESS:
+#ifdef USE_TORRENT
+            // the clock moves: playback is under way even if LOADING_END was missed
+            if (this->warmupReady && mpv.video_progress > 0) this->endTorrentLoading();
+#endif
             // report cadence: every 10 s
             if (mpv.video_progress % 10 == 0) {
                 this->reportTimeline("playing", this->mediaTimeMs(mpv.video_progress));
@@ -147,11 +193,15 @@ PlayerView::PlayerView(const plex::Item& item, const int64_t seekMs, int version
         }
     });
 
-    this->playMedia(seekMs > 0 ? seekMs : item.viewOffset);
+    // A position from the caller wins; START_OVER plays from 0; with neither, the item's own
+    // position, or for a Stremio title the library's once the detail brings it.
+    this->resumeSaved = seekMs == 0 && item.viewOffset <= 0 &&
+                        AppConfig::instance().backend().type() == media::BackendType::Stremio;
+    this->playMedia(seekMs > 0 ? seekMs : seekMs < 0 ? 0 : item.viewOffset);
 
     // Report stop when application exit
     this->exitSubscribeID = brls::Application::getExitEvent()->subscribe([this]() {
-        if (!MPVCore::instance().isStopped()) this->reportStop();
+        if (!MPVCore::instance().isStopped() && !this->endReported) this->reportStop();
     });
 }
 
@@ -167,9 +217,14 @@ PlayerView::~PlayerView() {
     PlayerSetting::selectedSubtitle = 0;
     PlayerSetting::selectedAudio = 0;
 
-    if (!mpv.isStopped()) this->reportStop();
+    if (!mpv.isStopped() && !this->endReported) this->reportStop();
     // Free the server-side transcode session on exit (else it lingers orphaned).
     this->stopTranscode();
+#ifdef USE_TORRENT
+    // the reader goes; the engine deletes the data after its grace period
+    if (this->warmup) this->warmup->cancel();
+    if (auto* service = torrent::TorrentService::current()) service->watch("");
+#endif
     brls::Application::getExitEvent()->unsubscribe(this->exitSubscribeID);
     brls::Logger::debug("trying delete PlayerView...");
 }
@@ -219,6 +274,7 @@ bool PlayerView::playIndex(int index) {
     this->item = next;
     this->scrobbled = false;
     this->preferredVersion = -1;  // binge: auto-pick the best source for the new episode
+    this->resumeSaved = false;    // the next episode starts at 0
     this->playMedia(0);
     view->setTitie(next.grandparentTitle.empty()
                        ? fmt::format("S{}E{} — {}", next.parentIndex, next.index, next.title)
@@ -228,6 +284,13 @@ bool PlayerView::playIndex(int index) {
 }
 
 void PlayerView::playMedia(const int64_t seekMs) {
+#ifdef USE_TORRENT
+    // Every (re)load starts here (an episode switch, a track change, a replay): a warm-up
+    // still running is for what played before, so it ends now, before `item` or `stream`
+    // can change under its answer (its generation moves on, it's cancelled or released).
+    this->endTorrentLoading();
+#endif
+    this->endReported = false;  // a new load: its own end gets its own report
     // Capture/automation guard: in GMCA_NAV_PIPE mode a stray "Play" from the
     // screenshot harness must never actually start playback — doing so pushes a
     // watch-progress report to the server and pollutes Continue Watching. Bail
@@ -257,6 +320,7 @@ void PlayerView::playMedia(const int64_t seekMs) {
             accessible(this->item.media[this->preferredVersion])) {
             this->stream = this->item.media[this->preferredVersion];
             this->setChapters(this->item.chapters, this->item.duration);
+            this->resumeSaved = false;  // the caller chose the source, and the position with it
             this->startPlayback(seekMs);
             return;
         }
@@ -292,7 +356,12 @@ void PlayerView::playMedia(const int64_t seekMs) {
             }
             this->stream = *chosen;
             this->setChapters(this->item.chapters, this->item.duration);
-            this->startPlayback(seekMs);
+            // the first load of a Stremio title opened with no position: where the library says
+            // it stopped (the detail's viewOffset: 0 when finished, another episode's, or none)
+            int64_t start = seekMs;
+            if (this->resumeSaved && seekMs <= 0) start = this->item.viewOffset;
+            this->resumeSaved = false;
+            this->startPlayback(start);
         },
         [ASYNC_TOKEN](const std::string& ex) {
             ASYNC_RELEASE
@@ -301,6 +370,9 @@ void PlayerView::playMedia(const int64_t seekMs) {
 }
 
 void PlayerView::startPlayback(const int64_t seekMs, bool forceDirect, int64_t forceBitrate) {
+#ifdef USE_TORRENT
+    if (this->warmUpTorrent(seekMs, forceDirect, forceBitrate)) return;
+#endif
     // We are about to (re)load: mpv will drop any sub-add'ed tracks. Clear the
     // loaded flag so a subtitle fetch landing mid-load waits for MPV_LOADED to
     // re-add. (External subtitles are resolved AFTER the playback task is queued
@@ -521,22 +593,40 @@ void PlayerView::reportTimeline(const std::string& state, int64_t timeMs) {
     media::PlayState st = state == "paused"    ? media::PlayState::Paused
                           : state == "stopped" ? media::PlayState::Stopped
                                                : media::PlayState::Playing;
-    AppConfig::instance().backend().reportProgress(this->itemId, st, timeMs, this->item.duration, this->sessionId);
+    AppConfig::instance().backend().reportProgress(this->itemId, st, timeMs, this->durationMs(), this->sessionId);
 }
 
 void PlayerView::reportStop() {
     int64_t timeMs = this->mediaTimeMs(MPVCore::instance().playback_time);
-    this->reportTimeline("stopped", timeMs);
+    // the scrobble first: the backends' requests run in order on one worker, so the stop's save
+    // (Stremio: this episode watched to its end) comes after a mark that would move the show on
     this->maybeScrobble(timeMs);
+    this->reportTimeline("stopped", timeMs);
     brls::Logger::debug("PlayerView reportStop {}", this->sessionId);
+}
+
+void PlayerView::reportEnd(int64_t timeMs) {
+    if (this->endReported) return;
+    this->endReported = true;
+    brls::Logger::info("PlayerView: {} ended at {} ms", this->itemId, timeMs);
+    this->maybeScrobble(timeMs);  // first, as in reportStop()
+    this->reportTimeline("stopped", timeMs);
 }
 
 void PlayerView::maybeScrobble(int64_t timeMs) {
     // state=stopped is NOT enough to mark as watched: explicit scrobble required
-    if (this->scrobbled || this->item.duration <= 0) return;
-    if (double(timeMs) / double(this->item.duration) < SCROBBLE_THRESHOLD) return;
+    const int64_t duration = this->durationMs();
+    if (this->scrobbled || duration <= 0) return;
+    if (double(timeMs) / double(duration) < SCROBBLE_THRESHOLD) return;
     this->scrobbled = true;
     AppConfig::instance().backend().markWatched(this->itemId);
+}
+
+int64_t PlayerView::durationMs() const {
+    if (this->item.duration > 0) return this->item.duration;
+    // Stremio episodes carry no length: the file's, once mpv knows it
+    const int64_t mpvSecs = MPVCore::instance().duration;
+    return mpvSecs > 0 ? mpvSecs * 1000 : 0;
 }
 
 bool PlayerView::toggleQuality() {
@@ -574,3 +664,163 @@ bool PlayerView::toggleQuality() {
     brls::Application::pushActivity(new brls::Activity(dropdown));
     return true;
 }
+
+#ifdef USE_TORRENT
+brls::View* PlayerView::getDefaultFocus() {
+    if (this->torrentLoading && this->torrentLoading->isLoading()) return this->torrentLoading;
+    return brls::Box::getDefaultFocus();
+}
+
+bool PlayerView::warmUpTorrent(const int64_t seekMs, bool forceDirect, int64_t forceBitrate) {
+    const std::string url = this->stream.parts.empty() ? std::string() : this->stream.parts.front().key;
+    auto* service = torrent::TorrentService::current();
+    torrent::StreamRequest req;
+    if (!torrent::parseLocalStreamUrl(url, req)) {
+        // another kind of source (an episode switch can change it): nothing of a torrent stays
+        this->endTorrentLoading();
+        this->warmedUrl.clear();
+        this->view->setSpeedSuffix(nullptr);
+        if (service) service->watch("");
+        return false;
+    }
+    if (this->warmupReady && url == this->warmupUrl) return false;  // its start is in: play it
+
+    this->endTorrentLoading();  // a previous torrent's warm-up, if any
+    this->warmupUrl = url;
+    if (!service || service->availability() != torrent::Availability::Ready) {
+        auto a = service ? service->availability() : torrent::Availability::Stopped;
+        Dialog::show(brls::getStr(torrent::availabilityKey(a)), []() { VideoView::close(); });
+        return true;
+    }
+    service->watch(req.infoHash);
+    // the centre spinner's speed label also shows the peers while the torrent plays
+    this->view->setSpeedSuffix([]() -> std::string {
+        auto* s = torrent::TorrentService::current();
+        if (!s) return "";
+        torrent::Stats st = s->snapshot();
+        return st.known ? "  \xC2\xB7  " + brls::getStr("main/torrent/loading/peers", st.peers) : "";
+    });
+    // Already warmed up in this player session: a quality, audio or subtitle switch, or a
+    // replay, reloads the same file. Straight to mpv, without the loading screen or a new
+    // wait for [0, 4 MiB); the centre spinner (with the peers) covers any wait for data.
+    if (url == this->warmedUrl) return false;
+    this->warmedUrl.clear();  // another torrent: the last one's start no longer counts
+
+    const int generation = ++this->warmupGeneration;
+    ASYNC_RETAIN
+    // `done` runs once, maybe inside warmUp() itself, maybe on the warm-up's thread (which
+    // also destroys it): it only hands the answer to the UI thread
+    this->warmup = service->warmUp(req, torrent::startBufferBytes,
+        [ASYNC_TOKEN, generation, seekMs, forceDirect, forceBitrate](torrent::Status status) {
+            brls::sync([ASYNC_TOKEN, generation, seekMs, forceDirect, forceBitrate, status]() {
+                ASYNC_RELEASE
+                if (generation != this->warmupGeneration) return;  // a newer load, or it ended
+                if (status == torrent::Status::Ok) {
+                    this->warmupReady = true;
+                    this->warmedUrl = this->warmupUrl;
+                    this->startPlayback(seekMs, forceDirect, forceBitrate);
+                    return;
+                }
+                this->endTorrentLoading();
+                if (status == torrent::Status::Stopped) {
+                    // not a cancel of ours (that changed the generation): torrents went off,
+                    // or the app is closing, which needs no message
+                    auto* s = torrent::TorrentService::current();
+                    auto a = s ? s->availability() : torrent::Availability::Stopped;
+                    if (a == torrent::Availability::Stopped) return;
+                    Dialog::show(brls::getStr(torrent::availabilityKey(a)), []() { VideoView::close(); });
+                    return;
+                }
+                Dialog::show(brls::getStr(torrent::errorKey(status)), []() { VideoView::close(); });
+            });
+        });
+    this->torrentLoading->startLoading(this->item, this->warmup);
+    // not from a dialog or an activity over the player: onChildFocusGained() takes the
+    // focus over once it comes back to the player
+    if (this->focusInPlayer()) brls::Application::giveFocus(this->torrentLoading);
+    // No subtitle fetch here: brls::async is one FIFO thread, and the fetch (up to 15 s per
+    // subtitles addon) would sit ahead of resolvePlayback once the start is in.
+    // startPlayback() queues it after the playback task, as for any source.
+    return true;
+}
+
+void PlayerView::endTorrentLoading() {
+    if (this->warmup) {
+        ++this->warmupGeneration;  // its answer, if it hasn't come yet, no longer counts
+        // a start still buffering is cancelled: its wait ends and its reader goes at once
+        torrent::endWarmup(*this->warmup, this->warmupReady);
+        this->warmup.reset();
+    }
+    this->warmupReady = false;
+    if (this->torrentLoading && this->torrentLoading->isLoading()) {
+        // only take the focus back from the loading screen itself, never from a dialog
+        // or an activity over the player
+        const bool focused = brls::Application::getCurrentFocus() == this->torrentLoading;
+        this->torrentLoading->stopLoading();
+        if (focused) brls::Application::giveFocus(this->view);
+    }
+}
+
+void PlayerView::onChildFocusGained(brls::View* directChild, brls::View* focusedView) {
+    brls::Box::onChildFocusGained(directChild, focusedView);
+    if (!this->torrentLoading || !this->torrentLoading->isLoading() || directChild == this->torrentLoading) return;
+    // On the next frame, never from inside this focus change: VideoView's own
+    // onChildFocusGained() runs on after this returns and, with its OSD locked, gives the
+    // focus back to its lock box, which would call this again, and so on until the stack
+    // overflows. From brls::sync, the redirect moves the focus out of VideoView once, and
+    // nothing in the loading view's chain calls it again.
+    if (this->focusRedirectPending) return;
+    this->focusRedirectPending = true;
+    ASYNC_RETAIN
+    brls::sync([ASYNC_TOKEN]() {
+        ASYNC_RELEASE
+        this->focusRedirectPending = false;
+        // still loading, and the focus still on the player, not on something opened over it
+        if (this->torrentLoading->isLoading() && this->focusInPlayer() &&
+            brls::Application::getCurrentFocus() != this->torrentLoading)
+            brls::Application::giveFocus(this->torrentLoading);
+    });
+}
+
+bool PlayerView::focusInPlayer() {
+    for (brls::View* v = brls::Application::getCurrentFocus(); v; v = v->hasParent() ? v->getParent() : nullptr)
+        if (v == this) return true;
+    return false;
+}
+
+bool PlayerView::explainTorrentError() {
+    torrent::StreamRequest req;
+    if (this->stream.parts.empty() || !torrent::parseLocalStreamUrl(this->stream.parts.front().key, req))
+        return false;
+    this->endTorrentLoading();
+    auto* service = torrent::TorrentService::current();
+    const torrent::Status engineError = service ? service->snapshot().error : torrent::Status::Ok;
+    const std::string reason = MPVCore::instance().getError();
+    brls::Logger::error("PlayerView: torrent playback failed ({})", reason);
+    auto dialog = new brls::Dialog(brls::getStr(torrent::playerErrorKey(reason, engineError)));
+    dialog->addButton("hints/back"_i18n, []() { VideoView::close(true); });
+    dialog->open();
+    return true;
+}
+
+bool PlayerView::explainTorrentEnd() {
+    torrent::StreamRequest req;
+    if (this->stream.parts.empty() || !torrent::parseLocalStreamUrl(this->stream.parts.front().key, req))
+        return false;
+    auto& mpv = MPVCore::instance();
+    // mpv's clock and the file's length are still those of the file that ended
+    if (!torrent::endedEarly(mpv.duration, mpv.playback_time)) return false;  // it played to its end
+    this->endTorrentLoading();
+    mpv.stop();
+    // the engine's error for this torrent, kept by the service after the engine dropped it;
+    // none means the stream stalled
+    auto* service = torrent::TorrentService::current();
+    const torrent::Status engineError = service ? service->snapshot().error : torrent::Status::Ok;
+    brls::Logger::error("PlayerView: torrent stream ended at {:.0f} s of {} s (engine: {})", mpv.playback_time,
+        mpv.duration, torrent::statusName(engineError));
+    auto dialog = new brls::Dialog(brls::getStr(torrent::endErrorKey(engineError)));
+    dialog->addButton("hints/back"_i18n, []() { VideoView::close(true); });
+    dialog->open();
+    return true;
+}
+#endif

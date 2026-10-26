@@ -90,6 +90,7 @@
     "seasons_title": "シーズン",
     "go_series": "番組へ移動",
     "go_season": "シーズンへ移動",
+    "choose_source": "ソースを選択",
     "director": "監督",
     "open": "表示"
   },
@@ -246,6 +247,7 @@
     "playback": {
       "header": "再生",
       "low_quality": "低品質デコード (CPU 使用率が低い)",
+      "light_hevc": "HEVC の軽量デコード (PS4 の CPU 負荷を軽減)",
       "in_memory_cache": "インメモリーキャッシュ",
       "subs_fallback": "字幕の自動読み込み",
       "subtitle_lang": {
@@ -491,5 +493,54 @@
       "torrents_help": "これらのソースは生の Torrent です。このプラットフォームには Torrent クライアントがありません。再生可能なリンクを取得するには、Stremio アカウントにデブリッド対応アドオン (Torrentio + Real-Debrid、Comet、MediaFusion…) をインストールしてください。",
       "links_help": "これらのソースは外部リンク (ブラウザーまたはサードパーティサービス) であり、このプラットフォームのアプリで直接再生することはできません。"
     }
+  },
+  "torrent": {
+    "setting": {
+      "header": "トレント",
+      "streaming": "トレントストリーミング",
+      "upload_limit": "アップロード上限",
+      "incoming": "外部からの接続を許可 (UPnP)"
+    },
+    "loading": {
+      "finding_peers": "ピアを検索中",
+      "getting_info": "トレント情報を取得中",
+      "buffering": "バッファリング中 {}%",
+      "peers": "ピア {}"
+    },
+    "source": {
+      "seeders": "シーダー {}",
+      "unavailable": "トレントソース {} 件は現在再生できません"
+    },
+    "error": {
+      "no_peers": "このソースのピアが見つかりません。別のソースをお試しください",
+      "no_space": "ストレージの空き容量が不足しています",
+      "unplayable": "このソースは再生できません",
+      "off": "トレントストリーミングはオフです。設定でオンにしてください。",
+      "start": "トレントストリーミングを開始できませんでした: ポート 11470 は使用中です。"
+    }
+  },
+  "sources": {
+    "finding": "ストリームを検索中...",
+    "none_found": "ストリームが見つかりません",
+    "ps4_note": "PS4 では再生できない場合があります",
+    "show_all": "すべて表示",
+    "may_buffer": "読み込みで止まる場合あり"
+  },
+  "audio_lang": {
+    "header": "音声の言語",
+    "auto": "自動（アプリの言語）",
+    "file": "ファイルの既定"
+  },
+  "resume": {
+    "min_left": "残り {} 分",
+    "hours_left": "残り {} 時間 {} 分",
+    "just_now": "たった今",
+    "min_ago": "{} 分前",
+    "hours_ago": "{} 時間前",
+    "yesterday": "昨日",
+    "days_ago": "{} 日前",
+    "up_next": "次に再生",
+    "start_over": "最初から再生",
+    "remove": "リストから削除"
   }
 }

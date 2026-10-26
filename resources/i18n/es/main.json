@@ -90,6 +90,7 @@
     "seasons_title": "Temporadas",
     "go_series": "Ir a la serie",
     "go_season": "Ir a la temporada",
+    "choose_source": "Elegir fuente",
     "director": "Dirección",
     "open": "Abrir"
   },
@@ -246,6 +247,7 @@
     "playback": {
       "header": "Reproducción",
       "low_quality": "Decodificación de baja calidad (menor uso de CPU)",
+      "light_hevc": "Decodificación HEVC ligera (menos CPU en PS4)",
       "in_memory_cache": "Caché en memoria",
       "subs_fallback": "Cargar subtítulos automáticamente",
       "subtitle_lang": {
@@ -491,5 +493,54 @@
       "torrents_help": "Estas fuentes son torrents sin procesar. Esta plataforma no tiene cliente torrent: instala un addon con debrid (Torrentio + Real-Debrid, Comet, MediaFusion…) en tu cuenta de Stremio para obtener enlaces reproducibles.",
       "links_help": "Estas fuentes son enlaces externos (navegador o servicio de terceros) que no se pueden reproducir directamente en la aplicación en esta plataforma."
     }
+  },
+  "torrent": {
+    "setting": {
+      "header": "Torrents",
+      "streaming": "Streaming de torrents",
+      "upload_limit": "Límite de subida",
+      "incoming": "Permitir conexiones entrantes (UPnP)"
+    },
+    "loading": {
+      "finding_peers": "Buscando pares",
+      "getting_info": "Obteniendo información del torrent",
+      "buffering": "Cargando {}%",
+      "peers": "{} pares"
+    },
+    "source": {
+      "seeders": "{} semillas",
+      "unavailable": "{} fuente(s) torrent no se pueden reproducir ahora"
+    },
+    "error": {
+      "no_peers": "No se encontraron pares para esta fuente, prueba otra",
+      "no_space": "No hay suficiente espacio de almacenamiento",
+      "unplayable": "Esta fuente no se puede reproducir",
+      "off": "El streaming de torrents está desactivado. Actívalo en Ajustes.",
+      "start": "No se pudo iniciar el streaming de torrents: el puerto 11470 está en uso."
+    }
+  },
+  "sources": {
+    "finding": "Buscando streams...",
+    "none_found": "No se encontraron streams",
+    "ps4_note": "Puede que no se reproduzca en PS4",
+    "show_all": "Mostrar todo",
+    "may_buffer": "Puede pausarse para cargar"
+  },
+  "audio_lang": {
+    "header": "Idioma del audio",
+    "auto": "Automático (idioma de la app)",
+    "file": "Predeterminado del archivo"
+  },
+  "resume": {
+    "min_left": "Quedan {} min",
+    "hours_left": "Quedan {} h {} min",
+    "just_now": "Ahora mismo",
+    "min_ago": "Hace {} min",
+    "hours_ago": "Hace {} h",
+    "yesterday": "Ayer",
+    "days_ago": "Hace {} días",
+    "up_next": "A continuación",
+    "start_over": "Empezar de nuevo",
+    "remove": "Quitar de la lista"
   }
 }

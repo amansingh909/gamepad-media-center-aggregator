@@ -13,12 +13,23 @@
 #include "utils/misc.hpp"
 #include "utils/dialog.hpp"
 #include "utils/download.hpp"
+#include "utils/download_end.hpp"
 #include "utils/rating.hpp"
 #include "utils/media_source.hpp"
 #include "utils/offline_library.hpp"
 #include "utils/network_state.hpp"
 #include "tab/remote_view.hpp"
+#include "api/stremio/resume.hpp"
+#include "api/stremio/resume_card.hpp"
+#include "api/stremio/source_order.hpp"
 #include <fmt/ranges.h>
+#ifdef USE_TORRENT
+#include <chrono>
+#include <torrent/buffer_hint.hpp>
+#include <torrent/stremio_source.hpp>
+#include <torrent/torrent_service.hpp>
+#include <torrent/ui_model.hpp>
+#endif
 
 using namespace brls::literals;  // for _i18n
 
@@ -75,12 +86,45 @@ public:
         NVGcolor c = brls::Application::getTheme().getColor("color/app");
         c.a = 0.22f;  // light orange tint
         this->setBackgroundColor(c);
+#ifdef USE_TORRENT
+        if (this->focusChanged) this->focusChanged(true);
+#endif
     }
     void onFocusLost() override {
         brls::Box::onFocusLost();
         this->setBackgroundColor(nvgRGBA(0, 0, 0, 0));
+#ifdef USE_TORRENT
+        if (this->focusChanged) this->focusChanged(false);
+#endif
     }
+#ifdef USE_TORRENT
+    std::function<void(bool)> focusChanged;  // torrent rows: prefetch on focus
+#endif
 };
+
+/// An episode opened as a source page ("Choose source") reads as that episode: the show's name,
+/// "S1 E2 . title" (as the Continue Watching cards say it), the show's poster and backdrop when
+/// the episode has none of its own, and the year it aired. Display only: the page keeps the real
+/// item for playback and downloads.
+media::Item forDisplay(const media::Item& in) {
+    if (in.type != media::mediaTypeEpisode) return in;
+    media::Item out = in;
+    if (in.parentIndex > 0 || in.index > 0) {
+        std::string label = stremio::episodeLabel(in.parentIndex, in.index, in.title);
+        out.title = in.grandparentTitle.empty() ? label : in.grandparentTitle + "  \xC2\xB7  " + label;
+    }
+    if (!in.grandparentThumb.empty()) out.thumb = in.grandparentThumb;
+    else if (!in.parentThumb.empty()) out.thumb = in.parentThumb;
+    if (out.art.empty()) out.art = in.grandparentArt;
+    if (out.year == 0 && in.originallyAvailableAt.size() >= 4) out.year = std::atoi(in.originallyAvailableAt.substr(0, 4).c_str());
+    return out;
+}
+
+#ifdef USE_TORRENT
+double secondsNow() {
+    return std::chrono::duration<double>(std::chrono::steady_clock::now().time_since_epoch()).count();
+}
+#endif
 
 }  // namespace
 
@@ -102,8 +146,11 @@ MediaMovie::MediaMovie(const plex::Item& item, bool localContext)
         this->btnSource->setVisibility(brls::Visibility::GONE);
     }
 
-    this->labelTitle->setText(item.title);
-    Image::load(this->imagePoster, item.thumb, 325);
+    {
+        media::Item shown = forDisplay(item);
+        this->labelTitle->setText(shown.title);
+        Image::load(this->imagePoster, shown.thumb, 325);
+    }
     if (brls::Application::getThemeVariant() == brls::ThemeVariant::LIGHT)
         this->imageFade->setImageFromRes("img/fade-bottom-light.png");
     this->people->registerCell("Cell", MediaCardCell::create);
@@ -187,6 +234,10 @@ MediaMovie::~MediaMovie() {
     Image::cancel(this->imageLogo);
     Image::cancel(this->imagePoster);
     Image::cancel(this->imageBackdrop);
+#ifdef USE_TORRENT
+    this->prefetchTimer.stop();
+    this->peersTimer.stop();
+#endif
 }
 
 void MediaMovie::updateDownloadButton() {
@@ -270,8 +321,15 @@ void MediaMovie::updateWatchlistButton() {
 }
 
 void MediaMovie::doRequest() {
-    int64_t seconds = MPVCore::instance().playback_time;
+    // the player closed: the next play from this page starts where it stopped, or from the start
+    // once the title was watched to its end (mpv keeps its last position, the file's length,
+    // after a file played to its end; Stremio would hand it to the stream as start=)
+    const MPVCore& mpv = MPVCore::instance();
+    int64_t seconds = stremio::replayPositionMs(int64_t(mpv.playback_time) * 1000, mpv.duration * 1000) / 1000;
     this->viewOffsetMs = seconds * 1000;
+    // the item's own position too: PlayerView takes it when it is given 0 (playSource), and it
+    // still held where the title stood when this page opened
+    this->movieItem.viewOffset = this->viewOffsetMs;
     this->btnPlay->setText(seconds > 0 ? misc::sec2Time(seconds) : "main/media/play"_i18n);
 }
 
@@ -290,6 +348,9 @@ void MediaMovie::doMovie() {
         }
     }
 
+    // the source list fills only once every stream addon has answered: say so meanwhile
+    const bool stremio = AppConfig::instance().backend().type() == media::BackendType::Stremio;
+    if (stremio) this->showFindingStreams();
     ASYNC_RETAIN
     // detail (full: streams/chapters/markers)
     AppConfig::instance().backend().getItemDetail(
@@ -298,16 +359,37 @@ void MediaMovie::doMovie() {
             ASYNC_RELEASE
             this->applyMovie(item);
         },
-        [ASYNC_TOKEN](const std::string& ex) {
+        [ASYNC_TOKEN, stremio](const std::string& ex) {
             ASYNC_RELEASE
             this->peopleHeader->setVisibility(brls::Visibility::GONE);
             this->people->setVisibility(brls::Visibility::GONE);
+            if (!stremio) return;
+            // no detail, so no streams: the "No streams found" notice instead of the spinner
+            brls::Logger::warning("MediaMovie detail: {}", ex);
+            this->buildSources(media::Item{});
+            if (this->firstSourceRow) brls::Application::giveFocus(this->firstSourceRow);
         });
 }
 
 void MediaMovie::playSource(int mediaIndex) {
+#ifdef USE_TORRENT
+    // back on this row after the player closes, it prefetches again, which keeps the torrent
+    // in the engine for a replay instead of dropping it 30 s after the player went
+    if (mediaIndex >= 0 && mediaIndex < (int)this->movieItem.media.size() &&
+        this->movieItem.media[mediaIndex].playable())
+        this->prefetchGate.forget(this->movieItem.media[mediaIndex].parts.front().key);
+#endif
     // mediaIndex -1 = best (first accessible); otherwise the chosen source row.
     PlayerView* view = new PlayerView(this->movieItem, this->viewOffsetMs, mediaIndex);
+    if (this->movieItem.type == media::mediaTypeEpisode) {
+        // an episode chosen from its source list: titled and wired to its show like a season's
+        const media::Item& e = this->movieItem;
+        view->setTitie(e.grandparentTitle.empty()
+                           ? fmt::format("S{}E{} — {}", e.parentIndex, e.index, e.title)
+                           : fmt::format("{} · S{}E{} — {}", e.grandparentTitle, e.parentIndex, e.index, e.title));
+        if (!e.grandparentRatingKey.empty()) view->setSeries(e.grandparentRatingKey);
+        return;
+    }
     view->setTitie(this->movieItem.year ? fmt::format("{} ({})", this->movieItem.title, this->movieItem.year)
                                         : this->movieItem.title);
 }
@@ -327,11 +409,90 @@ void MediaMovie::downloadSource(int mediaIndex) {
         brls::Application::notify("main/download/downloading"_i18n);
         return;
     }
-    dm.addDownload(this->movieItem, m.parts.front().key);
+    // if it fails, the next rows of the list are tried, in its order (3 sources in all)
+    std::vector<bool> playable;
+    for (auto& s : this->movieItem.media) playable.push_back(s.playable());
+    std::vector<std::string> fallbacks;
+    for (size_t f : fallbackSources(playable, size_t(mediaIndex)))
+        fallbacks.push_back(this->movieItem.media[f].parts.front().key);
+    dm.addDownload(this->movieItem, m.parts.front().key, fallbacks);
     brls::Application::notify("main/download/queued"_i18n);
 }
 
+#ifdef USE_TORRENT
+void MediaMovie::torrentRowFocus(const std::string& url, bool focused) {
+    if (!focused) {
+        if (this->prefetchGate.blur(url)) this->prefetchTimer.stop();
+        return;
+    }
+    this->prefetchGate.focus(url, secondsNow());
+    this->prefetchTimer.stop();
+    this->prefetchTimer.setEndCallback([this](bool finished) {
+        if (!finished) return;  // stopped: the focus moved on
+        const std::string due = this->prefetchGate.due(secondsNow());
+        auto* service = torrent::TorrentService::current();
+        torrent::StreamRequest req;
+        if (due.empty() || !service || !torrent::parseLocalStreamUrl(due, req)) return;
+        service->prefetch(req);
+    });
+    this->prefetchTimer.start(1000);
+}
+
+void MediaMovie::torrentRowPeers(const std::string& url, brls::Label* label, int seeders, bool focused) {
+    this->peersTimer.stop();
+    auto show = [label, seeders](const torrent::Stats& live) {
+        const torrent::RowPeers p = torrent::rowPeers(seeders, live);
+        brls::View* pill = label->getParent();
+        if (!p.key[0]) {
+            pill->setVisibility(brls::Visibility::GONE);
+            return;
+        }
+        label->setText(brls::getStr(p.key, p.count));
+        pill->setVisibility(brls::Visibility::VISIBLE);
+    };
+    torrent::StreamRequest req;
+    if (!focused || !torrent::TorrentService::current() || !torrent::parseLocalStreamUrl(url, req)) {
+        show(torrent::Stats{});  // the addon's seeders again
+        return;
+    }
+    const std::string hash = req.infoHash;
+    this->peersTimer.setCallback([show, hash]() {
+        auto* service = torrent::TorrentService::current();
+        if (!service) return;
+        // the player watches its own torrent while it plays: ask for this one again each time
+        // (watch() of the same hash costs nothing), then read what the worker last saw
+        service->watch(hash);
+        show(service->snapshot());
+    });
+    this->peersTimer.start(1000);
+}
+#endif
+
+void MediaMovie::showFindingStreams() {
+    this->sourcesBox->clearViews();
+    auto* row = new brls::Box();
+    row->setAxis(brls::Axis::ROW);
+    row->setAlignItems(brls::AlignItems::CENTER);
+    row->setHeight(46);
+    row->setPaddingLeft(12);
+    auto* spinner = new brls::ProgressSpinner();
+    spinner->setWidth(24);
+    spinner->setHeight(24);
+    spinner->setMarginRight(12);
+    spinner->animate(true);
+    row->addView(spinner);
+    row->addView(sourceLabel("main/sources/finding"_i18n, 15, brls::Application::getTheme().getColor("font/grey")));
+    this->sourcesBox->addView(row);
+    this->sourcesBox->setVisibility(brls::Visibility::VISIBLE);
+}
+
 void MediaMovie::buildSources(const media::Item& item) {
+#ifdef USE_TORRENT
+    // the rows go: a pending prefetch, or a peers refresh, must not reach a row that no longer exists
+    this->prefetchTimer.stop();
+    this->peersTimer.stop();
+#endif
+    this->expandFocus = nullptr;
     this->sourcesBox->clearViews();
     this->sourcesBox->setVisibility(brls::Visibility::GONE);
     this->noticeBox->clearViews();
@@ -400,6 +561,12 @@ void MediaMovie::buildSources(const media::Item& item) {
         icon->setMarginBottom(10);
         notice->addView(icon);
 
+        auto* noneFound = sourceLabel("main/sources/none_found"_i18n, 17, textCol);
+        noneFound->setWidthPercentage(100);
+        noneFound->setHorizontalAlign(brls::HorizontalAlign::CENTER);
+        noneFound->setMarginBottom(6);
+        notice->addView(noneFound);
+
         auto* msg = sourceLabel("main/stremio/source/none"_i18n, 14, textCol);
         msg->setSingleLine(false);
         msg->setWidthPercentage(100);
@@ -422,20 +589,47 @@ void MediaMovie::buildSources(const media::Item& item) {
     // Playable rows first (ordered best-first by the backend). A = play this
     // release, X = download it. Capped so the list never buries the synopsis.
     const int MAX_PLAYABLE_ROWS = 12;
+    const int rowCap = this->showAllSources ? playable : MAX_PLAYABLE_ROWS;
     int shown = 0;
     for (size_t i = 0; i < item.media.size(); i++) {
         const media::Media& m = item.media[i];
         if (!m.playable()) continue;
-        if (shown >= MAX_PLAYABLE_ROWS) break;
+        if (shown >= rowCap) break;
         std::vector<brls::View*> cells;
         // quality chip
         cells.push_back(sourcePill(m.videoResolution.empty() ? "SD" : m.videoResolution, pillBg, textCol));
-        // status chip: cached debrid (gold) / uncached debrid / direct
+        // status chip: torrent (gold) / cached debrid (gold) / uncached debrid / direct
+#ifdef USE_TORRENT
+        const bool torrentRow = m.kind == media::SourceKind::Torrent;
+        if (torrentRow)
+            cells.push_back(sourcePill("main/stremio/source/torrent_badge"_i18n, goldBg, goldFg));
+        else
+#endif
         if (m.kind == media::SourceKind::Debrid)
             cells.push_back(m.cached ? sourcePill("main/stremio/source/cached"_i18n, goldBg, goldFg)
                                      : sourcePill("main/stremio/source/uncached"_i18n, pillBg, greyCol));
         else
             cells.push_back(sourcePill("main/stremio/source/direct"_i18n, pillBg, textCol));
+#ifdef USE_TORRENT
+        // the seeders the addon printed (a torrent with none rarely starts); while the row has the
+        // focus, the engine's peers once it has some (torrentRowPeers)
+        brls::Label* peersLabel = nullptr;
+        if (torrentRow) {
+            brls::Box* pill = sourcePill(brls::getStr("main/torrent/source/seeders", m.seeders), pillBg, textCol);
+            peersLabel = static_cast<brls::Label*>(pill->getChildren().front());
+            if (m.seeders < 0) pill->setVisibility(brls::Visibility::GONE);
+            cells.push_back(pill);
+            // its bitrate clearly above what the downloads have been giving: it would stop to buffer
+            auto* service = torrent::TorrentService::current();
+            if (service && torrent::mayBuffer(m.sizeBytes, item.duration, service->recentDownloadRate()))
+                cells.push_back(sourcePill("main/sources/may_buffer"_i18n, pillBg, greyCol));
+        }
+#endif
+#ifdef __PS4__
+        // HEVC, AV1 and 10-bit decode in software on the console and are often not drawn
+        if (stremio::heavyOnPs4(m.videoCodec, m.tenBit, m.videoResolution, stremio::ps4LightHevcPlays))
+            cells.push_back(sourcePill("main/sources/ps4_note"_i18n, pillBg, greyCol));
+#endif
         // source name (grows) + meta (codec · size)
         cells.push_back(sourceLabel(m.label, 15, textCol, true));
         if (!m.detail.empty()) cells.push_back(sourceLabel(m.detail, 13, greyCol));
@@ -448,7 +642,18 @@ void MediaMovie::buildSources(const media::Item& item) {
         cells.push_back(dl);
 
         SourceRow* row = makeRow(cells);
+        if (shown == MAX_PLAYABLE_ROWS) this->expandFocus = row;  // the first one "+N more" hid
         int idx = (int)i;
+#ifdef USE_TORRENT
+        if (torrentRow) {
+            std::string url = m.parts.front().key;
+            const int seeders = m.seeders;
+            row->focusChanged = [this, url, peersLabel, seeders](bool focused) {
+                this->torrentRowFocus(url, focused);
+                this->torrentRowPeers(url, peersLabel, seeders, focused);
+            };
+        }
+#endif
         row->registerClickAction([this, idx](brls::View*) {
             this->playSource(idx);
             return true;
@@ -463,17 +668,41 @@ void MediaMovie::buildSources(const media::Item& item) {
         shown++;
     }
     if (playable > shown) {
-        auto* l = sourceLabel(fmt::format(fmt::runtime("main/stremio/source/more"_i18n), playable - shown), 13, greyCol);
-        l->setMarginBottom(6);
-        this->sourcesBox->addView(l);
+        // a row of its own in the D-pad chain: A shows every source in place
+        SourceRow* more = makeRow({sourceLabel(
+            fmt::format(fmt::runtime("main/stremio/source/more"_i18n), playable - shown), 14, greyCol, true)});
+        more->registerClickAction([this](brls::View*) {
+            // on the next frame: the rebuild destroys this row
+            ASYNC_RETAIN
+            brls::sync([ASYNC_TOKEN]() {
+                ASYNC_RELEASE
+                this->showAllSources = true;
+                this->buildSources(this->movieItem);
+                if (this->expandFocus) brls::Application::giveFocus(this->expandFocus);
+            });
+            return true;
+        });
+        more->updateActionHint(brls::BUTTON_A, "main/sources/show_all"_i18n);
     }
 
     // Non-playable groups: one explanatory, selectable summary row each (A = why).
     if (torrents > 0) {
+        // with the engine built in, the grey row says why torrents can't play right now
+#ifdef USE_TORRENT
+        const std::string torrentsLabel = brls::getStr("main/torrent/source/unavailable", torrents);
+#else
+        const std::string torrentsLabel = fmt::format(fmt::runtime("main/stremio/source/torrents"_i18n), torrents);
+#endif
         SourceRow* row = makeRow({sourcePill("main/stremio/source/torrent_badge"_i18n, pillBg, greyCol),
-            sourceLabel(fmt::format(fmt::runtime("main/stremio/source/torrents"_i18n), torrents), 14, greyCol, true)});
+            sourceLabel(torrentsLabel, 14, greyCol, true)});
         row->registerClickAction([](brls::View*) {
+#ifdef USE_TORRENT
+            auto* service = torrent::TorrentService::current();
+            Dialog::show(brls::getStr(
+                torrent::availabilityKey(service ? service->availability() : torrent::Availability::Stopped)));
+#else
             Dialog::show("main/stremio/source/torrents_help"_i18n);
+#endif
             return true;
         });
     }
@@ -507,7 +736,8 @@ void MediaMovie::buildSources(const media::Item& item) {
 
 // Renders the fiche from an Item — shared by the server and local-catalog
 // (offline / downloaded) paths.
-void MediaMovie::applyMovie(const media::Item& item) {
+void MediaMovie::applyMovie(const media::Item& detail) {
+    const media::Item item = forDisplay(detail);
     this->labelTitle->setText(item.title);
     Image::load(this->imagePoster, item.thumb, 325);
     // banner: backdrop (art) + centered cut-out logo; the poster
@@ -541,10 +771,10 @@ void MediaMovie::applyMovie(const media::Item& item) {
     }
     if (item.duration > 0) {
         int min = int(item.duration / 60000);
-        this->labelYear->setText(min >= 60 ? fmt::format("{}  ·  {} h {:02d}", item.year, min / 60, min % 60)
-                                           : fmt::format("{}  ·  {} min", item.year, min));
+        std::string span = min >= 60 ? fmt::format("{} h {:02d}", min / 60, min % 60) : fmt::format("{} min", min);
+        this->labelYear->setText(item.year > 0 ? fmt::format("{}  ·  {}", item.year, span) : span);
     } else {
-        this->labelYear->setText(std::to_string(item.year));
+        this->labelYear->setText(item.year > 0 ? std::to_string(item.year) : "");
     }
     if (item.contentRating.empty()) {
         this->parentalRating->getParent()->setVisibility(brls::Visibility::GONE);
@@ -579,7 +809,7 @@ void MediaMovie::applyMovie(const media::Item& item) {
         this->people->setVisibility(brls::Visibility::GONE);
     }
 
-    this->movieItem = item;  // resolved detail backs per-source playback
+    this->movieItem = detail;  // resolved detail backs per-source playback
     this->viewOffsetMs = item.viewOffset;
 
     if (AppConfig::instance().backend().type() == media::BackendType::Stremio) {
@@ -590,7 +820,7 @@ void MediaMovie::applyMovie(const media::Item& item) {
         this->btnPlay->setVisibility(brls::Visibility::GONE);
         this->btnSource->setVisibility(brls::Visibility::GONE);
         if (this->btnPlay->getParent()) this->btnPlay->getParent()->setVisibility(brls::Visibility::GONE);
-        this->buildSources(item);
+        this->buildSources(detail);
     } else {
         this->sourcesBox->setVisibility(brls::Visibility::GONE);
         this->hasPlayableSource = true;

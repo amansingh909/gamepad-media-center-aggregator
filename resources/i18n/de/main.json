@@ -90,6 +90,7 @@
     "seasons_title": "Staffeln",
     "go_series": "Zur Serie",
     "go_season": "Zur Staffel",
+    "choose_source": "Quelle wählen",
     "director": "Regie",
     "open": "Öffnen"
   },
@@ -246,6 +247,7 @@
     "playback": {
       "header": "Wiedergabe",
       "low_quality": "Dekodierung in geringer Qualität (weniger CPU-Last)",
+      "light_hevc": "Leichte HEVC-Dekodierung (weniger CPU-Last auf der PS4)",
       "in_memory_cache": "Arbeitsspeicher-Cache",
       "subs_fallback": "Untertitel automatisch laden",
       "subtitle_lang": {
@@ -491,5 +493,54 @@
       "torrents_help": "Diese Quellen sind reine Torrents. Diese Plattform hat keinen Torrent-Client: Installiere ein Add-on mit Debrid-Dienst (Torrentio + Real-Debrid, Comet, MediaFusion…) in deinem Stremio-Konto, um abspielbare Links zu erhalten.",
       "links_help": "Diese Quellen sind externe Links (Browser oder Drittanbieterdienst), die in der App auf dieser Plattform nicht direkt abgespielt werden können."
     }
+  },
+  "torrent": {
+    "setting": {
+      "header": "Torrents",
+      "streaming": "Torrent-Streaming",
+      "upload_limit": "Upload-Limit",
+      "incoming": "Eingehende Verbindungen erlauben (UPnP)"
+    },
+    "loading": {
+      "finding_peers": "Suche nach Peers",
+      "getting_info": "Lade Torrent-Infos",
+      "buffering": "Puffern {} %",
+      "peers": "{} Peers"
+    },
+    "source": {
+      "seeders": "{} Seeder",
+      "unavailable": "{} Torrent-Quelle(n) gerade nicht abspielbar"
+    },
+    "error": {
+      "no_peers": "Keine Peers für diese Quelle gefunden, versuche eine andere",
+      "no_space": "Nicht genug Speicherplatz",
+      "unplayable": "Diese Quelle kann nicht abgespielt werden",
+      "off": "Torrent-Streaming ist aus. Schalte es in den Einstellungen ein.",
+      "start": "Torrent-Streaming konnte nicht starten: Port 11470 ist belegt."
+    }
+  },
+  "sources": {
+    "finding": "Streams werden gesucht...",
+    "none_found": "Keine Streams gefunden",
+    "ps4_note": "Läuft auf der PS4 eventuell nicht",
+    "show_all": "Alle anzeigen",
+    "may_buffer": "Kann ins Stocken geraten"
+  },
+  "audio_lang": {
+    "header": "Audiosprache",
+    "auto": "Automatisch (App-Sprache)",
+    "file": "Standard der Datei"
+  },
+  "resume": {
+    "min_left": "Noch {} Min.",
+    "hours_left": "Noch {} Std. {} Min.",
+    "just_now": "Gerade eben",
+    "min_ago": "Vor {} Min.",
+    "hours_ago": "Vor {} Std.",
+    "yesterday": "Gestern",
+    "days_ago": "Vor {} Tagen",
+    "up_next": "Als Nächstes",
+    "start_over": "Von vorne beginnen",
+    "remove": "Aus der Liste entfernen"
   }
 }

@@ -1,0 +1,213 @@
+diff --color -ruN a/include/libtorrent/aux_/buffer.hpp b/include/libtorrent/aux_/buffer.hpp
+--- a/include/libtorrent/aux_/buffer.hpp	2026-10-11 02:53:08.815631160 -0700
++++ b/include/libtorrent/aux_/buffer.hpp	2026-10-11 02:54:48.762664868 -0700
+@@ -50,7 +50,7 @@
+ #include <malloc.h>
+ #elif defined _MSC_VER
+ #include <malloc.h>
+-#elif defined __FreeBSD__
++#elif defined __FreeBSD__ && !defined TORRENT_PS4
+ #include <malloc_np.h>
+ #elif defined __APPLE__
+ #include <malloc/malloc.h>
+@@ -89,7 +89,7 @@
+ 
+ 		// the actual allocation may be larger than we requested. If so, let the
+ 		// user take advantage of every single byte
+-#if (defined __GLIBC__ && !defined __UCLIBC__) || defined __FreeBSD__
++#if (defined __GLIBC__ && !defined __UCLIBC__) || (defined __FreeBSD__ && !defined TORRENT_PS4)
+ 		m_size = static_cast<difference_type>(::malloc_usable_size(m_begin));
+ #elif defined _MSC_VER
+ 		m_size = static_cast<difference_type>(::_msize(m_begin));
+diff --color -ruN a/include/libtorrent/config.hpp b/include/libtorrent/config.hpp
+--- a/include/libtorrent/config.hpp	2026-10-11 02:53:08.814699516 -0700
++++ b/include/libtorrent/config.hpp	2026-10-11 02:53:53.325722361 -0700
+@@ -115,6 +115,22 @@
+ #define TORRENT_NO_FPU 1
+ #define TORRENT_USE_I2P 0
+ 
++// ==== PS4 (OpenOrbis homebrew) ===
++// FreeBSD 9 kernel under a musl based libc. Socket structs and errno use the
++// BSD layout, but sysctl, getifaddrs, routing sockets, mmap'd disk I/O and
++// getrandom() aren't usable, so neither the BSD nor the Linux branch fits.
++// Interfaces and routes come from the application, see ps4_set_network().
++#elif defined __OPENORBIS__
++#define TORRENT_PS4
++#define TORRENT_HAVE_MMAP 0
++#define TORRENT_HAS_SYMLINK 0
++#define TORRENT_HAS_FALLOCATE 0
++#define TORRENT_USE_RLIMIT 0
++#define TORRENT_USE_IFADDRS 0
++#define TORRENT_USE_IFCONF 0
++#define TORRENT_USE_SYSCTL 0
++#define TORRENT_USE_GETRANDOM 0
++
+ // ==== Darwin/BSD ===
+ #elif (defined __APPLE__ && defined __MACH__) || defined __FreeBSD__ || defined __NetBSD__ \
+ 	|| defined __OpenBSD__ || defined __bsdi__ || defined __DragonFly__ \
+diff --color -ruN a/include/libtorrent/enum_net.hpp b/include/libtorrent/enum_net.hpp
+--- a/include/libtorrent/enum_net.hpp	2026-10-11 02:53:08.820841050 -0700
++++ b/include/libtorrent/enum_net.hpp	2026-10-11 02:54:04.528507963 -0700
+@@ -128,6 +128,15 @@
+ 	TORRENT_EXTRA_EXPORT std::vector<ip_route> enum_routes(io_context& ios
+ 		, error_code& ec);
+ 
++#ifdef TORRENT_PS4
++	// The PS4 has no interface or routing table API libtorrent can use. The
++	// application reads its IPv4 setup from sceNetCtlGetInfo() and passes it in
++	// before creating the session, and again whenever the network changes.
++	// Until then, enum_net_interfaces() and enum_routes() return empty lists.
++	TORRENT_EXPORT void ps4_set_network(address const& ip, address const& netmask
++		, address const& gateway);
++#endif
++
+ 	// returns AF_INET or AF_INET6, depending on the address' family
+ 	TORRENT_EXTRA_EXPORT int family(address const& a);
+ 
+diff --color -ruN a/src/enum_net.cpp b/src/enum_net.cpp
+--- a/src/enum_net.cpp	2026-10-11 02:53:08.829770776 -0700
++++ b/src/enum_net.cpp	2026-10-11 02:54:39.714584577 -0700
+@@ -50,6 +50,9 @@
+ #include <cstdlib> // for wcstombscstombs
+ #include <cerrno>
+ #include <vector>
++#ifdef TORRENT_PS4
++#include <mutex>
++#endif
+ 
+ #include "libtorrent/aux_/disable_warnings_push.hpp"
+ 
+@@ -637,6 +640,37 @@
+ 			== (a2.to_v4().to_uint() & mask.to_v4().to_uint());
+ 	}
+ 
++#ifdef TORRENT_PS4
++namespace {
++	// both lists must use the same name: listen sockets are matched to routes by it
++	char const ps4_if_name[] = "eth0";
++
++	struct ps4_network
++	{
++		std::mutex mutex;
++		address ip;
++		address netmask;
++		address gateway;
++	};
++
++	ps4_network& ps4_net()
++	{
++		static ps4_network n;
++		return n;
++	}
++}
++
++	void ps4_set_network(address const& ip, address const& netmask
++		, address const& gateway)
++	{
++		auto& n = ps4_net();
++		std::lock_guard<std::mutex> l(n.mutex);
++		n.ip = ip;
++		n.netmask = netmask;
++		n.gateway = gateway;
++	}
++#endif
++
+ 	std::vector<ip_interface> enum_net_interfaces(io_context& ios, error_code& ec)
+ 	{
+ 		TORRENT_UNUSED(ios); // this may be unused depending on configuration
+@@ -667,6 +701,29 @@
+ 			std::strcpy(wan.description, "Simulator Ethernet Adapter");
+ 			ret.push_back(wan);
+ 		}
++#elif defined TORRENT_PS4
++		{
++			auto& n = ps4_net();
++			std::lock_guard<std::mutex> l(n.mutex);
++			if (!n.ip.is_unspecified())
++			{
++				ip_interface iface;
++				iface.interface_address = n.ip;
++				iface.netmask = n.netmask;
++				std::strcpy(iface.name, ps4_if_name);
++				iface.flags = if_flags::up | if_flags::running
++					| if_flags::broadcast | if_flags::multicast;
++				iface.state = if_state::up;
++				ret.push_back(iface);
++			}
++		}
++		ip_interface lo;
++		lo.interface_address = make_address_v4("127.0.0.1");
++		lo.netmask = make_address_v4("255.0.0.0");
++		std::strcpy(lo.name, "lo0");
++		lo.flags = if_flags::up | if_flags::running | if_flags::loopback;
++		lo.state = if_state::up;
++		ret.push_back(lo);
+ #elif TORRENT_USE_NETLINK
+ 		int const sock = ::socket(PF_ROUTE, SOCK_DGRAM | flags, NETLINK_ROUTE);
+ 		if (sock < 0)
+@@ -1072,6 +1129,20 @@
+ 			ret.push_back(r);
+ 		}
+ 
++#elif defined TORRENT_PS4
++		auto& n = ps4_net();
++		std::lock_guard<std::mutex> l(n.mutex);
++		if (!n.ip.is_unspecified() && !n.gateway.is_unspecified())
++		{
++			ip_route def;
++			def.destination = address_v4();
++			def.netmask = address_v4();
++			def.gateway = n.gateway;
++			def.source_hint = n.ip;
++			std::strcpy(def.name, ps4_if_name);
++			def.mtu = 1500;
++			ret.push_back(def);
++		}
+ #elif TORRENT_USE_SYSCTL
+ /*
+ 		struct rt_msg
+diff --color -ruN a/src/random.cpp b/src/random.cpp
+--- a/src/random.cpp	2026-10-11 02:53:08.829092653 -0700
++++ b/src/random.cpp	2026-10-11 03:06:06.854762401 -0700
+@@ -37,7 +37,13 @@
+ #include "libtorrent/error_code.hpp"
+ #include "libtorrent/aux_/throw.hpp"
+ 
+-#if defined BOOST_NO_CXX11_THREAD_LOCAL
++// the PS4 libc has no __cxa_thread_atexit_impl, so a thread_local with a
++// destructor can't be turned into a PS4 executable
++#if defined BOOST_NO_CXX11_THREAD_LOCAL || defined TORRENT_PS4
++#define TORRENT_RNG_NO_THREAD_LOCAL
++#endif
++
++#ifdef TORRENT_RNG_NO_THREAD_LOCAL
+ #include <mutex>
+ #endif
+ 
+@@ -71,7 +77,7 @@
+ #include "libtorrent/aux_/dev_random.hpp"
+ #endif
+ 
+-#ifdef BOOST_NO_CXX11_THREAD_LOCAL
++#ifdef TORRENT_RNG_NO_THREAD_LOCAL
+ namespace {
+ 	// if the random number generator can't be thread local, just protect it with
+ 	// a mutex. Not ideal, but hopefully not too many people are affected by old
+@@ -102,7 +108,7 @@
+ #else
+ 			static std::random_device dev;
+ #endif
+-#ifdef BOOST_NO_CXX11_THREAD_LOCAL
++#ifdef TORRENT_RNG_NO_THREAD_LOCAL
+ 			static std::seed_seq seed({dev(), dev(), dev(), dev()});
+ 			static std::mt19937 rng(seed);
+ #else
+@@ -174,7 +180,7 @@
+ 	std::uint32_t random(std::uint32_t const max)
+ 	{
+ 		if (max == 0) return 0;
+-#ifdef BOOST_NO_CXX11_THREAD_LOCAL
++#ifdef TORRENT_RNG_NO_THREAD_LOCAL
+ 		std::lock_guard<std::mutex> l(rng_mutex);
+ #endif
+ #ifdef TORRENT_BUILD_SIMULATOR

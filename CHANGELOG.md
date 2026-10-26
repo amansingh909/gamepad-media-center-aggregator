@@ -9,6 +9,79 @@ prepared with [git-cliff](https://git-cliff.org/) from conventional commits
 hand. For the history of the upstream project this fork is based on, see the
 [Switchfin changelog](https://github.com/dragonflylee/switchfin/blob/dev/CHANGELOG.md).
 
+## [1.4.5] - 2026-10-25
+
+### Fixed
+
+- An in-app update on the PS4 no longer leaves the small update helper behind
+  in the system folder. GMCA removes it a few seconds after it next opens, and
+  the update logs stay small.
+
+## [1.4.4] - 2026-10-25
+
+### Added
+
+- Updates install from inside the app on the PS4. When a new version is out,
+  GMCA downloads it, asks before installing, then closes while the PS4 installs
+  it over the old one. Your settings and library are kept. The PS4 shows a
+  notification when it is done, and you open GMCA again. If an install fails,
+  the version you have keeps working and GMCA tells you why the next time it
+  opens.
+
+  This version still has to be installed by hand, because older versions only
+  open the release page. Updates after this one install from the app.
+
+## [1.4.3] - 2026-10-25
+
+### Added
+
+- USB drives are now readable in Files on the PS4. A plugged-in drive shows up
+  when it holds something, opens, and plays.
+- Netflix-style player controls on the PS4. Left and right on the D-pad seek ten
+  seconds, Triangle opens Audio and Subtitles, Square locks the controls, and
+  Circle hides them and then leaves the player. The lock button moved into the
+  bottom row so it is never more than a press or two away.
+- A "Loading" hint while a folder listing is still running, so a slow USB read
+  no longer looks like the app has frozen.
+
+### Fixed
+
+- Opening the player settings on a video played from a USB drive no longer
+  crashes the app.
+
+## [1.4.2] - 2026-10-14
+
+### Fixed
+
+- Subtitles now show on the PS4. The PS4 build installs a default subtitle font
+  on first start (replace `/data/GMCA/subfont.ttf` to use your own). Picture
+  subtitles (PGS, VobSub) still can't draw on the PS4.
+
+## [1.4.1] - 2026-10-14
+
+Merged the latest upstream GMCA.
+
+### Fixed
+
+- A Plex HTTP 403 now shows a clear message instead of retrying into a transcode.
+
+## [1.4.0] - 2026-10-13
+
+First release of the fork. The in-app updater and the release links now look at the fork's repository. The PS4 package version is 00.29, so the console installs it as an update over 1.3.0.
+
+### Added
+
+- On-device torrent streaming for Stremio on the PS4.
+- Faster peer discovery for torrents.
+- HDR and light HEVC decoding on the PS4.
+- Continue Watching improvements.
+- A choice of source for each episode.
+
+### Fixed
+
+- Download fallback and download fixes.
+- The Files tab on the PS4 now lists folders and the USB drives.
+
 ## [1.3.0] - 2026-09-24
 
 ### Added

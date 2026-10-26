@@ -90,6 +90,7 @@
     "seasons_title": "Sezonlar",
     "go_series": "Diziye git",
     "go_season": "Sezona git",
+    "choose_source": "Kaynak seç",
     "director": "Yönetmen",
     "open": "Aç"
   },
@@ -246,6 +247,7 @@
     "playback": {
       "header": "Oynatma",
       "low_quality": "Düşük kalite video çözümü (daha az işlemci kullanır)",
+      "light_hevc": "Hafif HEVC çözme (PS4'te daha az işlemci kullanır)",
       "in_memory_cache": "Bellek içi önbellek",
       "subs_fallback": "Alt yazıları otomatik yükle",
       "subtitle_lang": {
@@ -491,5 +493,54 @@
       "torrents_help": "Bu kaynaklar ham torrentlerdir. Bu platformda torrent istemcisi yok: oynatılabilir bağlantılar elde etmek için Stremio hesabınıza debrid destekli bir eklenti (Torrentio + Real-Debrid, Comet, MediaFusion…) yükleyin.",
       "links_help": "Bu kaynaklar, bu platformda uygulama içinde doğrudan oynatılamayan harici bağlantılardır (tarayıcı veya üçüncü taraf hizmeti)."
     }
+  },
+  "torrent": {
+    "setting": {
+      "header": "Torrentler",
+      "streaming": "Torrent akışı",
+      "upload_limit": "Yükleme sınırı",
+      "incoming": "Gelen bağlantılara izin ver (UPnP)"
+    },
+    "loading": {
+      "finding_peers": "Eşler aranıyor",
+      "getting_info": "Torrent bilgisi alınıyor",
+      "buffering": "Arabelleğe alınıyor %{}",
+      "peers": "{} eş"
+    },
+    "source": {
+      "seeders": "{} seeder",
+      "unavailable": "{} torrent kaynağı şu anda oynatılamıyor"
+    },
+    "error": {
+      "no_peers": "Bu kaynak için eş bulunamadı, başka birini deneyin",
+      "no_space": "Yeterli depolama alanı yok",
+      "unplayable": "Bu kaynak oynatılamıyor",
+      "off": "Torrent akışı kapalı. Ayarlar'dan açabilirsiniz.",
+      "start": "Torrent akışı başlatılamadı: 11470 numaralı port kullanımda."
+    }
+  },
+  "sources": {
+    "finding": "Yayınlar aranıyor...",
+    "none_found": "Yayın bulunamadı",
+    "ps4_note": "PS4'te oynatılamayabilir",
+    "show_all": "Tümünü göster",
+    "may_buffer": "Takılabilir"
+  },
+  "audio_lang": {
+    "header": "Ses dili",
+    "auto": "Otomatik (uygulama dili)",
+    "file": "Dosya varsayılanı"
+  },
+  "resume": {
+    "min_left": "{} dk kaldı",
+    "hours_left": "{} sa {} dk kaldı",
+    "just_now": "Az önce",
+    "min_ago": "{} dk önce",
+    "hours_ago": "{} sa önce",
+    "yesterday": "Dün",
+    "days_ago": "{} gün önce",
+    "up_next": "Sıradaki",
+    "start_over": "Baştan başlat",
+    "remove": "Listeden kaldır"
   }
 }

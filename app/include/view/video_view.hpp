@@ -6,6 +6,7 @@
 
 #include <borealis.hpp>
 #include <utils/event.hpp>
+#include "view/osd_controls.hpp"
 
 class VideoProgressSlider;
 class SVGImage;
@@ -87,13 +88,27 @@ public:
 
     static bool close(bool quit = false);
 
+    /// Optional hook fired on END_OF_FILE before Repeat and the next item, while what ended is
+    /// still the current item (PlayerView saves its final position there: mpv reports no stop
+    /// at an end of file). If it returns true the end is handled (PlayerView: a torrent stream
+    /// that broke off) and the player neither replays nor moves on. Unset, or false: the end
+    /// behaves as before.
+    void registerEnd(brls::ActionListener action) { this->endAction = std::move(action); }
+
+#ifdef USE_TORRENT
+    /// Torrent sources: text added after the cache speed under the centre spinner (the
+    /// peers). nullptr for none.
+    void setSpeedSuffix(std::function<std::string()> suffix) { this->speedSuffix = std::move(suffix); }
+#endif
+
 private:
     /// OSD
     BRLS_BIND(brls::Label, titleLabel, "video/osd/title");
     BRLS_BIND(brls::Box, btnForward, "video/osd/forward");
     BRLS_BIND(brls::Box, btnBackward, "video/osd/backward");
     BRLS_BIND(brls::Box, btnSetting, "video/osd/setting");
-    BRLS_BIND(brls::Box, btnCast, "video/osd/cast");
+    BRLS_BIND(brls::Box, btnSeekBack, "video/osd/seek/back");
+    BRLS_BIND(brls::Box, btnSeekForward, "video/osd/seek/forward");
     BRLS_BIND(brls::Box, btnToggle, "video/osd/toggle");
     BRLS_BIND(brls::Box, btnVideoQuality, "video/quality/box");
     BRLS_BIND(brls::Box, btnVideoSubtitle, "video/subtitle/box");
@@ -102,7 +117,6 @@ private:
     BRLS_BIND(brls::Box, btnVolume, "video/osd/volume");
     BRLS_BIND(brls::Box, btnClose, "video/close/box");
     BRLS_BIND(brls::Box, osdLockBox, "video/osd/lock/box");
-    BRLS_BIND(brls::Box, iconBox, "video/osd/icon/box");
     BRLS_BIND(SVGImage, qualityIcon, "video/quality/icon");
     BRLS_BIND(SVGImage, subtitleIcon, "video/subtitle/icon");
     BRLS_BIND(SVGImage, audioIcon, "video/audio/icon");
@@ -110,9 +124,18 @@ private:
     BRLS_BIND(SVGImage, toggleIcon, "video/osd/toggle/icon");
     BRLS_BIND(SVGImage, volumeIcon, "video/osd/volume/icon");
     BRLS_BIND(SVGImage, osdSettingIcon, "video/osd/setting/icon");
+    BRLS_BIND(SVGImage, backwardIcon, "video/osd/backward/icon");
+    BRLS_BIND(SVGImage, forwardIcon, "video/osd/forward/icon");
+    BRLS_BIND(SVGImage, seekBackIcon, "video/osd/seek/back/icon");
+    BRLS_BIND(SVGImage, seekForwardIcon, "video/osd/seek/forward/icon");
     BRLS_BIND(brls::Box, osdTopBox, "video/osd/top/box");
     BRLS_BIND(brls::Box, osdBottomBox, "video/osd/bottom/box");
+    BRLS_BIND(brls::Box, osdMainRow, "video/osd/main/row");
+    BRLS_BIND(brls::Box, osdButtons, "video/osd/buttons");
     // 用于显示缓冲组件
+#ifdef USE_TORRENT
+    std::function<std::string()> speedSuffix;
+#endif
     BRLS_BIND(brls::Box, osdCenterBox, "video/osd/center/box");
     BRLS_BIND(brls::Label, centerLabel, "video/osd/center/label");
     BRLS_BIND(brls::ProgressSpinner, osdSpinner, "video/osd/loading");
@@ -144,6 +167,21 @@ private:
     bool toggleVolume(brls::View* view);
     void showHint(const std::string& value);
     void setTvMode(bool state);
+    /// Shows the controls and puts focus on `view` at once (draw() only marks the OSD shown on
+    /// its next frame, and a control can't take focus before that).
+    void focusControl(brls::View* view);
+    /// One more press of a seek key: back or forward by osd::seekStep().
+    void seekPress(bool forward);
+    /// D-pad left/right with no control focused: seek. False with a control focused, so the
+    /// D-pad moves along its row.
+    bool navSeek(bool forward);
+    /// D-pad up/down with no control focused: show the controls, focus on play/pause.
+    bool navShow();
+    /// The D-pad routes of every control, from osd::next() and what is shown now. Called again
+    /// whenever a control appears or goes (a list, Quality, the progress bar, the lock).
+    void applyFocusRoutes();
+    /// The focusable view of a control.
+    brls::View* controlView(osd::Control control);
 
     /// @brief 延迟 200ms 触发进度跳转到 seeking_range
     void requestSeeking(int seek, int delay = 400);
@@ -155,9 +193,11 @@ private:
 
     int playIndex = -1;
     int listSize = 0;
+    bool tvMode = false;
+    /// what the subtitle button opens, for Triangle too
+    brls::ActionListener subtitleAction = nullptr;
     brls::Event<int> playIndexEvent;
     brls::VoidEvent settingEvent;
-    View* lastFocusedView = nullptr;
 
     // OSD
     bool isOsdShown = false;
@@ -172,6 +212,8 @@ private:
     /// fired on MPV_FILE_ERROR; returning true suppresses the error dialog
     brls::ActionListener errorAction = nullptr;
     brls::ActionListener replayAction = nullptr;
+    /// fired on END_OF_FILE; returning true stops Repeat and the next item
+    brls::ActionListener endAction = nullptr;
 
     double speed = 1.0;
     Repeat repeat = Repeat::None;

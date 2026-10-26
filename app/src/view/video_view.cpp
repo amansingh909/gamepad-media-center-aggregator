@@ -24,15 +24,6 @@ using namespace brls::literals;
         return true;                                                                  \
     }
 
-static int getSeekRange(int current) {
-    current = abs(current);
-    if (current < 60) return 5;
-    if (current < 300) return 10;
-    if (current < 600) return 20;
-    if (current < 1200) return 60;
-    return current / 15;
-}
-
 VideoView::VideoView() {
     this->inflateFromXMLRes("xml/view/video_view.xml");
     brls::Logger::debug("VideoView: created");
@@ -54,19 +45,21 @@ VideoView::VideoView() {
     mpv.reset();
     mpv.enableVO(true);
 
-    if (MPVCore::OSD_TV_MODE) this->setTvMode(true);
+    this->setTvMode(MPVCore::OSD_TV_MODE);
 
     this->input = brls::Application::getPlatform()->getInputManager();
 
     this->registerAction(
         "hints/back"_i18n, brls::BUTTON_B,
         [this](brls::View* view) {
+            // locked: shows or hides the lock button, never leaves
             if (isOsdLock) {
                 this->toggleOSD();
                 return true;
             }
-            if (MPVCore::OSD_TV_MODE && this->isOsdShown) {
-                this->toggleOSD();
+            // the first press hides the controls, the next one leaves the player
+            if (this->isOsdShown) {
+                this->hideOSD();
                 return true;
             }
             return close();
@@ -77,8 +70,7 @@ VideoView::VideoView() {
         "\uE08F", brls::BUTTON_LB, KeyBind::getRewind(),
         [this](brls::View* view) -> bool {
             CHECK_OSD(true);
-            this->seekingRange -= getSeekRange(this->seekingRange);
-            this->requestSeeking(seekingRange);
+            this->seekPress(false);
             return true;
         },
         false, true);
@@ -87,20 +79,18 @@ VideoView::VideoView() {
         "\uE08E", brls::BUTTON_RB, KeyBind::getForward(),
         [this](brls::View* view) -> bool {
             CHECK_OSD(true);
-            this->seekingRange += getSeekRange(this->seekingRange);
-            this->requestSeeking(seekingRange);
+            this->seekPress(true);
             return true;
         },
         false, true);
 
-    // d-pad on the focused progress bar: left/right seek (same steps as
-    // LB/RB), up/down leave towards the OSD controls
+    // d-pad on the focused progress bar: left/right seek (same step as L1/R1); its up, down
+    // and every other control's routes come from the control map (applyFocusRoutes())
     this->osdSlider->registerAction(
         "\uE08F", brls::BUTTON_NAV_LEFT,
         [this](brls::View* view) -> bool {
             this->showOSD(true);
-            this->seekingRange -= getSeekRange(this->seekingRange);
-            this->requestSeeking(seekingRange);
+            this->seekPress(false);
             return true;
         },
         true, true);
@@ -108,23 +98,60 @@ VideoView::VideoView() {
         "\uE08E", brls::BUTTON_NAV_RIGHT,
         [this](brls::View* view) -> bool {
             this->showOSD(true);
-            this->seekingRange += getSeekRange(this->seekingRange);
-            this->requestSeeking(seekingRange);
+            this->seekPress(true);
             return true;
         },
         true, true);
-    brls::View* sliderPointer = this->osdSlider->getDefaultFocus();
-    sliderPointer->setCustomNavigationRoute(brls::FocusDirection::UP, "video/osd/lock/box");
-    sliderPointer->setCustomNavigationRoute(brls::FocusDirection::DOWN, "video/osd/volume/icon");
 
-    this->registerActions(
-        "toggleOSD", brls::BUTTON_Y, KeyBind::getVideoOsd(),
+    // d-pad left/right with no control focused (controls hidden, or shown by a pause or a
+    // seek): back / forward. With a control focused they move along its row.
+    this->registerAction(
+        "seekBack", brls::BUTTON_NAV_LEFT, [this](brls::View* view) { return this->navSeek(false); }, true, true);
+    this->registerAction(
+        "seekForward", brls::BUTTON_NAV_RIGHT, [this](brls::View* view) { return this->navSeek(true); }, true, true);
+
+    // the OSD key on a keyboard still shows or hides the controls
+    this->registerAction(KeyBind::getVideoOsd(), [this](brls::View* view) -> bool {
+        // 拖拽进度时不要影响显示 OSD
+        if (!this->seekingRange) this->toggleOSD();
+        return true;
+    });
+
+    // Triangle: the subtitle menu (subtitle tracks and sync; audio has its own button). Square:
+    // lock. Borealis swaps X and Y along with A and B (a console with Circle as enter, the app's
+    // swap option), set before a player opens.
+    const bool swapped = brls::Application::isSwapInputKeys();
+    auto faceButton = [](osd::Face face) { return face == osd::Face::X ? brls::BUTTON_X : brls::BUTTON_Y; };
+    this->registerAction(
+        "main/player/subtitle"_i18n, faceButton(osd::subtitleButton(swapped)),
         [this](brls::View* view) -> bool {
-            // 拖拽进度时不要影响显示 OSD
-            if (!this->seekingRange) this->toggleOSD();
+            CHECK_OSD(true);
+            if (!this->subtitleAction) return false;
+            return this->subtitleAction(view);
+        },
+        true);
+
+    // Square: lock, and again to unlock. Locked, the other keys only show the lock button.
+    this->registerAction(
+        "lock", faceButton(osd::lockButton(swapped)),
+        [this](brls::View* view) -> bool {
+            this->toggleOSDLock();
+            this->focusControl(this->osdLockBox);
             return true;
         },
         true);
+
+    /// -10 s / +10 s buttons of the top row
+    this->btnSeekBack->registerClickAction([this](...) {
+        this->seekPress(false);
+        return true;
+    });
+    this->btnSeekBack->addGestureRecognizer(new brls::TapGestureRecognizer(this->btnSeekBack));
+    this->btnSeekForward->registerClickAction([this](...) {
+        this->seekPress(true);
+        return true;
+    });
+    this->btnSeekForward->addGestureRecognizer(new brls::TapGestureRecognizer(this->btnSeekForward));
 
     /// 播放器设置按钮
     this->btnSetting->registerClickAction([this](brls::View* view) {
@@ -132,60 +159,34 @@ VideoView::VideoView() {
         return true;
     });
     this->btnSetting->addGestureRecognizer(new brls::TapGestureRecognizer(this->btnSetting));
-    this->registerActions(
-        "main/player/setting"_i18n, brls::BUTTON_X, KeyBind::getSetting(),
-        [this](brls::View* view) {
+    this->registerAction(KeyBind::getSetting(), [this](brls::View* view) {
+        CHECK_OSD(true);
+        this->settingEvent.fire();
+        return true;
+    });
+
+    // d-pad up/down with no control focused: show the controls, focus on play/pause. Volume is
+    // the bottom row's button (and the keyboard's volume keys).
+    this->registerAction(
+        "showControls", brls::BUTTON_NAV_UP, [this](brls::View* view) { return this->navShow(); }, true, true);
+    this->registerAction(
+        "showControls", brls::BUTTON_NAV_DOWN, [this](brls::View* view) { return this->navShow(); }, true, true);
+    this->registerAction(
+        KeyBind::getVolumeUp(),
+        [this](brls::View* view) -> bool {
             CHECK_OSD(true);
-            this->settingEvent.fire();
+            this->requestVolume((int)MPVCore::instance().volume + 5, 400);
             return true;
         },
         true);
-
-    this->registerActions(
-        "volumeUp", brls::BUTTON_NAV_UP, KeyBind::getVolumeUp(),
+    this->registerAction(
+        KeyBind::getVolumeDown(),
         [this](brls::View* view) -> bool {
             CHECK_OSD(true);
-            auto& state = brls::Application::getControllerState();
-            if (state.buttons[brls::BUTTON_RT]) {
-                this->requestVolume((int)MPVCore::instance().volume + 5, 400);
-                return true;
-            }
-            // d-pad with the OSD hidden: wake it and focus the controls
-            if (!this->isOsdShown) {
-                this->showOSD(true);
-                brls::Application::giveFocus(this->btnToggle);
-                return true;
-            }
-            if (!this->isChildFocused()) {
-                brls::Application::giveFocus(this->btnToggle);
-                return true;
-            }
-            return false;
+            this->requestVolume((int)MPVCore::instance().volume - 5, 400);
+            return true;
         },
-        true, true);
-
-    this->registerActions(
-        "volumeDown", brls::BUTTON_NAV_DOWN, KeyBind::getVolumeDown(),
-        [this](brls::View* view) -> bool {
-            CHECK_OSD(true);
-            auto& state = brls::Application::getControllerState();
-            if (state.buttons[brls::BUTTON_RT]) {
-                this->requestVolume((int)MPVCore::instance().volume - 5, 400);
-                return true;
-            }
-            // d-pad with the OSD hidden: wake it and focus the controls
-            if (!this->isOsdShown) {
-                this->showOSD(true);
-                brls::Application::giveFocus(this->btnToggle);
-                return true;
-            }
-            if (!this->isChildFocused()) {
-                brls::Application::giveFocus(this->btnToggle);
-                return true;
-            }
-            return false;
-        },
-        true, true);
+        true);
 
     /// 音量按钮
     this->btnVolume->registerClickAction([this](brls::View* view) { return this->toggleVolume(view); });
@@ -356,8 +357,6 @@ VideoView::VideoView() {
     this->registerActions(
         "profile", brls::BUTTON_BACK, KeyBind::getVideoProfile(),
         [this](brls::View* view) { return this->toggleProfile(); }, true);
-    this->btnCast->registerClickAction([this](...) { return this->toggleProfile(); });
-    this->btnCast->addGestureRecognizer(new brls::TapGestureRecognizer(this->btnCast));
 
     /// speed: LSB shortcut, touch long-press and the settings menu; not on
     /// the OSD, not relevant there per user feedback
@@ -395,6 +394,7 @@ void VideoView::setList(const std::vector<std::string>& values, int index) {
     this->btnEpisode->addGestureRecognizer(new brls::TapGestureRecognizer(this->btnEpisode));
     this->btnEpisode->setVisibility(brls::Visibility::VISIBLE);
     this->showEpisodeLabel->setVisibility(brls::Visibility::VISIBLE);
+    this->applyFocusRoutes();
 
     this->listSize = (int)values.size();
     auto event = [this, values](int index) {
@@ -408,6 +408,7 @@ void VideoView::setList(const std::vector<std::string>& values, int index) {
 
         this->btnForward->setVisibility(v2);
         for (brls::View* view : this->btnForward->getChildren()) view->setVisibility(v2);
+        this->applyFocusRoutes();
     };
 
     this->playIndexEvent.subscribe(event);
@@ -502,16 +503,14 @@ void VideoView::draw(NVGcontext* vg, float x, float y, float w, float h, brls::S
             this->isOsdShown = true;
         }
 
-        // 当 osd 锁定时，只显示锁定按钮
+        // locked: only the lock button shows, at its place in the bottom row (toggleOSDLock()
+        // hides the rest of the row)
+        osdBottomBox->setVisibility(brls::Visibility::VISIBLE);
+        osdBottomBox->frame(ctx);
         if (!isOsdLock) {
             osdTopBox->setVisibility(brls::Visibility::VISIBLE);
-            osdBottomBox->setVisibility(brls::Visibility::VISIBLE);
-            osdBottomBox->frame(ctx);
             osdTopBox->frame(ctx);
         }
-
-        osdLockBox->setVisibility(brls::Visibility::VISIBLE);
-        osdLockBox->frame(ctx);
 
     } else if (this->isOsdShown) {
         this->isOsdShown = false;
@@ -519,7 +518,6 @@ void VideoView::draw(NVGcontext* vg, float x, float y, float w, float h, brls::S
         if (isChildFocused()) brls::Application::giveFocus(this);
         osdTopBox->setVisibility(brls::Visibility::INVISIBLE);
         osdBottomBox->setVisibility(brls::Visibility::INVISIBLE);
-        osdLockBox->setVisibility(brls::Visibility::INVISIBLE);
     }
 
     if (current > this->hintLastShowTime) {
@@ -585,12 +583,6 @@ void VideoView::onChildFocusGained(View* directChild, View* focusedView) {
         if (focusedView->getParent()->getVisibility() == brls::Visibility::GONE) {
             brls::Application::giveFocus(this);
         }
-        // 设定自定义导航
-        if (focusedView == this->osdSettingIcon) {
-            this->osdSettingIcon->setCustomNavigationRoute(brls::FocusDirection::DOWN,
-                lastFocusedView == this->btnToggle ? "video/osd/toggle" : "video/osd/lock/box");
-        }
-        lastFocusedView = focusedView;
         return;
     }
     brls::Application::giveFocus(this);
@@ -658,6 +650,9 @@ void VideoView::registerMpvEvent() {
             // 播放结束
             disableDimming(false);
             this->toggleIcon->setImageFromSVGRes("icon/ico-play.svg");
+            // an owner (PlayerView) saves where this ended, and may say the end was a failure:
+            // then no replay, no next item
+            if (this->endAction && this->endAction(this)) break;
             if (this->repeat == Repeat::One && this->replayAction && this->replayAction(this)) break;
             if (this->repeat == Repeat::All && this->hasList() && this->playIndex + 1 >= this->listSize)
                 this->playIndex = -1;
@@ -668,7 +663,11 @@ void VideoView::registerMpvEvent() {
             if (this->osdCenterBox->getVisibility() != brls::Visibility::GONE) {
                 if (this->centerLabel->getVisibility() != brls::Visibility::VISIBLE)
                     this->centerLabel->setVisibility(brls::Visibility::VISIBLE);
-                this->centerLabel->setText(MPVCore::instance().getCacheSpeed());
+                std::string speed = MPVCore::instance().getCacheSpeed();
+#ifdef USE_TORRENT
+                if (this->speedSuffix) speed += this->speedSuffix();
+#endif
+                this->centerLabel->setText(speed);
             }
             break;
         case MpvEventEnum::VIDEO_MUTE:
@@ -757,30 +756,107 @@ void VideoView::showHint(const std::string& value) {
 }
 
 void VideoView::setTvMode(bool state) {
-    btnToggle->setCustomNavigationRoute(brls::FocusDirection::RIGHT, state ? osdSlider : iconBox);
-    volumeIcon->setCustomNavigationRoute(brls::FocusDirection::UP, state ? osdSlider : osdLockBox);
-    audioIcon->setCustomNavigationRoute(brls::FocusDirection::UP, state ? osdSlider : osdLockBox);
-    subtitleIcon->setCustomNavigationRoute(brls::FocusDirection::UP, state ? osdSlider : osdLockBox);
-    qualityIcon->setCustomNavigationRoute(brls::FocusDirection::UP, state ? osdSlider : osdLockBox);
-    osdLockBox->setCustomNavigationRoute(brls::FocusDirection::DOWN, state ? osdSlider : iconBox);
+    // the TV-style OSD puts the progress bar in the D-pad's map (right from play/pause)
+    this->tvMode = state;
     osdSlider->setFocusable(state);
+    this->applyFocusRoutes();
+}
+
+brls::View* VideoView::controlView(osd::Control control) {
+    switch (control) {
+    case osd::CLOSE:
+        return btnClose;
+    case osd::PREV:
+        return backwardIcon;
+    case osd::SEEK_BACK:
+        return seekBackIcon;
+    case osd::SEEK_FWD:
+        return seekForwardIcon;
+    case osd::NEXT:
+        return forwardIcon;
+    case osd::SETTINGS:
+        return osdSettingIcon;
+    case osd::TOGGLE:
+        return btnToggle;
+    case osd::SLIDER:
+        return osdSlider->getDefaultFocus();
+    case osd::VOLUME:
+        return volumeIcon;
+    case osd::EPISODES:
+        return showEpisodeLabel;
+    case osd::AUDIO:
+        return audioIcon;
+    case osd::SUBTITLES:
+        return subtitleIcon;
+    case osd::QUALITY:
+        return qualityIcon;
+    case osd::LOCK:
+    default:
+        return osdLockBox;
+    }
+}
+
+void VideoView::applyFocusRoutes() {
+    // a control is shown unless it (or the box it sits in) is gone; locked, only the lock
+    osd::Shown shown{};
+    for (int c = 0; c < osd::COUNT; c++) {
+        brls::View* view = this->controlView((osd::Control)c);
+        shown[c] = !this->isOsdLock && view->getVisibility() != brls::Visibility::GONE &&
+                   view->getParent()->getVisibility() != brls::Visibility::GONE;
+    }
+    shown[osd::SLIDER] = shown[osd::SLIDER] && this->tvMode && osdSlider->getVisibility() != brls::Visibility::GONE;
+    shown[osd::LOCK] = true;
+
+    const brls::FocusDirection dirs[] = {brls::FocusDirection::UP, brls::FocusDirection::DOWN,
+        brls::FocusDirection::LEFT, brls::FocusDirection::RIGHT};
+    for (int c = 0; c < osd::COUNT; c++) {
+        brls::View* from = this->controlView((osd::Control)c);
+        for (int d = 0; d < 4; d++) {
+            // a route back to the control itself: nowhere to go, borealis shakes the highlight
+            osd::Control to = osd::next((osd::Control)c, (osd::Dir)d, shown);
+            from->setCustomNavigationRoute(dirs[d], this->controlView(to));
+        }
+    }
+}
+
+void VideoView::focusControl(brls::View* view) {
+    this->showOSD(true);
+    this->isOsdShown = true;
+    brls::Application::giveFocus(view);
+}
+
+void VideoView::seekPress(bool forward) {
+    auto& mpv = MPVCore::instance();
+    // within the file: a long hold stops at its start or end (and fits the int it is shown as)
+    this->seekingRange = osd::addSeek(this->seekingRange, forward, (int64_t)mpv.playback_time, mpv.duration);
+    this->requestSeeking((int)this->seekingRange);
+}
+
+bool VideoView::navSeek(bool forward) {
+    if (this->isChildFocused() && !this->isOsdLock) return false;
+    CHECK_OSD(true);
+    this->seekPress(forward);
+    return true;
+}
+
+bool VideoView::navShow() {
+    if (this->isChildFocused() && !this->isOsdLock) return false;
+    CHECK_OSD(true);
+    this->focusControl(this->btnToggle);
+    return true;
 }
 
 bool VideoView::toggleOSDLock() {
     this->isOsdLock = !this->isOsdLock;
-    if (this->isOsdLock) {
-        this->osdLockIcon->setImageFromSVGRes("icon/player-lock.svg");
-        osdTopBox->setVisibility(brls::Visibility::GONE);
-        osdBottomBox->setVisibility(brls::Visibility::GONE);
-        // 锁定时上下按键不可用
-        osdLockBox->setCustomNavigationRoute(brls::FocusDirection::UP, "video/osd/lock/box");
-        osdLockBox->setCustomNavigationRoute(brls::FocusDirection::DOWN, "video/osd/lock/box");
-    } else {
-        this->osdLockIcon->setImageFromSVGRes("icon/player-unlock.svg");
-        // 手动设置上下按键的导航路线
-        osdLockBox->setCustomNavigationRoute(brls::FocusDirection::UP, "video/osd/setting");
-        osdLockBox->setCustomNavigationRoute(brls::FocusDirection::DOWN, "video/audio/box");
-    }
+    this->osdLockIcon->setImageFromSVGRes(this->isOsdLock ? "icon/player-lock.svg" : "icon/player-unlock.svg");
+    // locked: the lock button alone, where it sits in the bottom row; draw() shows the top row
+    // again once unlocked
+    auto rest = this->isOsdLock ? brls::Visibility::INVISIBLE : brls::Visibility::VISIBLE;
+    osdMainRow->setVisibility(rest);
+    osdButtons->setVisibility(rest);
+    if (this->isOsdLock) osdTopBox->setVisibility(brls::Visibility::INVISIBLE);
+    osdBottomBox->setBackground(this->isOsdLock ? brls::ViewBackground::NONE : brls::ViewBackground::VERTICAL_LINEAR);
+    this->applyFocusRoutes();
     return true;
 }
 
@@ -898,11 +974,15 @@ void VideoView::setClipPoint(const std::vector<float>& clips) {
 
 void VideoView::playNext(int offset) { this->playIndexEvent.fire(this->playIndex + offset); }
 
-void VideoView::hideVideoProgressSlider() { this->osdSlider->setVisibility(brls::Visibility::GONE); }
+void VideoView::hideVideoProgressSlider() {
+    this->osdSlider->setVisibility(brls::Visibility::GONE);
+    this->applyFocusRoutes();
+}
 
 void VideoView::hideVideoQuality() {
     this->btnVideoQuality->setVisibility(brls::Visibility::GONE);
     for (brls::View* view : this->btnVideoQuality->getChildren()) view->setVisibility(brls::Visibility::GONE);
+    this->applyFocusRoutes();
 }
 
 void VideoView::registerVideoQuality(brls::ActionListener action) {
@@ -912,6 +992,7 @@ void VideoView::registerVideoQuality(brls::ActionListener action) {
 }
 
 void VideoView::registerVideoSubtitle(brls::ActionListener action) {
+    this->subtitleAction = action;
     this->btnVideoSubtitle->registerClickAction(action);
     this->btnVideoSubtitle->addGestureRecognizer(new brls::TapGestureRecognizer(this->btnVideoSubtitle));
 }

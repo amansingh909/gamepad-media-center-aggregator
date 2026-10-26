@@ -24,6 +24,17 @@ option(MPV_SW_RENDER "Using CPU to draw videos" OFF)
 if (MPV_SW_RENDER)
     list(APPEND APP_PLATFORM_OPTION -DMPV_SW_RENDER)
 endif ()
+option(MPV_DIAG_LOG "Testing only: mpv's verbose log in {config}/mpv.log, and an HEVC test setting" OFF)
+if (MPV_DIAG_LOG)
+    list(APPEND APP_PLATFORM_OPTION -DMPV_DIAG_LOG)
+endif ()
+
+if (PLATFORM_PS4)
+    option(USE_TORRENT "Torrent streaming engine (libtorrent)" ON)
+else ()
+    option(USE_TORRENT "Torrent streaming engine (libtorrent)" OFF)
+endif ()
+option(TORRENT_DEBUG_LAN "Testing only: start the torrent server at launch on every interface" OFF)
 
 if (NOT CMAKE_BUILD_TYPE)
     set(CMAKE_BUILD_TYPE "Release" CACHE STRING "Choose the type of build, options are: Debug Release RelWithDebInfo MinSizeRel." FORCE)
@@ -53,8 +64,8 @@ include(${BOREALIS_LIBRARY}/cmake/toolchain.cmake)
 # project info
 project(GMCA)  # short token for files/binaries/IDs; display name = "Gamepad Media Center Aggregator"
 set(VERSION_MAJOR "1")
-set(VERSION_MINOR "3")
-set(VERSION_ALTER "0")
+set(VERSION_MINOR "4")
+set(VERSION_ALTER "5")
 # Homebrew forwarder title ID for GMCA, in the community forwarder range (05...),
 # which is outside Nintendo's commercial 01... space — so it cannot collide with
 # an official title, and no title-ID registry check is needed. The "GMCA" vanity
@@ -65,12 +76,18 @@ set(PROJECT_TITLEID "0500474D43410000")
 set(PROJECT_AUTHOR "thcolin")
 set(PACKAGE_NAME "fun.thcolin.gmca")
 set(VITA_TITLEID "GMCA00001")
-set(PSN_TITLE_ID "GMCA00000")
+# PSN_TITLE_ID can be overridden (-DPSN_TITLE_ID=...) for a side-by-side diag
+# build so it installs next to real GMCA instead of over it.
+if (NOT PSN_TITLE_ID)
+    set(PSN_TITLE_ID "GMCA00000")
+endif()
 # VITA_VERSION is the Vita package version (2-digit MM.NN, independent of the
 # main version). Bumped every Vita release so the package version never
 # regresses; 00.23 shipped with the broken v1.0.3 VPK, 00.24 is the first that
 # actually installs.
-set(VITA_VERSION "00.28")
+if (NOT VITA_VERSION)
+    set(VITA_VERSION "00.34")
+endif()
 set(PROJECT_ICON ${CMAKE_CURRENT_SOURCE_DIR}/resources/icon/icon.jpg)
 set(PROJECT_RESOURCES ${CMAKE_CURRENT_SOURCE_DIR}/resources)
 set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} "${CMAKE_SOURCE_DIR}/cmake")
@@ -90,12 +107,46 @@ endif ()
 
 # setting src and include
 file(GLOB_RECURSE MAIN_SRC "${PROJECT_SOURCE_DIR}/app/src/*.cpp")
+if (USE_TORRENT)
+    find_package(LibtorrentRasterbar CONFIG REQUIRED)
+    list(APPEND APP_PLATFORM_LIB LibtorrentRasterbar::torrent-rasterbar)
+    list(APPEND APP_PLATFORM_OPTION -DUSE_TORRENT)
+    if (TORRENT_DEBUG_LAN)
+        list(APPEND APP_PLATFORM_OPTION -DTORRENT_DEBUG_LAN)
+    endif ()
+    if (PLATFORM_PS4)
+        # libtorrent was built with these (scripts/ps4/libtorrent); its headers inline
+        # Asio, so every file that includes them needs the same flags. Every file that
+        # includes libtorrent or Asio headers must therefore live in app/src/torrent/ to
+        # get them (torrent_engine.hpp keeps libtorrent out of its interface for that reason).
+        file(GLOB_RECURSE TORRENT_SRC "${PROJECT_SOURCE_DIR}/app/src/torrent/*.cpp")
+        set_source_files_properties(${TORRENT_SRC} PROPERTIES COMPILE_OPTIONS
+            "-include;${OPENORBIS}/usr/include/libtorrent/ps4_compat.h;-DBOOST_ASIO_DISABLE_KQUEUE;-DBOOST_ASIO_DISABLE_EPOLL;-DBOOST_ASIO_DISABLE_EVENTFD")
+    endif ()
+else ()
+    list(FILTER MAIN_SRC EXCLUDE REGEX "/app/src/torrent/")
+endif ()
 if (PLATFORM_SWITCH)
     # System service initialization functions required for libnx
     list(APPEND MAIN_SRC ${BOREALIS_LIBRARY}/lib/platforms/switch/switch_wrapper.c)
 elseif (PLATFORM_PS4)
+    # Static-init guards that work with the PS4's thread ids, see the file
+    list(APPEND MAIN_SRC ${CMAKE_SOURCE_DIR}/app/platform/ps4/cxa_guard.c)
     # Show backtrace when app crash
     list(APPEND MAIN_SRC ${BOREALIS_LIBRARY}/lib/platforms/ps4/crashlog.c)
+    # OpenOrbis' link.x collects `.data` but not `.data.*`, and -fdata-sections puts
+    # each initialized global in its own .data.<name> section. create-fself only
+    # loads `.data`, so the rest read as 0 on the console (ThreadPool::max_thread_num,
+    # stdio's FILEs, libunwind's cache, ...). Link with a copy that merges them.
+    file(READ ${OPENORBIS}/link.x PS4_LINK_SCRIPT)
+    string(REGEX REPLACE "\\*\\(\\.data\\)" "*(.data .data.*)" PS4_LINK_SCRIPT_FIXED "${PS4_LINK_SCRIPT}")
+    if (PS4_LINK_SCRIPT_FIXED STREQUAL PS4_LINK_SCRIPT)
+        message(FATAL_ERROR "Could not patch ${OPENORBIS}/link.x to merge .data.* sections")
+    endif ()
+    file(WRITE ${CMAKE_BINARY_DIR}/link.x "${PS4_LINK_SCRIPT_FIXED}")
+    string(REPLACE "${OPENORBIS}/link.x" "${CMAKE_BINARY_DIR}/link.x" CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS}")
+    # Linux clock ids -> FreeBSD ones, see the file (linked with --wrap below)
+    list(APPEND MAIN_SRC ${CMAKE_SOURCE_DIR}/app/platform/ps4/clock_ids.c)
 elseif (PLATFORM_PSV)
     configure_file("${CMAKE_SOURCE_DIR}/app/platform/vita/template.xml.in" "${CMAKE_BINARY_DIR}/template.xml")
     # In-app self-update (issue #14): app/src/utils/vita_install.cpp unpacks the
@@ -243,6 +294,13 @@ set_target_properties(${PROJECT_NAME} PROPERTIES CXX_STANDARD 17)
 target_include_directories(${PROJECT_NAME} PRIVATE app/include ${APP_PLATFORM_INCLUDE})
 target_compile_options(${PROJECT_NAME} PRIVATE -ffunction-sections -fdata-sections -Wunused-variable ${APP_PLATFORM_OPTION})
 target_link_libraries(${PROJECT_NAME} PRIVATE borealis lunasvg ${APP_PLATFORM_LIB})
+if (PLATFORM_PS4)
+    target_link_options(${PROJECT_NAME} PRIVATE "LINKER:--wrap=clock_gettime")
+    if (USE_TORRENT)
+        # Asio's condition variables ask for CLOCK_MONOTONIC too (app/platform/ps4/clock_ids.c)
+        target_link_options(${PROJECT_NAME} PRIVATE "LINKER:--wrap=pthread_condattr_setclock")
+    endif ()
+endif ()
 target_compile_definitions(${PROJECT_NAME} PRIVATE
     APP_VERSION=${VERSION_MAJOR}.${VERSION_MINOR}.${VERSION_ALTER}
     APP_BUILD=${VERSION_BUILD}
@@ -351,14 +409,73 @@ elseif (PLATFORM_PSV)
         FILE ${PSV_ASSETS_FILES}
     )
 elseif (PLATFORM_PS4)
+    # Diag self-update test harness, off unless -DGMCA_UPDATE_TEST=<tag> is passed.
+    if (GMCA_UPDATE_TEST)
+        add_compile_definitions(GMCA_UPDATE_TEST GMCA_UPDATE_TEST_TAG="${GMCA_UPDATE_TEST}")
+        # and, with -DGMCA_UPDATE_API_URL=<url>, the update check reads a test server's
+        # releases/latest JSON instead of GitHub's
+        if (GMCA_UPDATE_API_URL)
+            add_compile_definitions(GMCA_UPDATE_API_URL="${GMCA_UPDATE_API_URL}")
+        endif()
+    endif()
+    # Home-screen name, overridable so a diag build reads apart from real GMCA.
+    if (NOT PS4_PKG_NAME)
+        set(PS4_PKG_NAME ${PROJECT_NAME})
+    endif()
+    # Self-update helper (app/platform/ps4/updater, see utils/ps4_self_update.hpp): its own
+    # executable, signed as a system daemon with the program auth id Itemzflow's daemon and Gold
+    # Torrent's service have (the installer's library won't load in an app), shipped in the
+    # package as updater.self. The app installs it as /system/vsh/app/<PS4_UPDATER_TITLE_ID>.
+    if (NOT PS4_UPDATER_TITLE_ID)
+        set(PS4_UPDATER_TITLE_ID "GMCU00000")
+    endif()
+    set(PS4_TITLE_DEFINITIONS
+        GMCA_PS4_TITLE_ID="${PSN_TITLE_ID}"
+        GMCA_PS4_UPDATER_TITLE_ID="${PS4_UPDATER_TITLE_ID}"
+        GMCA_PS4_APP_NAME="${PS4_PKG_NAME}")
+    target_compile_definitions(${PROJECT_NAME} PRIVATE ${PS4_TITLE_DEFINITIONS} GMCA_PS4_APP)
+    add_executable(gmca-updater
+        ${CMAKE_SOURCE_DIR}/app/platform/ps4/updater/main.cpp
+        ${CMAKE_SOURCE_DIR}/app/platform/ps4/updater/heap.c
+        ${CMAKE_SOURCE_DIR}/app/platform/ps4/cxa_guard.c
+        ${CMAKE_SOURCE_DIR}/app/src/utils/ps4_escape.cpp
+        ${CMAKE_SOURCE_DIR}/app/src/utils/ps4_system.cpp)
+    set_target_properties(gmca-updater PROPERTIES CXX_STANDARD 17)
+    target_include_directories(gmca-updater PRIVATE app/include)
+    target_compile_definitions(gmca-updater PRIVATE ${PS4_TITLE_DEFINITIONS})
+    target_link_libraries(gmca-updater PRIVATE SceSysmodule SceAppInstUtil SceBgft)
+    # add_self's auth info (the toolchain keeps it inside the function)
+    set(PS4_AUTH_INFO "000000000000000000000000001C004000FF000000000080000000000000000000000000000000000000008000400040000000000000008000000000000000080040FFFF000000F000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000")
+    file(MAKE_DIRECTORY ${CMAKE_BINARY_DIR}/updater ${CMAKE_BINARY_DIR}/ps4)
+    add_custom_command(
+        OUTPUT ${CMAKE_BINARY_DIR}/ps4/updater.self
+        COMMAND ${CMAKE_COMMAND} -E env "OO_PS4_TOOLCHAIN=${OPENORBIS}" "${OPENORBIS}/bin/create-fself"
+            "-in=$<TARGET_FILE:gmca-updater>" "-out=gmca-updater.oelf" "--eboot" "updater.self"
+            "--paid" "0x3100000000000002" "--authinfo" "${PS4_AUTH_INFO}"
+        COMMAND ${CMAKE_COMMAND} -E copy updater.self ${CMAKE_BINARY_DIR}/ps4/updater.self
+        WORKING_DIRECTORY ${CMAKE_BINARY_DIR}/updater
+        DEPENDS gmca-updater
+        VERBATIM)
+    add_custom_target(gmca-updater_self ALL DEPENDS ${CMAKE_BINARY_DIR}/ps4/updater.self)
+    # param.sfo ATTRIBUTE: 0x800000 is PS4 Pro mode. 0x20 is intended to make system dialogs (the
+    # keyboard) follow the console's enter-button setting, as borealis does for the app's own
+    # keys; unverified, checked on the console. 0x2 is the other candidate
+    # (-DPS4_SFO_ATTRIBUTE=8388610)
+    if (NOT DEFINED PS4_SFO_ATTRIBUTE)
+        set(PS4_SFO_ATTRIBUTE 8388640)
+    endif()
     add_self(${PROJECT_NAME})
     add_pkg(${PROJECT_NAME}
             ${CMAKE_BINARY_DIR}/ps4
             ${PSN_TITLE_ID}
-            ${PROJECT_NAME}
+            ${PS4_PKG_NAME}
             ${VITA_VERSION}
-            8388608
+            ${PS4_SFO_ATTRIBUTE}
     )
+    # the helper is in place before the package is built, and its create-fself never runs
+    # alongside the app's
+    add_dependencies(${PROJECT_NAME}_self gmca-updater_self)
+    add_dependencies(${PROJECT_NAME}_pkg gmca-updater_self)
     add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
         COMMAND "${CMAKE_COMMAND}" -E copy_directory ${BOREALIS_DIR}/ps4/sce_module ${CMAKE_BINARY_DIR}/ps4/sce_module
         COMMAND "${CMAKE_COMMAND}" -E copy_directory ${CMAKE_SOURCE_DIR}/app/platform/ps4/sce_sys ${CMAKE_BINARY_DIR}/ps4/sce_sys

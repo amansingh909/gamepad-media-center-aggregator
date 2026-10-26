@@ -35,8 +35,10 @@ private:
     BRLS_BIND(brls::RadioCell, btnTutorialFont, "tools/tutorial_font");
     BRLS_BIND(brls::BooleanCell, btnHWDEC, "setting/video/hwdec");
     BRLS_BIND(brls::BooleanCell, btnQuality, "setting/video/low_quality");
+    BRLS_BIND(brls::BooleanCell, btnLightHevc, "setting/video/light_hevc");
     BRLS_BIND(brls::BooleanCell, btnSubFallback, "setting/video/subs_fallback");
     BRLS_BIND(brls::SelectorCell, selectorSubLang, "setting/playback/subtitle_lang");
+    BRLS_BIND(brls::SelectorCell, selectorAudioLang, "setting/playback/audio_lang");
     BRLS_BIND(brls::BooleanCell, btnDirectPlay, "setting/video/directplay");
     BRLS_BIND(brls::SelectorCell, selectorVO, "setting/mpv/vo");
     BRLS_BIND(brls::SelectorCell, selectorCodec, "setting/transcode/codec");
@@ -70,4 +72,9 @@ private:
     BRLS_BIND(brls::RadioCell, btnChangelog, "setting/changelog");
     BRLS_BIND(DisclosureCell, btnAbout, "setting/about");
     BRLS_BIND(DisclosureCell, btnLibraries, "setting/libraries");
+    BRLS_BIND(brls::Header, torrentHeader, "setting/torrent/header");
+    BRLS_BIND(brls::Box, torrentBox, "setting/torrent/box");
+    BRLS_BIND(brls::BooleanCell, btnTorrentStreaming, "setting/torrent/streaming");
+    BRLS_BIND(brls::SelectorCell, selectorTorrentUpload, "setting/torrent/upload_limit");
+    BRLS_BIND(brls::BooleanCell, btnTorrentIncoming, "setting/torrent/incoming");
 };

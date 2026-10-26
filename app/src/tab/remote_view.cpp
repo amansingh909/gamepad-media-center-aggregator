@@ -1,4 +1,7 @@
 #include "tab/remote_view.hpp"
+#ifdef __PS4__
+#include "client/posix_list.hpp"
+#endif
 #include "view/recycling_grid.hpp"
 #include "view/svg_image.hpp"
 #include "view/icon_button.hpp"
@@ -15,6 +18,11 @@
 #include "utils/keybind.hpp"
 
 using namespace brls::literals;
+
+// Grace period before a still-running folder listing shows its loading hint. A
+// local or network folder lands within a frame or two and wants no placeholder;
+// only a slow read (a PS4 USB drive) stays past this and gets the hint.
+static const brls::Time LOADING_HINT_DELAY = 250;
 
 class RemotePlayer : public brls::Box {
 public:
@@ -442,8 +450,12 @@ private:
     /// True if the browser path points at an existing directory (issue #24).
     static bool folderExists(const std::string& path) {
         std::string p = path.rfind("file://") == 0 ? path.substr(7) : path;
+#ifdef __PS4__
+        return remote::posix_list::isFolder(p);  // std::filesystem's stat calls fail there
+#else
         std::error_code ec;
         return fs::is_directory(p, ec);
+#endif
     }
 
     DirList list;
@@ -562,6 +574,8 @@ brls::View* UmsView::getDefaultFocus() {
 RemoteView::RemoteView(Client c) : client(c) { brls::Logger::debug("RemoteView: create"); }
 
 RemoteView::~RemoteView() {
+    // Stop before the views tear down so the end callback can't touch them.
+    this->loadingTimer.stop();
     brls::Logger::debug("RemoteView: deleted");
     this->setDimensions(View::AUTO, View::AUTO);
     PlayerSetting::selectedSubtitle = 0;
@@ -578,12 +592,23 @@ void RemoteView::push(const std::string& path) {
     this->stack.push_back(view);
     this->setContent(view);
 
+    // The listing runs off the UI thread, so the grid sits empty until it
+    // lands. Show a centered "Loading" hint only if that takes longer than the
+    // grace period, then let the data (or an error) replace it. A fast local or
+    // network folder returns before the timer fires and shows no placeholder.
+    this->loadingTimer.stop();
+    this->loadingTimer.setEndCallback([this](bool finished) {
+        if (finished && this->recycler) this->recycler->setEmpty("hints/loading"_i18n);
+    });
+    this->loadingTimer.start(LOADING_HINT_DELAY);
+
     ASYNC_RETAIN
     brls::async([ASYNC_TOKEN, &path]() {
         try {
             auto r = client->list(path);
             brls::sync([ASYNC_TOKEN, r]() {
                 ASYNC_RELEASE
+                this->loadingTimer.stop();
                 this->recycler->setDataSource(new FileDataSource(r, client));
                 if (this->stack.size() > 1) brls::Application::giveFocus(this->recycler);
             });
@@ -591,6 +616,7 @@ void RemoteView::push(const std::string& path) {
             std::string error = ex.what();
             brls::sync([ASYNC_TOKEN, error]() {
                 ASYNC_RELEASE
+                this->loadingTimer.stop();
                 this->recycler->setError(error);
             });
         }
@@ -598,6 +624,9 @@ void RemoteView::push(const std::string& path) {
 }
 
 void RemoteView::dismiss(std::function<void(void)> cb) {
+    // A pending loading hint belongs to the view we are leaving, not the one we
+    // are about to reveal.
+    this->loadingTimer.stop();
     if (this->stack.size() > 1) {
         brls::View* lastView = this->recycler;
         this->stack.pop_back();
