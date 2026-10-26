@@ -9,6 +9,14 @@ prepared with [git-cliff](https://git-cliff.org/) from conventional commits
 hand. For the history of the upstream project this fork is based on, see the
 [Switchfin changelog](https://github.com/dragonflylee/switchfin/blob/dev/CHANGELOG.md).
 
+## [1.4.5] - 2026-10-25
+
+### Fixed
+
+- An in-app update on the PS4 no longer leaves the small update helper behind
+  in the system folder. GMCA removes it a few seconds after it next opens, and
+  the update logs stay small.
+
 ## [1.4.4] - 2026-10-25
 
 ### Added
