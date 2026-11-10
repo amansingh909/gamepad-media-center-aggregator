@@ -137,10 +137,6 @@ private:
     bool endReported = false;
     /// The item's length, or mpv's when the item has none (Stremio episodes), in ms.
     int64_t durationMs() const;
-    /// PlaybackSource::timelineOffsetMs of the current load; every position
-    /// read from mpv goes through mediaTimeMs().
-    int64_t timelineOffsetMs = 0;
-    int64_t mediaTimeMs(double mpvTimeSec) const { return this->timelineOffsetMs + int64_t(mpvTimeSec) * 1000; }
     /// bitrate cap armed by tryTranscodeFallback (0 = none): once the transcoder
     /// rescued playback, later reloads stay on it. Cleared when the user picks a
     /// quality (toggleQuality).

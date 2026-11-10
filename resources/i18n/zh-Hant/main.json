@@ -334,8 +334,9 @@
       "font_a3": "將任意 ttf 檔案放到 {}/subfont.ttf"
     },
     "libraries": {
-      "header": "媒體庫",
-      "description": "重新排序或隱藏側邊欄標籤（媒體庫、播放清單、稍後觀看）。此設定會依伺服器分別儲存。",
+      "header": "側邊欄",
+      "description": "重新排序或隱藏側邊欄標籤。首頁和個人檔案保持固定。此設定會依伺服器分別儲存。",
+      "offline": "離線時只列出已下載的媒體庫，其他媒體庫保持原有位置。",
       "grab": "移動",
       "drop": "放下",
       "toggle": "顯示 / 隱藏",
@@ -433,6 +434,7 @@
     "choose_type": "選擇連線類型",
     "switch_title": "連線",
     "add": "新增",
+    "dns_unresolved": "無法解析「{}」。在 Switch/Vita 上，請使用伺服器的 IPv4 位址（例如 http://192.168.1.50:8096）——不支援 .local（mDNS）與僅 IPv6 的名稱。",
     "jellyfin": {
       "title_jellyfin": "登入 Jellyfin",
       "title_emby": "登入 Emby",

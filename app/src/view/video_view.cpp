@@ -27,7 +27,7 @@ using namespace brls::literals;
 VideoView::VideoView() {
     this->inflateFromXMLRes("xml/view/video_view.xml");
     brls::Logger::debug("VideoView: created");
-    // mpv loop flags are global and MusicView leaves its own set: start the
+    // mpv loop flags are global and outlive a session: start the
     // session without them and give them back on close
     {
         auto& mpv = MPVCore::instance();

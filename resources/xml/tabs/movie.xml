@@ -98,7 +98,7 @@
                             cornerRadius="10" />
                     </brls:Box>
 
-                    <brls:SelectorCell
+                    <SelectorCell
                         id="movie/source"
                         visibility="gone"
                         height="40"

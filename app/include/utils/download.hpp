@@ -32,6 +32,8 @@ struct DownloadItem {
     int64_t durationMs = 0;   // duration (ms)
     std::string thumb;        // relative poster path
     std::string partKey;      // Part.key (original file)
+    std::string sectionKey;   // owning library, when the backend metadata lacks it
+    std::string sectionTitle;
     DownloadStatus status = DownloadStatus::Queued;
     std::string filePath;
     int64_t totalBytes = 0;
@@ -40,7 +42,7 @@ struct DownloadItem {
     std::vector<std::string> fallbackKeys;  // the sources tried next if this one fails, best first
 };
 NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE_WITH_DEFAULT(DownloadItem, itemId, name, type, seriesName,
-    seasonIndex, episodeIndex, productionYear, durationMs, thumb, partKey, status,
+    seasonIndex, episodeIndex, productionYear, durationMs, thumb, partKey, sectionKey, sectionTitle, status,
     filePath, totalBytes, downloadedBytes, errorMessage, fallbackKeys);
 
 class DownloadManager : public brls::Singleton<DownloadManager> {
@@ -83,7 +85,8 @@ private:
     void doDownload(DownloadItem& item);
     /// Captures the full fiche + ancestors (season/show) + the season's full
     /// episode list + artwork into OfflineLibrary/ImageCache so the item is
-    /// browsable offline (SPEC §4.1). Runs on the download worker thread,
+    /// browsable offline (SPEC §4.1). Other backends only record the owning
+    /// library on the DownloadItem. Runs on the download worker thread,
     /// SYNCHRONOUSLY and serially on the queue worker — one capture at a time,
     /// a simplicity choice (not a concurrency requirement: the shared curl DNS
     /// cache is lock-guarded, http.cpp).

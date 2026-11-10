@@ -334,8 +334,9 @@
       "font_a3": "Herhangi bir TTF dosyasını {}/subfont.ttf konumuna yerleştirin."
     },
     "libraries": {
-      "header": "Kitaplıklar",
-      "description": "Kenar çubuğu sekmelerini yeniden sıralayın ve gizleyin (kitaplıklar, oynatma listeleri, izleme listesi). Bu ayar her sunucu için ayrı kaydedilir.",
+      "header": "Kenar çubuğu",
+      "description": "Kenar çubuğu sekmelerini yeniden sıralayın ve gizleyin. Ana Sayfa ve profil yerinde kalır. Bu ayar her sunucu için ayrı kaydedilir.",
+      "offline": "Çevrimdışıyken yalnızca indirilen kitaplıklar listelenir; diğerleri yerlerini korur.",
       "grab": "Taşı",
       "drop": "Bırak",
       "toggle": "Göster / Gizle",
@@ -433,6 +434,7 @@
     "choose_type": "Bağlantı türünü seçin",
     "switch_title": "Bağlantılar",
     "add": "Ekle",
+    "dns_unresolved": "\"{}\" çözümlenemiyor. Switch/Vita’da sunucunuzun IPv4 adresini kullanın (ör. http://192.168.1.50:8096) — .local (mDNS) ve yalnızca IPv6 adları desteklenmez.",
     "jellyfin": {
       "title_jellyfin": "Jellyfin'e Giriş Yap",
       "title_emby": "Emby'ye Giriş Yap",

@@ -1,11 +1,12 @@
 /*
  * Thread-safe static initialization on the PS4.
  *
- * OpenOrbis' libc++abi tells threads apart with syscall(20), which on the PS4's
- * FreeBSD kernel is getpid, so every thread gets the same id. When two threads
- * reach the same function-local static at once (ThreadPool workers creating their
- * first HTTP, whose static Global runs curl_global_init), libc++abi takes the
- * second thread for a recursive initialization and aborts.
+ * OpenOrbis' libc++abi tells threads apart with syscall(20), but syscall() in
+ * OpenOrbis' libc is a stub that sets errno to ENOSYS and returns -1, so every
+ * thread gets the same id. When two threads reach the same function-local static
+ * at once (ThreadPool workers creating their first HTTP, whose static Global runs
+ * curl_global_init), libc++abi takes the second thread for a recursive
+ * initialization and aborts.
  *
  * This file provides the Itanium ABI guard functions instead, so the linker leaves
  * libc++abi's cxa_guard.o out. Byte 0 of the guard is the "done" flag the compiler

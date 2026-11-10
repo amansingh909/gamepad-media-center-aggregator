@@ -334,8 +334,9 @@
       "font_a3": "Vložte libovolný soubor ttf do {}/subfont.ttf"
     },
     "libraries": {
-      "header": "Knihovny",
-      "description": "Změňte pořadí a skryjte karty postranního panelu (knihovny, playlisty, seznam sledování). Toto nastavení se ukládá pro každý server zvlášť.",
+      "header": "Postranní panel",
+      "description": "Změňte pořadí a skryjte karty postranního panelu. Domů a profil zůstávají na svém místě. Toto nastavení se ukládá pro každý server zvlášť.",
+      "offline": "Offline jsou uvedeny jen stažené knihovny, ostatní si ponechají své místo.",
       "grab": "Přesunout",
       "drop": "Položit",
       "toggle": "Zobrazit / Skrýt",
@@ -433,6 +434,7 @@
     "choose_type": "Zvolte typ připojení",
     "switch_title": "Připojení",
     "add": "Přidat",
+    "dns_unresolved": "Nelze přeložit „{}“. Na Switch/Vita použij IPv4 adresu svého serveru (např. http://192.168.1.50:8096) — názvy .local (mDNS) a pouze IPv6 nejsou podporovány.",
     "jellyfin": {
       "title_jellyfin": "Přihlásit se do Jellyfin",
       "title_emby": "Přihlásit se do Emby",

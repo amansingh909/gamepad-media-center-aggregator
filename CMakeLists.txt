@@ -145,6 +145,10 @@ elseif (PLATFORM_PS4)
     endif ()
     file(WRITE ${CMAKE_BINARY_DIR}/link.x "${PS4_LINK_SCRIPT_FIXED}")
     string(REPLACE "${OPENORBIS}/link.x" "${CMAKE_BINARY_DIR}/link.x" CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS}")
+    string(FIND "${CMAKE_EXE_LINKER_FLAGS}" "${CMAKE_BINARY_DIR}/link.x" PS4_LINK_SCRIPT_FLAG)
+    if (PS4_LINK_SCRIPT_FLAG EQUAL -1)
+        message(FATAL_ERROR "The PS4 linker flags don't reference ${OPENORBIS}/link.x")
+    endif ()
     # Linux clock ids -> FreeBSD ones, see the file (linked with --wrap below)
     list(APPEND MAIN_SRC ${CMAKE_SOURCE_DIR}/app/platform/ps4/clock_ids.c)
 elseif (PLATFORM_PSV)
@@ -185,6 +189,10 @@ endif ()
 
 # build borealis and other third party libraries
 add_subdirectory(library)
+# yoga builds with -fno-rtti, so it emits its own hidden std::exception typeinfo, which
+# the link then uses for every catch in the app: libc++ exceptions such as
+# std::runtime_error no longer matched catch (const std::exception&)
+target_compile_options(yogacore PRIVATE $<$<COMPILE_LANGUAGE:CXX>:-frtti>)
 
 if (USE_SYSTEM_CURL)
     find_package(CURL REQUIRED)
@@ -300,6 +308,9 @@ if (PLATFORM_PS4)
         # Asio's condition variables ask for CLOCK_MONOTONIC too (app/platform/ps4/clock_ids.c)
         target_link_options(${PROJECT_NAME} PRIVATE "LINKER:--wrap=pthread_condattr_setclock")
     endif ()
+elseif (PLATFORM_PSV)
+    # vita-elf-create appends the SCE module info after the first segment, which needs room before the next one.
+    target_link_options(${PROJECT_NAME} PRIVATE "LINKER:--defsym=__sce_headroom=0x10000")
 endif ()
 target_compile_definitions(${PROJECT_NAME} PRIVATE
     APP_VERSION=${VERSION_MAJOR}.${VERSION_MINOR}.${VERSION_ALTER}
@@ -457,13 +468,13 @@ elseif (PLATFORM_PS4)
         DEPENDS gmca-updater
         VERBATIM)
     add_custom_target(gmca-updater_self ALL DEPENDS ${CMAKE_BINARY_DIR}/ps4/updater.self)
-    # param.sfo ATTRIBUTE: 0x800000 is PS4 Pro mode. 0x20 is intended to make system dialogs (the
-    # keyboard) follow the console's enter-button setting, as borealis does for the app's own
-    # keys; unverified, checked on the console. 0x2 is the other candidate
-    # (-DPS4_SFO_ATTRIBUTE=8388610)
+    # param.sfo ATTRIBUTE: 0x800000 is PS4 Pro mode. 0x20 makes system dialogs such as the
+    # keyboard take their enter button from the console's setting, as borealis does for the app's
+    # own keys; without it the keyboard confirmed with Circle on a console set to Cross. Tested on
+    # a GoldHEN PS4 set to Cross. Override with -DPS4_SFO_ATTRIBUTE=<value>.
     if (NOT DEFINED PS4_SFO_ATTRIBUTE)
         set(PS4_SFO_ATTRIBUTE 8388640)
-    endif()
+    endif ()
     add_self(${PROJECT_NAME})
     add_pkg(${PROJECT_NAME}
             ${CMAKE_BINARY_DIR}/ps4

@@ -204,9 +204,9 @@ int main(int argc, char* argv[]) {
 #ifdef __PS4__
     // A send on a socket the server already closed raises SIGPIPE, whose default
     // action kills the app with nothing logged. curl runs with CURLOPT_NOSIGNAL so it
-    // leaves SIGPIPE alone, and on PS4 neither MSG_NOSIGNAL (musl's Linux 0x4000,
-    // FreeBSD's MSG_NBIO) nor SO_NOSIGPIPE takes effect. Ignore it: the send fails
-    // with EPIPE instead.
+    // leaves SIGPIPE alone, and on PS4 MSG_NOSIGNAL doesn't take effect (musl's Linux
+    // 0x4000 is FreeBSD's MSG_NBIO) and SO_NOSIGPIPE isn't defined in the headers.
+    // Ignore it: the send fails with EPIPE instead.
     std::signal(SIGPIPE, SIG_IGN);
 #endif
     std::vector<std::string> items;

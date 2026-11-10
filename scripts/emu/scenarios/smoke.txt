@@ -1,0 +1,20 @@
+# Start from a fresh config, no server: the Connections screen, the connection
+# types, the settings. No network needed.
+launch --fresh
+sleep 6
+shot 00-connections
+key a
+sleep 1.5
+shot 01-connection-types
+key b
+sleep 1
+key y
+sleep 2
+shot 02-settings
+key down down
+sleep 1
+shot 03-settings-scrolled
+key b
+sleep 1
+shot 04-back
+quit

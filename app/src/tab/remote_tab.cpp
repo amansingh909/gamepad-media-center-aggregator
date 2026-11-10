@@ -96,16 +96,20 @@ void RemoteTab::refresh() {
 
 void RemoteTab::manageRemote(size_t index, const AppRemote& r) {
     std::vector<std::string> options{"main/remote/edit"_i18n, "main/remote/delete"_i18n};
-    auto* dropdown = new brls::Dropdown(r.name, options, [this, index, r](int selected) {
-        if (selected == 0) {
-            RemoteAdd::open([this]() { this->refresh(); }, (int)index);
-        } else if (selected == 1) {
-            Dialog::cancelable(
-                fmt::format(fmt::runtime("main/remote/delete_confirm"_i18n), r.name), [this, index]() {
-                    AppConfig::instance().removeRemote(index);
-                    this->refresh();
-                });
-        }
-    });
+    // brls::Dropdown pops the top activity right after cb(), which would pop
+    // what cb pushes: open from dismissCb, once the dropdown is gone
+    auto* dropdown = new brls::Dropdown(
+        r.name, options, [](int) {}, 0,
+        [this, index, r](int selected) {
+            if (selected == 0) {
+                RemoteAdd::open([this]() { this->refresh(); }, (int)index);
+            } else if (selected == 1) {
+                Dialog::cancelable(
+                    fmt::format(fmt::runtime("main/remote/delete_confirm"_i18n), r.name), [this, index]() {
+                        AppConfig::instance().removeRemote(index);
+                        this->refresh();
+                    });
+            }
+        });
     brls::Application::pushActivity(new brls::Activity(dropdown));
 }

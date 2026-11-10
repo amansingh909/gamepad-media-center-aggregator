@@ -334,8 +334,9 @@
       "font_a3": "Đặt bất kỳ tệp ttf nào vào {}/subfont.ttf"
     },
     "libraries": {
-      "header": "Thư viện",
-      "description": "Sắp xếp lại và ẩn các thẻ ở thanh bên (thư viện, danh sách phát, danh sách theo dõi). Cài đặt này được lưu riêng cho từng máy chủ.",
+      "header": "Thanh bên",
+      "description": "Sắp xếp lại và ẩn các thẻ ở thanh bên. Nhà và hồ sơ giữ nguyên vị trí. Cài đặt này được lưu riêng cho từng máy chủ.",
+      "offline": "Khi ngoại tuyến, chỉ các thư viện đã tải xuống được liệt kê; các thư viện khác giữ nguyên vị trí.",
       "grab": "Di chuyển",
       "drop": "Thả",
       "toggle": "Hiện / Ẩn",
@@ -433,6 +434,7 @@
     "choose_type": "Chọn loại kết nối",
     "switch_title": "Kết nối",
     "add": "Thêm",
+    "dns_unresolved": "Không thể phân giải “{}”. Trên Switch/Vita, hãy dùng địa chỉ IPv4 của máy chủ (ví dụ: http://192.168.1.50:8096) — tên .local (mDNS) và chỉ IPv6 không được hỗ trợ.",
     "jellyfin": {
       "title_jellyfin": "Đăng nhập vào Jellyfin",
       "title_emby": "Đăng nhập vào Emby",

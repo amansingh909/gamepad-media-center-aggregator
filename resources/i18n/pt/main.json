@@ -334,8 +334,9 @@
       "font_a3": "Coloque qualquer ficheiro ttf em {}/subfont.ttf"
     },
     "libraries": {
-      "header": "Bibliotecas",
-      "description": "Reordene e oculte as abas da barra lateral (bibliotecas, playlists, lista de interesses). Esta definição é guardada por servidor.",
+      "header": "Barra lateral",
+      "description": "Reordene e oculte as abas da barra lateral. O Início e o perfil ficam no lugar. Esta definição é guardada por servidor.",
+      "offline": "Offline, só são listadas as bibliotecas transferidas; as restantes mantêm o seu lugar.",
       "grab": "Mover",
       "drop": "Soltar",
       "toggle": "Mostrar / Ocultar",
@@ -433,6 +434,7 @@
     "choose_type": "Escolha o tipo de ligação",
     "switch_title": "Ligações",
     "add": "Adicionar",
+    "dns_unresolved": "Não foi possível resolver “{}”. No Switch/Vita, use o endereço IPv4 do seu servidor (ex.: http://192.168.1.50:8096) — nomes .local (mDNS) e apenas IPv6 não são suportados.",
     "jellyfin": {
       "title_jellyfin": "Iniciar sessão no Jellyfin",
       "title_emby": "Iniciar sessão no Emby",
