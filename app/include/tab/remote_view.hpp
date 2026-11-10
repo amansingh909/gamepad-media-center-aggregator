@@ -7,6 +7,7 @@
 #include <view/auto_tab_frame.hpp>
 #include <client/client.hpp>
 #include <utils/ums.hpp>
+#include <borealis/core/timer.hpp>
 
 class RecyclingGrid;
 
@@ -34,6 +35,10 @@ protected:
     std::vector<RecyclingGrid*> stack;
     RecyclingGrid* recycler;
     Client client;
+
+    // One-shot: reveals a "Loading" hint if a folder listing is still running
+    // after a short grace period (a slow PS4 USB read), so it never looks frozen.
+    brls::Timer loadingTimer;
 };
 
 class UmsView : public RemoteView {

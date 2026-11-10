@@ -9,6 +9,10 @@
 #include <api/plex/types.hpp>
 #include <utils/download.hpp>
 #include <view/svg_image.hpp>
+#include <view/selector_cell.hpp>
+#ifdef USE_TORRENT
+#include <torrent/prefetch_gate.hpp>
+#endif
 
 class HRecyclerFrame;
 class TextBox;
@@ -41,7 +45,7 @@ private:
     BRLS_BIND(brls::Label, labelGenres, "movie/label/genres");
     BRLS_BIND(brls::Box, noticeBox, "movie/notice");
     BRLS_BIND(brls::Box, sourcesBox, "movie/sources");
-    BRLS_BIND(brls::SelectorCell, btnSource, "movie/source");
+    BRLS_BIND(SelectorCell, btnSource, "movie/source");
     BRLS_BIND(IconButton, btnPlay, "movie/play");
     BRLS_BIND(IconButton, btnDownload, "movie/download");
     BRLS_BIND(IconButton, btnWatchlist, "movie/watchlist");
@@ -59,6 +63,9 @@ private:
     /// Builds the inline Stremio source list (one row per source) and wires the
     /// Play button's enabled/muted state. No-op for single-file backends.
     void buildSources(const media::Item& item);
+    /// Stremio: a spinner and "Finding streams..." where the source list will be, until
+    /// buildSources() replaces it.
+    void showFindingStreams();
     /// Opens the player on a specific source row (item.media[mediaIndex]).
     void playSource(int mediaIndex);
     /// Queues a download of a specific source row (Stremio: X on a release line).
@@ -67,6 +74,17 @@ private:
     void initWatchlist(const media::Item& item);
     void toggleWatchlist();
     void updateWatchlistButton();
+#ifdef USE_TORRENT
+    /// A torrent row got or lost the focus: after a second on it, the engine starts
+    /// fetching that torrent's info and peers, so A starts faster.
+    void torrentRowFocus(const std::string& url, bool focused);
+    /// While a torrent row has the focus, its pill (`label`) shows the engine's peers once it
+    /// has some, refreshed every second; the addon's `seeders` again when the focus leaves.
+    void torrentRowPeers(const std::string& url, brls::Label* label, int seeders, bool focused);
+    torrent::PrefetchGate prefetchGate;
+    brls::Timer prefetchTimer;
+    brls::RepeatingTimer peersTimer;
+#endif
 
     DownloadManager::ProgressEvent::Subscription progressSub;
     DownloadManager::StatusEvent::Subscription statusSub;
@@ -76,10 +94,12 @@ private:
     media::Item movieItem;  // resolved detail (sources/title) — backs source playback
     bool hasPlayableSource = false;
     brls::View* firstSourceRow = nullptr;  // default focus target (Stremio release list)
+    bool showAllSources = false;           // "+N more" was pressed: every playable row shows
+    brls::View* expandFocus = nullptr;     // the first row "+N more" had hidden, after it was pressed
     media::Item listItem;  // item backing the personal-list (watchlist/favorite) button
     bool localContext = false;  // opened from the offline downloads area
     bool watchlisted = false;
-    /// selected version (item.media[]) — no effect in v1 (playback = first
-    /// accessible version, cf. activity/player_view.cpp)
-    size_t selectedVersion = 0;
+    /// version picked in the selector (item.media[]); -1 = no selector, the
+    /// player takes the first accessible version
+    int selectedVersion = -1;
 };

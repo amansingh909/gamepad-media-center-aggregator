@@ -87,6 +87,9 @@ private:
     /// next episode has a playable source (Stremio); false -> Play is muted and
     /// explains on click instead of launching a player that would fail.
     bool nextPlayable = true;
+    /// the next episode's sources are being resolved (Stremio, "Finding streams..."): A on
+    /// Play does nothing until they are
+    bool searching = false;
     /// fully watched show: onDeck = first episode (allLeaves) and the
     /// "Play" button becomes "Replay" (forced playback from 0)
     bool replay = false;

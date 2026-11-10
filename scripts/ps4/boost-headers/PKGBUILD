@@ -1,0 +1,20 @@
+# Boost headers for the PS4 build (libtorrent only needs headers).
+
+pkgname=ps4-openorbis-boost-headers
+pkgver=1.83.0
+pkgrel=1
+pkgdesc='Boost C++ headers'
+arch=('any')
+url='https://www.boost.org/'
+license=('custom:boost')
+options=(!strip !debug)
+source=("https://archives.boost.io/release/$pkgver/source/boost_${pkgver//./_}.tar.bz2")
+sha256sums=('6478edfe2f3305127cffe8caf73ea0176c53769f4bf1585be237eb30798c3b8e')
+groups=('ps4-openorbis-portlibs')
+
+package() {
+  local prefix=/opt/pacbrew/ps4/openorbis/usr
+  install -d "$pkgdir$prefix/include"
+  cp -r "$srcdir/boost_${pkgver//./_}/boost" "$pkgdir$prefix/include/"
+  install -Dm644 "$srcdir/boost_${pkgver//./_}/LICENSE_1_0.txt" "$pkgdir$prefix/share/licenses/$pkgname/LICENSE"
+}

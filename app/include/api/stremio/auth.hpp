@@ -44,8 +44,9 @@ std::vector<std::string> fetchAddonCollection(const std::string& authKey);
 /// Used for LibraryItem _ctime/_mtime/lastWatched.
 std::string nowIso();
 
-/// POST /api/datastoreGet for the "libraryItem" collection → the raw items array.
-nlohmann::json datastoreGet(const std::string& authKey);
+/// POST /api/datastoreGet for the "libraryItem" collection → the raw items array: the whole
+/// library, or only the items `ids` names (stremio-core's DatastoreCommand::Get {ids, all}).
+nlohmann::json datastoreGet(const std::string& authKey, const std::vector<std::string>& ids = {});
 
 /// POST /api/datastorePut for the "libraryItem" collection. `items` may be a
 /// single LibraryItem object or an array of them.

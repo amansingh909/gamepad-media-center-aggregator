@@ -15,6 +15,7 @@
 #include <algorithm>
 #include <cctype>
 #include <functional>
+#include <optional>
 #include <string>
 #include <unordered_set>
 #include <vector>
@@ -200,12 +201,54 @@ inline std::unordered_set<std::string> survivors(
         else if (it.type == plex::mediaTypeSeason)
             k = showsWithDl.count(it.parentRatingKey) > 0 && seasonsWithDl.count(it.ratingKey) > 0;
         else if (it.type == plex::mediaTypeEpisode)
-            k = seasonsWithDl.count(it.parentRatingKey) > 0;
+            // a downloaded episode always stays (legacy ones have no parent keys); a greyed
+            // sibling stays with its season, and an empty key never matches anything
+            k = isDownloaded(it.ratingKey) ||
+                (!it.parentRatingKey.empty() && seasonsWithDl.count(it.parentRatingKey) > 0);
         else
             k = true;  // unknown type: keep defensively
         if (k) keep.insert(it.ratingKey);
     }
     return keep;
+}
+
+/// Hands `put` what a downloaded leaf needs offline (`art` = cache its artwork):
+/// the leaf, and for an episode its show and its season with the season's full
+/// episode list, each once (SPEC AC9/AC10). A node without a library gets
+/// `section`. The leaf goes first: a failing ancestor fetch never loses it.
+inline void capture(const std::string& itemId, const plex::Section& section,
+    const std::function<std::optional<plex::Item>(const std::string&)>& fetch,
+    const std::function<std::vector<plex::Item>(const std::string&)>& children,
+    const std::function<bool(const std::string&)>& has, const std::function<void(plex::Item, bool art)>& put) {
+    auto store = [&](plex::Item it, bool art) {
+        if (it.librarySectionID.empty()) {
+            it.librarySectionID = section.key;
+            it.librarySectionTitle = section.title;
+        }
+        put(std::move(it), art);
+    };
+
+    auto leaf = fetch(itemId);
+    if (!leaf) return;
+    store(*leaf, true);
+
+    if (leaf->type != plex::mediaTypeEpisode) return;
+
+    if (!leaf->grandparentRatingKey.empty() && !has(leaf->grandparentRatingKey)) {
+        if (auto show = fetch(leaf->grandparentRatingKey)) store(*show, true);
+    }
+    if (!leaf->parentRatingKey.empty() && !has(leaf->parentRatingKey)) {
+        if (auto season = fetch(leaf->parentRatingKey)) {
+            if (season->parentRatingKey.empty()) season->parentRatingKey = leaf->grandparentRatingKey;
+            store(*season, true);
+        }
+        for (auto& ep : children(leaf->parentRatingKey)) {
+            if (ep.ratingKey == itemId) continue;  // keep the richer leaf fiche
+            if (ep.parentRatingKey.empty()) ep.parentRatingKey = leaf->parentRatingKey;
+            if (ep.grandparentRatingKey.empty()) ep.grandparentRatingKey = leaf->grandparentRatingKey;
+            store(ep, false);
+        }
+    }
 }
 
 /// Image paths worth caching for a fiche (non-empty only): poster, backdrop,

@@ -92,6 +92,39 @@
                 svg="@res/icon/ico-download-light.svg" />
         </brls:Box>
 
+        <!-- Continue Watching: time left and when it was last watched, over the poster's foot
+             (resume_source.cpp); gone on every other card -->
+        <brls:Box
+            id="video/card/caption/box"
+            positionType="absolute"
+            positionBottom="18"
+            width="100%"
+            paddingLeft="8"
+            paddingRight="8"
+            visibility="gone"
+            justifyContent="center">
+            <brls:Box
+                axis="column"
+                alignItems="center"
+                cornerRadius="6"
+                paddingLeft="6"
+                paddingRight="6"
+                paddingTop="2"
+                paddingBottom="2"
+                backgroundColor="@theme/color/scrim">
+                <brls:Label
+                    id="video/card/caption"
+                    singleLine="true"
+                    fontSize="12"
+                    textColor="@theme/color/white" />
+                <brls:Label
+                    id="video/card/caption/ago"
+                    singleLine="true"
+                    fontSize="12"
+                    textColor="@theme/color/white" />
+            </brls:Box>
+        </brls:Box>
+
         <brls:Box
             positionType="absolute"
             positionBottom="8"

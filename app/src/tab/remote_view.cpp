@@ -1,11 +1,15 @@
 #include "tab/remote_view.hpp"
+#ifdef __PS4__
+#include "client/posix_list.hpp"
+#endif
 #include "view/recycling_grid.hpp"
 #include "view/svg_image.hpp"
 #include "view/icon_button.hpp"
 #include "view/video_view.hpp"
 #include "view/video_profile.hpp"
 #include "view/mpv_core.hpp"
-#include "view/music_view.hpp"
+#include "view/audio_player.hpp"
+#include "view/music_now_playing.hpp"
 #include "view/player_setting.hpp"
 #include "client/local.hpp"
 #include "view/remote_filter.hpp"
@@ -16,9 +20,17 @@
 
 using namespace brls::literals;
 
+// Grace period before a still-running folder listing shows its loading hint. A
+// local or network folder lands within a frame or two and wants no placeholder;
+// only a slow read (a PS4 USB drive) stays past this and gets the hint.
+static const brls::Time LOADING_HINT_DELAY = 250;
+
 class RemotePlayer : public brls::Box {
 public:
     RemotePlayer(const remote::DirEntry& item, const std::string& method = "") {
+        // same handover as PlayerView: a music queue left owning MPVCore would
+        // auto-advance over this video at its end of file
+        AudioPlayer::instance().release();
         float width = brls::Application::contentWidth;
         float height = brls::Application::contentHeight;
         view->setDimensions(width, height);
@@ -250,12 +262,20 @@ private:
     BRLS_BIND(brls::Label, size, "file/misc");
 };
 
-static std::set<std::string> videoExt = {".mp4", ".mkv", ".avi", ".flv", ".mov", ".wmv", ".webm", ".rm",
-    ".rmvb", ".mpg", ".m2ts", ".mts", ".ts"};
-static std::set<std::string> audioExt = {".mp3", ".flac", ".wav", ".ogg", ".m4a", ".aac", ".wma", ".ape"};
-static std::set<std::string> imageExt = {".jpg", ".jpeg", ".png", ".bmp", ".gif", ".webp"};
-static std::set<std::string> playlistExt = {".m3u", ".m3u8"};
-static std::set<std::string> subtitleExt = {".srt", ".ass", ".ssa", ".sub", ".smi"};
+/// Shape AudioPlayer::playFiles expects; mpv's tags replace the title once loaded.
+static media::Item fileTrack(const remote::DirEntry& entry) {
+    media::Item track;
+    track.type = media::mediaTypeTrack;
+    track.ratingKey = entry.url();
+    auto pos = entry.name.find_last_of('.');
+    track.title = pos == std::string::npos ? entry.name : entry.name.substr(0, pos);
+    media::Part part;
+    part.key = entry.url();
+    media::Media version;
+    version.parts.push_back(part);
+    track.media.push_back(version);
+    return track;
+}
 
 class FileDataSource : public RecyclingGridDataSource {
 public:
@@ -266,23 +286,7 @@ public:
         // pinning targets the local storage only (issue #24)
         this->isLocal = (bool)std::dynamic_pointer_cast<remote::Local>(c);
         for (auto& it : this->list) {
-            if (it.type != remote::EntryType::FILE) continue;
-
-            auto pos = it.name.find_last_of('.');
-            if (pos == std::string::npos) continue;
-            std::string ext = it.name.substr(pos);
-            std::transform(ext.begin(), ext.end(), ext.begin(), ::tolower);
-            if (videoExt.count(ext)) {
-                it.type = remote::EntryType::VIDEO;
-            } else if (audioExt.count(ext)) {
-                it.type = remote::EntryType::AUDIO;
-            } else if (imageExt.count(ext)) {
-                it.type = remote::EntryType::IMAGE;
-            } else if (subtitleExt.count(ext)) {
-                it.type = remote::EntryType::SUBTITLE;
-            } else if (playlistExt.count(ext)) {
-                it.type = remote::EntryType::PLAYLIST;
-            }
+            if (it.type == remote::EntryType::FILE) it.type = remote::typeFromName(it.name);
         }
         this->resort();
     }
@@ -381,15 +385,16 @@ public:
         }
 
         if (item.type == remote::EntryType::AUDIO) {
-            DirList urls;
+            std::vector<media::Item> tracks;
             for (size_t i = 1; i < this->list.size(); i++) {
                 auto& it = this->list.at(i);
                 if (it.type == remote::EntryType::AUDIO) {
-                    if (i == index) index = urls.size();
-                    urls.push_back(it);
+                    if (i == index) index = tracks.size();
+                    tracks.push_back(fileTrack(it));
                 }
             }
-            MusicView::instance().load(urls, index, client->extraOption());
+            AudioPlayer::instance().playFiles(tracks, index, client->extraOption());
+            MusicNowPlaying::open();
             return;
         }
 
@@ -442,8 +447,12 @@ private:
     /// True if the browser path points at an existing directory (issue #24).
     static bool folderExists(const std::string& path) {
         std::string p = path.rfind("file://") == 0 ? path.substr(7) : path;
+#ifdef __PS4__
+        return remote::posix_list::isFolder(p);  // std::filesystem's stat calls fail there
+#else
         std::error_code ec;
         return fs::is_directory(p, ec);
+#endif
     }
 
     DirList list;
@@ -562,13 +571,12 @@ brls::View* UmsView::getDefaultFocus() {
 RemoteView::RemoteView(Client c) : client(c) { brls::Logger::debug("RemoteView: create"); }
 
 RemoteView::~RemoteView() {
+    // Stop before the views tear down so the end callback can't touch them.
+    this->loadingTimer.stop();
     brls::Logger::debug("RemoteView: deleted");
     this->setDimensions(View::AUTO, View::AUTO);
     PlayerSetting::selectedSubtitle = 0;
     PlayerSetting::selectedAudio = 0;
-
-    /// 通知 MusicView 已关闭
-    MusicView::instance().setParent(nullptr);
 }
 
 brls::View* RemoteView::getDefaultFocus() { return this->recycler; }
@@ -578,12 +586,23 @@ void RemoteView::push(const std::string& path) {
     this->stack.push_back(view);
     this->setContent(view);
 
+    // The listing runs off the UI thread, so the grid sits empty until it
+    // lands. Show a centered "Loading" hint only if that takes longer than the
+    // grace period, then let the data (or an error) replace it. A fast local or
+    // network folder returns before the timer fires and shows no placeholder.
+    this->loadingTimer.stop();
+    this->loadingTimer.setEndCallback([this](bool finished) {
+        if (finished && this->recycler) this->recycler->setEmpty("hints/loading"_i18n);
+    });
+    this->loadingTimer.start(LOADING_HINT_DELAY);
+
     ASYNC_RETAIN
     brls::async([ASYNC_TOKEN, &path]() {
         try {
             auto r = client->list(path);
             brls::sync([ASYNC_TOKEN, r]() {
                 ASYNC_RELEASE
+                this->loadingTimer.stop();
                 this->recycler->setDataSource(new FileDataSource(r, client));
                 if (this->stack.size() > 1) brls::Application::giveFocus(this->recycler);
             });
@@ -591,6 +610,7 @@ void RemoteView::push(const std::string& path) {
             std::string error = ex.what();
             brls::sync([ASYNC_TOKEN, error]() {
                 ASYNC_RELEASE
+                this->loadingTimer.stop();
                 this->recycler->setError(error);
             });
         }
@@ -598,6 +618,9 @@ void RemoteView::push(const std::string& path) {
 }
 
 void RemoteView::dismiss(std::function<void(void)> cb) {
+    // A pending loading hint belongs to the view we are leaving, not the one we
+    // are about to reveal.
+    this->loadingTimer.stop();
     if (this->stack.size() > 1) {
         brls::View* lastView = this->recycler;
         this->stack.pop_back();

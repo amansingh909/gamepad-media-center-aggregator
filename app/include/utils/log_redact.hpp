@@ -1,7 +1,8 @@
 #pragma once
 
 /*
-    Redaction of mpv/ffmpeg log lines before they reach an on-screen dialog.
+    Redaction of mpv/ffmpeg log lines before they reach an on-screen dialog, and
+    of the credentials and token parameters in the URLs of the video info screen.
     Users post screenshots of it: URLs carry tokens in the query (Plex, Jellyfin),
     API keys in the path (Stremio debrid addons), credentials in the userinfo and
     the server's public IP in the host (*.plex.direct). Only the scheme and the
@@ -46,6 +47,38 @@ inline size_t ifind(const std::string& text, const std::string& key, size_t from
 }
 
 }  // namespace detail
+
+/// Masks the value of the token parameters (X-Plex-Token, api_key, ApiKey), plain or
+/// URL-encoded, and leaves the rest of the text as is.
+inline std::string redactTokens(std::string text) {
+    for (const char* key : {"token=", "api_key=", "apikey=", "token%3D", "api_key%3D", "apikey%3D"}) {
+        for (size_t pos = 0; (pos = detail::ifind(text, key, pos)) != std::string::npos;) {
+            pos += std::strlen(key);
+            size_t end = text.find_first_of("&\"' ;,)", pos);
+            size_t encodedAmp = detail::ifind(text, "%26", pos);
+            if (encodedAmp != std::string::npos && (end == std::string::npos || encodedAmp < end)) end = encodedAmp;
+            text.replace(pos, (end == std::string::npos ? text.size() : end) - pos, "***");
+            pos += 3;
+        }
+    }
+    return text;
+}
+
+/// Masks the credentials of URLs (ftp://user:pass@host) and the token parameters, and keeps
+/// the host and the path readable.
+inline std::string redactUrl(std::string text) {
+    for (size_t pos = 0; (pos = text.find("://", pos)) != std::string::npos;) {
+        pos += 3;
+        size_t hostEnd = text.find_first_of("/?#", pos);
+        if (hostEnd == std::string::npos) hostEnd = text.size();
+        size_t at = text.rfind('@', hostEnd);
+        if (at != std::string::npos && at >= pos) {
+            text.replace(pos, at - pos, "***");
+            pos += 3;
+        }
+    }
+    return redactTokens(text);
+}
 
 inline std::string redactLogLine(std::string text) {
     constexpr size_t maxBytes = 200;
@@ -96,16 +129,7 @@ inline std::string redactLogLine(std::string text) {
         start = end;
     }
 
-    for (const char* key : {"token=", "api_key=", "apikey=", "token%3D", "api_key%3D", "apikey%3D"}) {
-        for (size_t pos = 0; (pos = detail::ifind(text, key, pos)) != std::string::npos;) {
-            pos += std::strlen(key);
-            size_t end = text.find_first_of("&\"' ;,)", pos);
-            size_t encodedAmp = detail::ifind(text, "%26", pos);
-            if (encodedAmp != std::string::npos && (end == std::string::npos || encodedAmp < end)) end = encodedAmp;
-            text.replace(pos, (end == std::string::npos ? text.size() : end) - pos, "***");
-            pos += 3;
-        }
-    }
+    text = redactTokens(text);
 
     if (text.size() > maxBytes) {
         size_t cut = maxBytes;

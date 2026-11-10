@@ -17,6 +17,7 @@
 
 #include <functional>
 #include <memory>
+#include <optional>
 #include <string>
 #include <utility>
 #include <vector>
@@ -78,10 +79,6 @@ struct PlaybackSource {
     std::string playMethod;   // "directplay" | "transcode"
     std::string transcodeSession;  // server-side transcode session token, to tear it down on reload/exit;
                                    // empty for direct play or backends without a server transcode session
-    /// Media time at mpv playback-time 0. A Plex HLS transcode started at an
-    /// offset rebases its timestamps to 0; direct play and Jellyfin playlists
-    /// stay absolute (0). The player adds it to every position read from mpv.
-    int64_t timelineOffsetMs = 0;
 };
 
 /// Per-backend capability descriptor — pilots the UI (tabs, menus, controls).
@@ -110,6 +107,9 @@ struct Capabilities {
     bool transcode = true;
     bool serverProgress = true;    // report progress to server (else local-only)
     bool downloadOriginal = true;
+    /// Download entry in a title's context menu although there is no original file to fetch: the
+    /// backend picks a source (Stremio). The detail pages keep their own gates.
+    bool sourceDownload = false;
     // accounts
     bool multiProfile = true;      // Plex Home / Jellyfin users
 };
@@ -145,6 +145,15 @@ public:
         const std::string& hubKey, size_t start, size_t size, Then<Container<Item>> then, OnError error) = 0;
     /// Single item detail. `full` requests heavy includes (streams/chapters/markers).
     virtual void getItemDetail(const std::string& id, bool full, Then<Item> then, OnError error) = 0;
+    /// Library owning an item, for the offline catalog. Synchronous (download
+    /// worker thread), may throw. Empty key when unknown: Plex keeps this
+    /// default, its metadata already carries librarySectionID.
+    virtual Section sectionOfSync(const std::string& id) { return {}; }
+    /// Item fiche and direct children, for the offline catalog. Synchronous
+    /// (download worker thread), may throw. Backends without an offline
+    /// catalog (Stremio) keep these defaults: nothing is captured.
+    virtual std::optional<Item> getItemDetailSync(const std::string& id) { return std::nullopt; }
+    virtual std::vector<Item> getChildrenSync(const std::string& id) { return {}; }
     virtual void getChildren(const std::string& id, Then<Container<Item>> then, OnError error) = 0;
     /// Albums of a music artist. Hierarchical backends (Plex) resolve this like
     /// getChildren; Jellyfin/Emby must override (artists are virtual entities,
@@ -159,6 +168,10 @@ public:
     }
     virtual void getAllEpisodes(
         const std::string& showId, bool includeStreams, Then<Container<Item>> then, OnError error) = 0;
+    /// A show's episodes as an earlier getAllEpisodes left them, with no request: nullptr when
+    /// the backend doesn't keep them (the default) or hasn't them yet. UI thread; the pointer is
+    /// good until the next call into the backend.
+    virtual const std::vector<Item>* keptEpisodes(const std::string& showId) const { return nullptr; }
     /// Next episode to play. `then(item, fromStart)`: fromStart=true means the
     /// show is fully watched and `item` is its first episode ("Replay"). On no
     /// episode / failure, then(Item{}, false). Never surfaces a hard error to the UI.
@@ -178,6 +191,9 @@ public:
     // ---- item actions --------------------------------------------------------
     virtual void markWatched(const std::string& id) = 0;
     virtual void markUnwatched(const std::string& id) = 0;
+    /// Forgets where playback stopped (Continue Watching's "Remove from list"). A no-op where
+    /// the server keeps its own list.
+    virtual void clearProgress(const std::string& id) {}
 
     // ---- playback ------------------------------------------------------------
     /// Synchronous (call inside brls::async). `version` is the Media chosen by

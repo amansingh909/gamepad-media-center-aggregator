@@ -4,6 +4,7 @@
 
 #include "view/library_manager.hpp"
 #include "view/svg_image.hpp"
+#include "utils/network_state.hpp"
 
 using namespace brls::literals;  // for _i18n
 
@@ -197,8 +198,11 @@ LibraryManager::LibraryManager(MainTabFrame* frame) : frame(frame) {
     this->entries = frame->getReorderableEntries();
 
     this->rowsBox = dynamic_cast<brls::Box*>(this->getView("lib_manager/rows"));
-    if (auto* desc = dynamic_cast<brls::Label*>(this->getView("lib_manager/desc")))
+    if (auto* desc = dynamic_cast<brls::Label*>(this->getView("lib_manager/desc"))) {
         desc->setTextColor(brls::Application::getTheme().getColor("font/grey"));
+        if (NetworkState::isOffline())
+            desc->setText("main/setting/libraries/description"_i18n + "\n" + "main/setting/libraries/offline"_i18n);
+    }
 
     this->rebuild();
     this->live = true;

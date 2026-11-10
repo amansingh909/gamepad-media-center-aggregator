@@ -31,7 +31,9 @@ private:
 /// presented in its AppletFrame after the menu closes.
 class ContextMenu : public brls::Box {
 public:
-    ContextMenu(const plex::Item& item, brls::Box* host);
+    /// `resumeRow`: opened from Continue Watching (Stremio), which adds Start over and Remove
+    /// from list, and rebuilds the row after Mark played.
+    ContextMenu(const plex::Item& item, brls::Box* host, bool resumeRow = false);
 
     bool isTranslucent() override { return true; }
 
@@ -45,7 +47,10 @@ private:
     BRLS_BIND(brls::Label, labelSubtitle, "menu/subtitle");
     BRLS_BIND(MenuItem, btnGoSeries, "menu/go/series");
     BRLS_BIND(MenuItem, btnGoSeason, "menu/go/season");
+    BRLS_BIND(MenuItem, btnChooseSource, "menu/choose_source");
     BRLS_BIND(MenuItem, btnMarkPlay, "menu/mark/play");
+    BRLS_BIND(MenuItem, btnStartOver, "menu/start_over");
+    BRLS_BIND(MenuItem, btnRemoveResume, "menu/remove_resume");
     BRLS_BIND(MenuItem, btnWatchlist, "menu/watchlist");
     BRLS_BIND(MenuItem, btnDownload, "menu/download");
 
@@ -63,4 +68,5 @@ private:
     std::string itemId;
     media::Item listItem;  // item backing the personal-list (watchlist/favorite) entry
     bool watchlisted = false;
+    bool resumeRow = false;  // opened from Continue Watching (Stremio)
 };

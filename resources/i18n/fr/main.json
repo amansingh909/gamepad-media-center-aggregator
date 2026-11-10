@@ -95,6 +95,7 @@
     "seasons_title": "Saisons",
     "go_series": "Aller à la série",
     "go_season": "Aller à la saison",
+    "choose_source": "Choisir la source",
     "director": "Réalisation"
   },
   "search": {
@@ -258,6 +259,7 @@
     "playback": {
       "header": "Paramètres de lecture",
       "low_quality": "Décodage en basse qualité (réduit la qualité de l'image pour une moindre consommation d'énergie)",
+      "light_hevc": "Décodage HEVC allégé (moins de CPU sur PS4)",
       "in_memory_cache": "Cache en mémoire",
       "subs_fallback": "Chargement automatique des sous-titres",
       "subtitle_lang": {
@@ -344,8 +346,9 @@
       "font_a3": "Copiez le fichier de police TTF approprié dans {}/subfont.ttf"
     },
     "libraries": {
-      "header": "Bibliothèques",
-      "description": "Réorganisez et masquez les onglets de la barre latérale (bibliothèques, listes de lecture, Watchlist). Réglage propre à ce serveur.",
+      "header": "Barre latérale",
+      "description": "Réorganisez et masquez les onglets de la barre latérale. L'onglet Accueil et le profil restent fixes. Réglage propre à ce serveur.",
+      "offline": "Hors ligne, seules les bibliothèques téléchargées sont listées ; les autres gardent leur place.",
       "grab": "Déplacer",
       "drop": "Poser",
       "toggle": "Afficher / Masquer",
@@ -426,6 +429,7 @@
     "choose_type": "Choisissez le type de connexion",
     "switch_title": "Connexions",
     "add": "Ajouter",
+    "dns_unresolved": "Impossible de résoudre « {} ». Sur Switch/Vita, utilise l’adresse IPv4 de ton serveur (ex. : http://192.168.1.50:8096) — les noms .local (mDNS) et IPv6 uniquement ne sont pas pris en charge.",
     "jellyfin": {
       "title_jellyfin": "Connexion à Jellyfin",
       "title_emby": "Connexion à Emby",
@@ -490,5 +494,54 @@
       "torrents_help": "Ces sources sont des torrents bruts. Sur cette plateforme il n'y a pas de client torrent : installez un addon avec débrideur (Torrentio + Real-Debrid, Comet, MediaFusion…) dans votre compte Stremio pour obtenir des liens lisibles.",
       "links_help": "Ces sources sont des liens externes (navigateur ou service tiers) qui ne peuvent pas être lus directement dans l'application sur cette plateforme."
     }
+  },
+  "torrent": {
+    "setting": {
+      "header": "Torrents",
+      "streaming": "Streaming de torrents",
+      "upload_limit": "Limite d'envoi",
+      "incoming": "Autoriser les connexions entrantes (UPnP)"
+    },
+    "loading": {
+      "finding_peers": "Recherche de pairs",
+      "getting_info": "Récupération des infos du torrent",
+      "buffering": "Mise en mémoire tampon {} %",
+      "peers": "{} pairs"
+    },
+    "source": {
+      "seeders": "{} seeders",
+      "unavailable": "{} source(s) torrent non lisible(s) pour le moment"
+    },
+    "error": {
+      "no_peers": "Aucun pair trouvé pour cette source, essayez-en une autre",
+      "no_space": "Espace de stockage insuffisant",
+      "unplayable": "Cette source ne peut pas être lue",
+      "off": "Le streaming de torrents est désactivé. Activez-le dans les Paramètres.",
+      "start": "Le streaming de torrents n'a pas pu démarrer : le port 11470 est occupé."
+    }
+  },
+  "sources": {
+    "finding": "Recherche des flux...",
+    "none_found": "Aucun flux trouvé",
+    "ps4_note": "Risque de ne pas être lu sur PS4",
+    "show_all": "Tout afficher",
+    "may_buffer": "Risque de coupures"
+  },
+  "audio_lang": {
+    "header": "Langue audio",
+    "auto": "Automatique (langue de l'application)",
+    "file": "Par défaut du fichier"
+  },
+  "resume": {
+    "min_left": "{} min restantes",
+    "hours_left": "{} h {} min restantes",
+    "just_now": "À l'instant",
+    "min_ago": "Il y a {} min",
+    "hours_ago": "Il y a {} h",
+    "yesterday": "Hier",
+    "days_ago": "Il y a {} jours",
+    "up_next": "À suivre",
+    "start_over": "Reprendre du début",
+    "remove": "Retirer de la liste"
   }
 }

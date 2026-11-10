@@ -23,10 +23,9 @@
             <brls:Image
                 width="120"
                 height="120"
-                cornerRadius="28"
                 marginBottom="16"
                 scalingType="fit"
-                image="@res/icon/icon.png" />
+                image="@res/icon/icon-rounded.png" />
 
             <brls:Label
                 id="stremio/add/header"

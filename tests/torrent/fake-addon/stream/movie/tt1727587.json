@@ -1,0 +1,28 @@
+{
+  "streams": [
+    {
+      "name": "Fake\n720p",
+      "title": "Sintel, WebTorrent sample\n👤 12 💾 129.2 MB",
+      "infoHash": "08ada5a7a6183aae1e09d831df6748d566095a10",
+      "fileIdx": 5,
+      "sources": [
+        "tracker:udp://tracker.opentrackr.org:1337/announce",
+        "tracker:udp://explodie.org:6969",
+        "dht:08ada5a7a6183aae1e09d831df6748d566095a10"
+      ],
+      "behaviorHints": { "bingeGroup": "fake|720p", "filename": "Sintel.mp4" }
+    },
+    {
+      "name": "Fake\n720p",
+      "title": "Sintel 2010 720p BluRay x264\n👤 14 💾 136.47 MB ⚙️ YTS",
+      "infoHash": "A779FA758F2229586EEBC2E5960EB32FE5659596",
+      "fileIdx": 0,
+      "behaviorHints": { "filename": "Sintel.2010.720p.BluRay.x264.AAC-[YTS.MX].mp4" }
+    },
+    {
+      "name": "Fake\n1080p",
+      "title": "Sintel 2010 1080p, Blender's own copy",
+      "url": "https://download.blender.org/durian/movies/Sintel.2010.1080p.mkv"
+    }
+  ]
+}

@@ -128,6 +128,20 @@ void PlexBackend::getChildren(
     getJSON<media::Container<media::Item>>(conf.getUrl(), conf.getToken(), then, error, apiChildren, id, "");
 }
 
+std::optional<media::Item> PlexBackend::getItemDetailSync(const std::string& id) {
+    auto& conf = AppConfig::instance();
+    std::string url = conf.getUrl() + fmt::format(fmt::runtime(apiMetadata), id, "");
+    auto c = getSync(url, conf.getToken()).get<media::Container<media::Item>>();
+    if (c.Items.empty()) return std::nullopt;
+    return c.Items.front();
+}
+
+std::vector<media::Item> PlexBackend::getChildrenSync(const std::string& id) {
+    auto& conf = AppConfig::instance();
+    std::string url = conf.getUrl() + fmt::format(fmt::runtime(apiChildren), id, "");
+    return getSync(url, conf.getToken()).get<media::Container<media::Item>>().Items;
+}
+
 void PlexBackend::getArtistTracks(
     const std::string& artistId, media::Then<media::Container<media::Item>> then, media::OnError error) {
     // all tracks of an artist (across albums): Plex exposes them via allLeaves,
@@ -395,8 +409,6 @@ media::PlaybackSource PlexBackend::resolvePlayback(
         {"X-Plex-Version", AppVersion::getVersion()},
         {"X-Plex-Token", conf.getToken()},
     };
-    if (opts.seekMs > 0) form["offset"] = std::to_string(opts.seekMs / 1000);  // whole seconds
-
     if (opts.audioStreamId > 0) form["audioStreamID"] = std::to_string(opts.audioStreamId);
     if (opts.subtitleStreamId > 0) {
         form["subtitleStreamID"] = std::to_string(opts.subtitleStreamId);
@@ -450,11 +462,13 @@ media::PlaybackSource PlexBackend::resolvePlayback(
         return directSource(version, opts.seekMs, download);
     }
 
+    // resume with mpv's start= rather than the transcoder offset: an offset
+    // session rebases mpv's clock and mpv cannot seek outside its cache there
     std::string extra = fmt::format("network-timeout={}", HTTP::TIMEOUT / 100);
+    if (opts.seekMs > 0) extra += ",start=" + misc::sec2Time(opts.seekMs / 1000);
     if (HTTP::PROXY_STATUS) extra += fmt::format(",http-proxy=\"{}\"", HTTP::PROXY);
     std::string play = conf.getUrl() + "/video/:/transcode/universal/start.m3u8?" + query;
-    // server-side offset, in whole seconds like the offset sent: mpv's clock starts at 0 there
-    return {play, extra, true, "transcode", session, opts.seekMs / 1000 * 1000};
+    return {play, extra, true, "transcode", session};
 }
 
 std::string PlexBackend::subtitleSidecarUrl(const std::string& streamKey) const {
@@ -493,6 +507,8 @@ std::string PlexBackend::imageUrl(const std::string& path, int width, int height
     if (path.empty()) return "";
     // external agent paths (cast faces...) are absolute
     if (path.rfind("http", 0) == 0) return path;
+    // a server path not rooted at "/" ("@host/x") would move the token to another host
+    if (path[0] != '/') return "";
     auto& conf = AppConfig::instance();
     if (width > 0 || height > 0) {
         if (width <= 0) width = height;
@@ -507,7 +523,7 @@ std::string PlexBackend::imageUrl(const std::string& path, int width, int height
         };
         return conf.getUrl() + "/photo/:/transcode?" + HTTP::encode_form(form);
     }
-    return conf.getUrl() + path + "?X-Plex-Token=" + conf.getToken();
+    return withToken(conf.getUrl() + path, conf.getToken());
 }
 
 std::string PlexBackend::imageUrlExternal(const std::string& absoluteUrl, int width, int height) const {

@@ -15,4 +15,14 @@ SelectorCell::SelectorCell() {
     });
 }
 
+void SelectorCell::setShortData(std::vector<std::string> data) {
+    this->shortData = std::move(data);
+    this->setSelection(this->selection, true);
+}
+
+void SelectorCell::setSelection(int selection, bool silent) {
+    brls::SelectorCell::setSelection(selection, silent);
+    if (selection >= 0 && selection < (int)this->shortData.size()) this->setDetailText(this->shortData[selection]);
+}
+
 brls::View* SelectorCell::create() { return new SelectorCell(); }

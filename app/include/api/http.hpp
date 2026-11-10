@@ -11,6 +11,7 @@
 #include <atomic>
 #include <fstream>
 #include <sstream>
+#include <stdexcept>
 #include <curl/system.h>
 
 #include <borealis/core/event.hpp>
@@ -50,6 +51,17 @@ public:
     };
 
     using Cookies = std::vector<Cookie>;
+
+    enum class ErrorKind {
+        Other,
+        ResolveFailed,  // the server host did not resolve, a proxy that did not is Other
+    };
+
+    class Error : public std::runtime_error {
+    public:
+        Error(ErrorKind kind, const std::string& message) : std::runtime_error(message), kind(kind) {}
+        ErrorKind kind;
+    };
 
     HTTP();
     HTTP(const HTTP& other) = delete;
