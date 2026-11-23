@@ -27,6 +27,7 @@
 #include "api/media/langs.hpp"
 #include "utils/config.hpp"
 #ifdef USE_TORRENT
+#include <torrent/remote_server.hpp>
 #include <torrent/stremio_source.hpp>
 #include <torrent/torrent_service.hpp>
 #endif
@@ -296,9 +297,14 @@ std::vector<media::Media> resolveAllStreams(
     AddonEngine& engine, const std::string& stremioType, const std::string& stremioId) {
     std::vector<media::Media> all;
 #ifdef USE_TORRENT
-    // the local server can serve right now: torrent rows play through it
+    // the local server can serve right now, or a streaming server is set (it starts this
+    // device's engine itself when the server doesn't answer, torrent/remote_server.hpp):
+    // torrent rows play
     auto* torrents = torrent::TorrentService::current();
-    const bool torrentsPlayable = torrents && torrents->availability() == torrent::Availability::Ready;
+    const bool torrentsPlayable =
+        torrents && (torrents->availability() == torrent::Availability::Ready ||
+                        (torrents->availability() == torrent::Availability::NotStarted &&
+                            torrents->enabled() && !torrent::remote::configured().empty()));
 #else
     const bool torrentsPlayable = false;
 #endif
@@ -1165,6 +1171,10 @@ media::PlaybackSource StremioBackend::resolvePlayback(
 #ifdef USE_TORRENT
     torrent::StreamRequest torrentRequest;
     if (torrent::parseLocalStreamUrl(version.parts.front().key, torrentRequest)) {
+        // opened on a streaming server by the player (torrent/remote_server.hpp): played from
+        // there, with the same patience, as that server also waits for the torrent's data
+        const std::string via = torrent::remote::route(version.parts.front().key);
+        if (!via.empty()) return {via, torrent::playerOptions() + start, false, "directplay"};
         // the engine answers or gives up within its stall timeout and the loading screen
         // says why; mpv waits longer, and never retries a body the server ended. No proxy:
         // the server is this machine.

@@ -21,6 +21,7 @@
 #include <torrent/posix_tree.hpp>
 #endif
 #ifdef USE_TORRENT
+#include <torrent/remote_server.hpp>
 #include <torrent/stremio_source.hpp>
 #endif
 
@@ -569,10 +570,16 @@ void DownloadManager::doDownload(DownloadItem& item) {
             std::ofstream of(filePath, std::ios::binary);
             if (!of) throw std::runtime_error("Failed to open file for writing");
 
+#ifdef USE_TORRENT
+            // a torrent with a streaming server set comes from that server (torrent/remote_server.hpp)
+            const std::string source = torrent::remote::downloadSource(url);
+#else
+            const std::string& source = url;
+#endif
             HTTP s;
             HTTP::set_option(s, header, cancel, progressCb);
             // a write that fails (a full disk) stops curl, and _get throws
-            s._get(url, &of);
+            s._get(source, &of);
             // the last buffered bytes reach the disk only here, and can fail the same way
             of.close();
             if (!of) throw std::runtime_error("Failed to write " + fileName);

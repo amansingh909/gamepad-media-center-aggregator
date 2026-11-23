@@ -22,9 +22,11 @@
 #include "view/video_profile.hpp"
 #include "view/audio_player.hpp"
 #ifdef USE_TORRENT
+#include <torrent/remote_server.hpp>
 #include <torrent/stremio_source.hpp>
 #include <torrent/torrent_service.hpp>
 #include <torrent/ui_model.hpp>
+#include "utils/thread.hpp"
 #include "view/torrent_loading.hpp"
 #endif
 
@@ -689,6 +691,46 @@ bool PlayerView::warmUpTorrent(const int64_t seekMs, bool forceDirect, int64_t f
         if (service) service->watch("");
         return false;
     }
+    // A streaming server set in Settings serves the torrent (torrent/remote_server.hpp): opened
+    // there first, then mpv plays it from there. Only when the server doesn't answer does this
+    // device's engine start and play it, with a notification.
+    const std::string server = torrent::remote::configured();
+    if (!server.empty() && url != this->localFallbackUrl) {
+        this->endTorrentLoading();
+        this->view->setSpeedSuffix(nullptr);
+        if (service) service->watch("");
+        if (!torrent::remote::route(url).empty()) return false;  // open there: play it
+
+        const int generation = ++this->warmupGeneration;
+        this->view->showLoading();
+        ASYNC_RETAIN
+        ThreadPool::instance().submit(
+            [ASYNC_TOKEN, generation, server, url, req, seekMs, forceDirect, forceBitrate](HTTP&) {
+                std::string why;
+                const bool answered = torrent::remote::reachable(server);
+                const std::string via = answered ? torrent::remote::open(server, req, why) : "";
+                brls::sync([ASYNC_TOKEN, generation, url, answered, via, why, seekMs, forceDirect, forceBitrate]() {
+                    ASYNC_RELEASE
+                    if (generation != this->warmupGeneration) return;  // a newer load, or it ended
+                    if (!via.empty()) {
+                        torrent::remote::setRoute(url, via);
+                    } else if (answered) {
+                        // it answers but can't start this torrent: no quiet fallback to this
+                        // device, which would bypass the server the user chose
+                        brls::Logger::error("PlayerView: streaming server: {}", why);
+                        Dialog::show(brls::getStr("main/torrent/server/open_failed", why), []() { VideoView::close(); });
+                        return;
+                    } else {
+                        brls::Application::notify("main/torrent/server/fallback"_i18n);
+                        this->localFallbackUrl = url;
+                        torrent::remote::startLocalEngine();
+                    }
+                    this->startPlayback(seekMs, forceDirect, forceBitrate);
+                });
+            });
+        return true;
+    }
+
     if (this->warmupReady && url == this->warmupUrl) return false;  // its start is in: play it
 
     this->endTorrentLoading();  // a previous torrent's warm-up, if any
@@ -798,6 +840,8 @@ bool PlayerView::explainTorrentError() {
     torrent::StreamRequest req;
     if (this->stream.parts.empty() || !torrent::parseLocalStreamUrl(this->stream.parts.front().key, req))
         return false;
+    // played from a streaming server: this device's engine knows nothing of it, mpv's error stands
+    if (!torrent::remote::route(this->stream.parts.front().key).empty()) return false;
     this->endTorrentLoading();
     auto* service = torrent::TorrentService::current();
     const torrent::Status engineError = service ? service->snapshot().error : torrent::Status::Ok;
@@ -816,6 +860,16 @@ bool PlayerView::explainTorrentEnd() {
     auto& mpv = MPVCore::instance();
     // mpv's clock and the file's length are still those of the file that ended
     if (!torrent::endedEarly(mpv.duration, mpv.playback_time)) return false;  // it played to its end
+    if (!torrent::remote::route(this->stream.parts.front().key).empty()) {
+        // a streaming server's stream that stopped: this device's engine has no error for it
+        brls::Logger::error("PlayerView: streaming server stream ended at {:.0f} s of {} s", mpv.playback_time,
+            mpv.duration);
+        mpv.stop();
+        auto dialog = new brls::Dialog("main/torrent/server/ended"_i18n);
+        dialog->addButton("hints/back"_i18n, []() { VideoView::close(true); });
+        dialog->open();
+        return true;
+    }
     this->endTorrentLoading();
     mpv.stop();
     // the engine's error for this torrent, kept by the service after the engine dropped it;

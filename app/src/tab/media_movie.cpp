@@ -26,6 +26,7 @@
 #ifdef USE_TORRENT
 #include <chrono>
 #include <torrent/buffer_hint.hpp>
+#include <torrent/remote_server.hpp>
 #include <torrent/stremio_source.hpp>
 #include <torrent/torrent_service.hpp>
 #include <torrent/ui_model.hpp>
@@ -440,6 +441,8 @@ void MediaMovie::torrentRowFocus(const std::string& url, bool focused) {
         auto* service = torrent::TorrentService::current();
         torrent::StreamRequest req;
         if (due.empty() || !service || !torrent::parseLocalStreamUrl(due, req)) return;
+        // with a streaming server set, this device fetches nothing of a torrent itself
+        if (!torrent::remote::configured().empty()) return;
         service->prefetch(req);
     });
     this->prefetchTimer.start(1000);

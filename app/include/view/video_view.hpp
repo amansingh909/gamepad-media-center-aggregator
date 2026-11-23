@@ -101,6 +101,10 @@ public:
     void setSpeedSuffix(std::function<std::string()> suffix) { this->speedSuffix = std::move(suffix); }
 #endif
 
+    /// The centre spinner, until mpv's next LOADING_END (or a pause) hides it; the player also
+    /// shows it while it opens a torrent on a streaming server, before mpv has a URL.
+    void showLoading();
+
 private:
     /// OSD
     BRLS_BIND(brls::Label, titleLabel, "video/osd/title");
@@ -156,7 +160,6 @@ private:
     void registerMpvEvent();
     void unRegisterMpvEvent();
 
-    void showLoading();
     void hideLoading(bool dimming = true);
     bool toggleProfile();
     /// OSD

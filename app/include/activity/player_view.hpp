@@ -190,5 +190,9 @@ private:
     /// quality, audio or subtitle switch, a replay) goes straight to mpv. Cleared when
     /// another source plays or another torrent starts warming up.
     std::string warmedUrl;
+    /// The local URL this device's engine plays because the streaming server set in Settings
+    /// didn't answer (torrent/remote_server.hpp): the rest of this player session doesn't ask
+    /// the server again for it.
+    std::string localFallbackUrl;
 #endif
 };

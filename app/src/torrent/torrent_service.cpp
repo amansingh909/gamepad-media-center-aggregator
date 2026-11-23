@@ -300,6 +300,8 @@ Availability TorrentService::availability() const {
     return impl->enabled ? Availability::Ready : Availability::Off;
 }
 
+bool TorrentService::enabled() const { return impl->enabled; }
+
 void TorrentService::setEnabled(bool on) {
     impl->enabled = on;
     impl->server.setEnabled(on);

@@ -503,7 +503,19 @@
       "header": "Torrents",
       "streaming": "Torrent streaming",
       "upload_limit": "Upload limit",
-      "incoming": "Allow incoming connections (UPnP)"
+      "incoming": "Allow incoming connections (UPnP)",
+      "server": "Streaming server",
+      "server_hint": "A Stremio streaming server, such as http://192.168.1.10:11470",
+      "server_none": "Off (this PS4)"
+    },
+    "server": {
+      "fallback": "Streaming server not reachable, playing on this PS4",
+      "fallback_download": "Streaming server not reachable, downloading on this PS4",
+      "answered": "The streaming server answered",
+      "silent": "The streaming server didn't answer. Torrents play on this PS4 until it does.",
+      "invalid": "That isn't a server address. Example: http://192.168.1.10:11470",
+      "open_failed": "The streaming server couldn't start this torrent ({})",
+      "ended": "The streaming server stopped sending this video"
     },
     "loading": {
       "finding_peers": "Finding peers",

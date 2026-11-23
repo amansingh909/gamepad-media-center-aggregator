@@ -136,6 +136,8 @@
                 visibility="gone">
                 <brls:BooleanCell
                     id="setting/torrent/streaming" />
+                <brls:InputCell
+                    id="setting/torrent/server" />
                 <brls:SelectorCell
                     id="setting/torrent/upload_limit" />
                 <brls:BooleanCell

@@ -36,6 +36,7 @@
 #include <borealis/platforms/desktop/steam_deck.hpp>
 #endif
 #ifdef USE_TORRENT
+#include <torrent/remote_server.hpp>
 #include <torrent/torrent_service.hpp>
 #include <torrent/upload_limits.hpp>
 #endif
@@ -495,6 +496,33 @@ void SettingTab::onCreate() {
             AppConfig::instance().setItem(AppConfig::TORRENT_STREAMING, value);
             if (auto* service = torrent::TorrentService::current()) service->setEnabled(value);
         });
+    // A Stremio streaming server for torrents (torrent/remote_server.hpp), checked at once so a
+    // typo shows. Empty, this device's engine plays them.
+    inputTorrentServer->init(
+        "main/torrent/setting/server"_i18n, conf.getItem(AppConfig::TORRENT_SERVER, std::string()),
+        [this](std::string value) {
+            const std::string url = torrent::remote::normalizeServerUrl(value);
+            if (url.empty() && !value.empty()) {
+                // not an address: the field goes back to empty, which turns the server off
+                brls::Application::notify("main/torrent/server/invalid"_i18n);
+                brls::sync([this]() { this->inputTorrentServer->setValue(""); });
+                return;
+            }
+            AppConfig::instance().setItem(AppConfig::TORRENT_SERVER, value);  // as typed, normalized on use
+            torrent::remote::configure(value);
+            if (url.empty()) {
+                torrent::remote::startLocalEngine();  // this device's engine again
+                return;
+            }
+            ThreadPool::instance().submit([url](HTTP&) {
+                const bool answered = torrent::remote::reachable(url);
+                brls::sync([answered]() {
+                    brls::Application::notify(
+                        answered ? "main/torrent/server/answered"_i18n : "main/torrent/server/silent"_i18n);
+                });
+            });
+        },
+        "main/torrent/setting/server_none"_i18n, "main/torrent/setting/server_hint"_i18n, 128);
     selectorTorrentUpload->init("main/torrent/setting/upload_limit"_i18n, torrent::uploadLimitLabels(),
         torrent::uploadLimitIndex(conf.getItem(AppConfig::TORRENT_UPLOAD_LIMIT, int64_t(torrent::defaultUploadLimit))),
         [](int selected) {

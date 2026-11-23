@@ -97,6 +97,9 @@ public:
     void stop();
 
     Availability availability() const;
+    /// The Settings switch's state, also before start() (availability() says NotStarted
+    /// then). Any thread.
+    bool enabled() const;
 
     /// The Settings switch. Off refuses new streams, downloads and prefetches (the server
     /// answers 503) and lets the open ones finish; stop() can't be undone, so this is how

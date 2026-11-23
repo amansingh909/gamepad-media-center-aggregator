@@ -77,4 +77,5 @@ private:
     BRLS_BIND(brls::BooleanCell, btnTorrentStreaming, "setting/torrent/streaming");
     BRLS_BIND(brls::SelectorCell, selectorTorrentUpload, "setting/torrent/upload_limit");
     BRLS_BIND(brls::BooleanCell, btnTorrentIncoming, "setting/torrent/incoming");
+    BRLS_BIND(brls::InputCell, inputTorrentServer, "setting/torrent/server");
 };

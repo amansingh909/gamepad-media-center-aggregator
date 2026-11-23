@@ -52,6 +52,7 @@
 #include <cstdio>
 #include <ctime>
 #include <memory>
+#include <torrent/remote_server.hpp>
 #include <torrent/torrent_service.hpp>
 #include <torrent/upload_limits.hpp>
 #endif
@@ -131,7 +132,14 @@ static std::unique_ptr<torrent::TorrentService> startTorrents(AppConfig& conf) {
         std::fflush(torrentLog);
     };
     auto service = std::make_unique<torrent::TorrentService>(std::move(settings));
-    if (!service->start()) brls::Logger::error("torrent: {}", service->startError());
+    // with a streaming server set, this device's engine stays off unless the server doesn't
+    // answer (torrent/remote_server.hpp): no torrent traffic from here otherwise
+    torrent::remote::configure(conf.getItem(AppConfig::TORRENT_SERVER, std::string()));
+    if (torrent::remote::configured().empty()) {
+        if (!service->start()) brls::Logger::error("torrent: {}", service->startError());
+    } else {
+        brls::Logger::info("torrent: streaming server {}", torrent::remote::configured());
+    }
     torrent::TorrentService::setCurrent(service.get());
     return service;
 }
