@@ -358,7 +358,8 @@ std::vector<media::Media> resolveAllStreams(
 /// time, not per source. Deduped to ONE track per language (first wins, addons
 /// in collection order) to keep the player's subtitle menu readable — a single
 /// addon (OpenSubtitles) can return dozens of entries per language. `languageTag`
-/// carries the canonical 2-letter code for preferred-language matching.
+/// carries the canonical code for preferred-language matching: 2 letters, or a
+/// regional variant the addons list apart ("pt-BR" next to "pt"), so both stay.
 std::vector<media::Stream> resolveAllSubtitles(
     AddonEngine& engine, const std::string& stremioType, const std::string& stremioId) {
     std::vector<media::Stream> out;
@@ -381,7 +382,7 @@ std::vector<media::Stream> resolveAllSubtitles(
             st.streamType = media::streamTypeSubtitle;
             st.key = s.url;  // absolute url; subtitleSidecarUrl() passes it through
             st.language = s.lang;
-            st.languageTag = code;  // 2-letter code (empty if unrecognized)
+            st.languageTag = code;  // canonical code, "pt" or "pt-BR" (empty if unrecognized)
             st.displayTitle = media::subtitleLangDisplay(s.lang);
             out.push_back(std::move(st));
         }

@@ -190,7 +190,7 @@ void SettingTab::onCreate() {
         });
 
     // Preferred audio language (mpv alang): "auto" follows the app language, "file" sets none
-    // (the file's default track), otherwise a 2-letter code; mpv picks that track whenever the
+    // (the file's default track), otherwise a catalog code; mpv picks that track whenever the
     // file has one, from the next file on.
     std::vector<std::string> audioLangValues = {"auto", "file"};
     std::vector<std::string> audioLangLabels = {"main/audio_lang/auto"_i18n, "main/audio_lang/file"_i18n};

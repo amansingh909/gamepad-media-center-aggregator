@@ -11,6 +11,7 @@
 #include "api/plex.hpp"
 #include "api/backend.hpp"
 #include "api/media/forbidden.hpp"
+#include "api/media/langs.hpp"
 #include "api/media/resolution.hpp"
 #include "utils/dialog.hpp"
 #include "utils/misc.hpp"
@@ -489,22 +490,28 @@ void PlayerView::addExternalSubtitles() {
     auto& backend = AppConfig::instance().backend();
 
     // Preferred language: "auto" follows the app locale, "off" disables auto-
-    // selection, otherwise an explicit 2-letter code (PLAYER_SUBTITLE_LANG).
+    // selection, otherwise a code of the catalog (PLAYER_SUBTITLE_LANG): "pt", "pt-BR"...
     std::string pref = AppConfig::instance().getItem(AppConfig::PLAYER_SUBTITLE_LANG, std::string("auto"));
     if (pref == "auto") {
+        // the app language's variant when the catalog has it ("zh-Hant"), else its language
         std::string loc = brls::Application::getLocale();  // "es", "en-US", "zh-Hans"...
-        pref = loc.substr(0, loc.find('-'));
+        pref = media::subtitleLangCode(loc);
+        if (pref.empty()) pref = loc.substr(0, loc.find('-'));
     } else if (pref == "off") {
         pref.clear();
     }
+    // one track to select: the preferred code, else the same language (media::preferredSubtitle)
+    std::vector<std::string> tags;
+    for (auto& s : this->externalSubs) tags.push_back(s.key.empty() ? "" : s.languageTag);
+    const size_t chosen = media::preferredSubtitle(tags, pref);
 
-    for (auto& s : this->externalSubs) {
+    for (size_t i = 0; i < this->externalSubs.size(); ++i) {
+        auto& s = this->externalSubs[i];
         if (s.key.empty()) continue;
         std::string url = backend.subtitleSidecarUrl(s.key);
-        // select the track matching the preferred language; add the rest as
-        // "auto" so they stay pickable in the subtitle menu without stealing it.
-        bool preferred = !pref.empty() && s.languageTag == pref;
-        const char* flag = preferred ? "select" : "auto";
+        // select the preferred track; add the rest as "auto" so they stay
+        // pickable in the subtitle menu without stealing it.
+        const char* flag = i == chosen ? "select" : "auto";
         mpv.command("sub-add", url.c_str(), flag, s.displayTitle.c_str(), s.languageTag.c_str());
     }
 }
