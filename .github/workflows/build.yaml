@@ -97,7 +97,10 @@ jobs:
         draft: false
         # this fork only releases the PS4 package: the other platforms still build here as a
         # check, but they don't have the torrent feature and aren't tested on hardware
+        # one artifact downloaded (the pattern above) lands in assets/ itself, several in a
+        # folder each: either way
         files: |
+          assets/*.pkg
           assets/GMCA-PS4-*/*.pkg
 
   build-nx:
