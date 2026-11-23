@@ -9,6 +9,19 @@ prepared with [git-cliff](https://git-cliff.org/) from conventional commits
 hand. For the history of the upstream project this fork is based on, see the
 [Switchfin changelog](https://github.com/dragonflylee/switchfin/blob/dev/CHANGELOG.md).
 
+## [1.4.9] - 2026-11-23
+
+### Added
+
+- Torrents can go through your own Stremio streaming server. In Settings,
+  under Torrents, enter its address in Streaming server (for example
+  http://192.168.1.10:11470): torrent streams and downloads then go through
+  that server, and this PS4 doesn't connect to peers itself. GMCA checks the
+  address when you enter it. If the server doesn't answer when a torrent
+  starts, GMCA says "Streaming server not reachable, playing on this PS4" and
+  plays it on the PS4 as before. Leave the field empty to keep using the PS4
+  only.
+
 ## [1.4.8] - 2026-11-22
 
 ### Fixed
