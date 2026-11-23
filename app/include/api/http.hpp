@@ -4,6 +4,7 @@
 
 #pragma once
 
+#include <cstdint>
 #include <string>
 #include <vector>
 #include <unordered_map>
@@ -32,6 +33,13 @@ public:
         int end = 0;
     };
 
+    /// Continue a download from byte `offset` (curl's resume: "Range: bytes=<offset>-"); 0 for
+    /// the whole file. A server that answers with the whole file instead fails the transfer with
+    /// ErrorKind::RangeRefused rather than have it appended to the bytes already written.
+    struct ResumeFrom {
+        int64_t offset = 0;
+    };
+
     struct Timeout {
         // Whole-request budget in ms (-1 = unlimited). `connect` is the
         // connect+DNS budget: keeping it shorter than `timeout` lets an
@@ -55,6 +63,7 @@ public:
     enum class ErrorKind {
         Other,
         ResolveFailed,  // the server host did not resolve, a proxy that did not is Other
+        RangeRefused,   // ResumeFrom: the server sent the whole file, not the rest
     };
 
     class Error : public std::runtime_error {
@@ -136,6 +145,7 @@ private:
     void add_header(const std::string& header);
     void set_option(const Header& hs);
     void set_option(const Range& r);
+    void set_option(const ResumeFrom& r);
     void set_option(const Timeout& t);
     void set_option(const Cancel& c);
     void set_option(const Cookies& cookies);

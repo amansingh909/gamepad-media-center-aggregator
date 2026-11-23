@@ -9,7 +9,11 @@
 #include "api/plex.hpp"
 #include "api/backend.hpp"
 #include <algorithm>
+#include <atomic>
 #include <cctype>
+#include <chrono>
+#include <fstream>
+#include <thread>
 
 #include <cstdio>
 #include <optional>
@@ -28,6 +32,24 @@
 using namespace brls::literals;  // for _i18n
 
 std::string DownloadManager::downloadDir() const { return AppConfig::instance().configDir() + "/downloads"; }
+
+// The size of a partial file, 0 when there's none. Opened, not stat()ed: std::filesystem and stat
+// don't give sizes on the PS4.
+static int64_t bytesOnDisk(const std::string& path) {
+    std::ifstream f(path, std::ios::binary | std::ios::ate);
+    if (!f) return 0;
+    const std::streamoff size = f.tellg();
+    return size > 0 ? int64_t(size) : 0;
+}
+
+// Waits `seconds`, or less when the download is cancelled meanwhile: false then.
+static bool waitUnlessCancelled(const std::atomic_bool& cancel, int seconds) {
+    for (int i = 0; i < seconds * 4; ++i) {
+        if (cancel.load()) return false;
+        std::this_thread::sleep_for(std::chrono::milliseconds(250));
+    }
+    return !cancel.load();
+}
 
 // Deletes a download's folder. On the PS4, std::filesystem::remove_all fails with ENOSYS
 // (OpenOrbis musl's lstat is a stub), so it goes through the POSIX remover the torrent
@@ -405,6 +427,10 @@ void DownloadManager::doDownload(DownloadItem& item) {
     std::string partKey = item.partKey;
     std::string url = this->buildDownloadUrl(item);
     std::string itemDir = this->downloadDir() + "/" + itemId;
+    // whose bytes the partial file holds, if any: this source's continue (download_end.hpp);
+    // from now on they're this source's
+    std::string resumeKey = item.resumeKey;
+    item.resumeKey = partKey;
 
     this->saveIndex();
 
@@ -417,7 +443,7 @@ void DownloadManager::doDownload(DownloadItem& item) {
     // per-worker HTTP session and open a fresh one below: this transfer installs
     // a progress callback + cancel token that would otherwise linger on the
     // shared session and leak into the next image/version task on that worker.
-    ThreadPool::instance().submit([this, itemId, thumb, partKey, url, itemDir, cancel](HTTP&) {
+    ThreadPool::instance().submit([this, itemId, thumb, partKey, url, itemDir, cancel, resumeKey](HTTP&) {
         // before the transfer: a cancel at startup, or no folder. A remove that came meanwhile
         // left the "removed" marker, which must win here too.
         auto resetQueue = [this, itemId](const std::string& error) {
@@ -529,8 +555,12 @@ void DownloadManager::doDownload(DownloadItem& item) {
         auto lastBytes = std::make_shared<curl_off_t>(0);
         auto started = std::make_shared<bool>(false);
         auto speedEma = std::make_shared<double>(0.0);
+        auto base = std::make_shared<curl_off_t>(0);  // the bytes on disk when the attempt began
         HTTP::Progress::Callback progressCb =
-            [this, itemId, lastProgress, lastBytes, started, speedEma](curl_off_t total, curl_off_t now) {
+            [this, itemId, lastProgress, lastBytes, started, speedEma, base](curl_off_t total, curl_off_t now) {
+                // curl counts the rest only, after a resume
+                now += *base;
+                if (total > 0) total += *base;
                 auto tp = std::chrono::steady_clock::now();
                 if (tp - *lastProgress < std::chrono::milliseconds(500)) return;
 
@@ -566,27 +596,54 @@ void DownloadManager::doDownload(DownloadItem& item) {
         bool threw = false;
         std::string error;
 
-        try {
-            std::ofstream of(filePath, std::ios::binary);
-            if (!of) throw std::runtime_error("Failed to open file for writing");
-
+        // Bytes already on disk from this very source (a retry, the app closed mid-way) continue
+        // from where they are, and a transfer that drops later (rest mode, the network gone a
+        // while) waits and continues them, maxResumes times (download_end.hpp). A server that
+        // can't send the rest makes that attempt start over.
+        bool fresh = !canResume(partKey, resumeKey, bytesOnDisk(filePath));
+        std::string source;
+        for (int resumes = 0;;) {
+            const int64_t offset = fresh ? 0 : bytesOnDisk(filePath);
+            fresh = false;
+            *base = offset;
+            threw = false;
+            error.clear();
+            try {
+                std::ofstream of(filePath, std::ios::binary | (offset > 0 ? std::ios::app : std::ios::trunc));
+                if (!of) throw std::runtime_error("Failed to open file for writing");
 #ifdef USE_TORRENT
-            // a torrent with a streaming server set comes from that server (torrent/remote_server.hpp)
-            const std::string source = torrent::remote::downloadSource(url);
+                // a torrent with a streaming server set comes from that server (torrent/remote_server.hpp)
+                if (source.empty()) source = torrent::remote::downloadSource(url);
 #else
-            const std::string& source = url;
+                source = url;
 #endif
-            HTTP s;
-            HTTP::set_option(s, header, cancel, progressCb);
-            // a write that fails (a full disk) stops curl, and _get throws
-            s._get(source, &of);
-            // the last buffered bytes reach the disk only here, and can fail the same way
-            of.close();
-            if (!of) throw std::runtime_error("Failed to write " + fileName);
-        } catch (const std::exception& ex) {
-            threw = true;
-            error = ex.what();
+                if (offset > 0) brls::Logger::info("Download {}: continuing from {} bytes", itemId, offset);
+                HTTP s;
+                HTTP::set_option(s, header, cancel, progressCb, HTTP::ResumeFrom{offset});
+                // a write that fails (a full disk) stops curl, and _get throws
+                s._get(source, &of);
+                // the last buffered bytes reach the disk only here, and can fail the same way
+                of.close();
+                if (!of) throw std::runtime_error("Failed to write " + fileName);
+                break;
+            } catch (const HTTP::Error& ex) {
+                if (ex.kind == HTTP::ErrorKind::RangeRefused && offset > 0 && !cancel->load()) {
+                    brls::Logger::warning("Download {}: the source can't continue it, from the start", itemId);
+                    fresh = true;
+                    continue;
+                }
+                threw = true;
+                error = ex.what();
+            } catch (const std::exception& ex) {
+                threw = true;
+                error = ex.what();
+            }
             brls::Logger::error("Download failed: {} - {}", itemId, error);
+            // dropped with bytes on disk: wait for the network, then continue them
+            const int wait = resumeWaitSecs(++resumes);
+            if (cancel->load() || bytesOnDisk(filePath) <= 0 || wait == 0) break;
+            brls::Logger::warning("Download {}: continuing in {} s ({} of {})", itemId, wait, resumes, maxResumes);
+            if (!waitUnlessCancelled(*cancel, wait)) break;
         }
 
         // a cancel aborts curl through the progress callback, so the transfer throws:

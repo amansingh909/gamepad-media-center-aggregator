@@ -40,10 +40,11 @@ struct DownloadItem {
     int64_t downloadedBytes = 0;
     std::string errorMessage;
     std::vector<std::string> fallbackKeys;  // the sources tried next if this one fails, best first
+    std::string resumeKey;  // the source whose bytes the partial file holds: a retry continues them
 };
 NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE_WITH_DEFAULT(DownloadItem, itemId, name, type, seriesName,
     seasonIndex, episodeIndex, productionYear, durationMs, thumb, partKey, sectionKey, sectionTitle, status,
-    filePath, totalBytes, downloadedBytes, errorMessage, fallbackKeys);
+    filePath, totalBytes, downloadedBytes, errorMessage, fallbackKeys, resumeKey);
 
 class DownloadManager : public brls::Singleton<DownloadManager> {
 public:

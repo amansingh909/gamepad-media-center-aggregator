@@ -73,7 +73,9 @@ char __attribute__((optimize("no-optimize-sibling-calls"))) * sce_strdup(const c
 #endif
 
 static HTTP::Error curl_error(CURLcode code) {
-    auto kind = code == CURLE_COULDNT_RESOLVE_HOST ? HTTP::ErrorKind::ResolveFailed : HTTP::ErrorKind::Other;
+    auto kind = code == CURLE_COULDNT_RESOLVE_HOST ? HTTP::ErrorKind::ResolveFailed
+                : code == CURLE_RANGE_ERROR        ? HTTP::ErrorKind::RangeRefused
+                                                   : HTTP::ErrorKind::Other;
     return HTTP::Error(kind, curl_easy_strerror(code));
 }
 static HTTP::Error curl_error(const std::string& arg) { return HTTP::Error(HTTP::ErrorKind::Other, arg); }
@@ -175,6 +177,10 @@ void HTTP::set_option(const Header& hs) {
 void HTTP::set_option(const Range& r) {
     const std::string range_str = std::to_string(r.start) + "-" + std::to_string(r.end);
     curl_easy_setopt(this->easy, CURLOPT_RANGE, range_str.c_str());
+}
+
+void HTTP::set_option(const ResumeFrom& r) {
+    curl_easy_setopt(this->easy, CURLOPT_RESUME_FROM_LARGE, curl_off_t(r.offset > 0 ? r.offset : 0));
 }
 
 void HTTP::set_option(const Timeout& t) {

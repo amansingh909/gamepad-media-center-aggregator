@@ -41,6 +41,21 @@ inline DownloadNext nextAfterTransfer(bool removed, const DownloadEnd& end, size
     return fallbacksLeft > 0 ? DownloadNext::Fallback : DownloadNext::Failed;
 }
 
+/// A transfer that dropped with part of the file on disk (rest mode, the network gone a while)
+/// continues from there: the same source is asked for the rest (curl's resume), after a wait
+/// that grows, at most maxResumes times in one transfer; after that the source counts as failed.
+constexpr int maxResumes = 5;
+/// The wait before resume `n` (from 1), in seconds; 0 once there are none left.
+inline int resumeWaitSecs(int n) {
+    static const int waits[maxResumes] = {5, 10, 20, 40, 60};
+    return n >= 1 && n <= maxResumes ? waits[n - 1] : 0;
+}
+/// The bytes on disk continue for source `partKey`: there are some, and they're that source's
+/// (`resumeKey`, recorded when its transfer started). Another source's start from zero.
+inline bool canResume(const std::string& partKey, const std::string& resumeKey, long long bytesOnDisk) {
+    return !partKey.empty() && partKey == resumeKey && bytesOnDisk > 0;
+}
+
 /// At most this many sources are tried for one download: the chosen one and two more.
 constexpr size_t maxDownloadSources = 3;
 

@@ -20,6 +20,12 @@ hand. For the history of the upstream project this fork is based on, see the
   next source by itself, up to three, instead of stopping on an error. A
   source you pick from the list still shows its own error.
 
+### Fixed
+
+- A download that stops, because the PS4 went into rest mode or the network
+  dropped, continues where it left off once the console is back, instead of
+  starting over. So does one cut short by closing GMCA.
+
 ## [1.4.9] - 2026-11-23
 
 ### Added

@@ -51,6 +51,14 @@ int main() {
         CHECK(pickSources({"", ""}).first.empty());
         CHECK(pickSources({}).first.empty());
     }
+    // a dropped transfer continues from the bytes on disk, the same source's only, with growing
+    // waits, maxResumes times
+    CHECK(canResume("http://a/x.mkv", "http://a/x.mkv", 1));
+    CHECK(!canResume("http://a/x.mkv", "http://a/x.mkv", 0));
+    CHECK(!canResume("http://b/y.mkv", "http://a/x.mkv", 1000));  // another source's bytes
+    CHECK(!canResume("", "", 1000));
+    CHECK(resumeWaitSecs(1) == 5 && resumeWaitSecs(2) == 10 && resumeWaitSecs(maxResumes) == 60);
+    CHECK(resumeWaitSecs(0) == 0 && resumeWaitSecs(maxResumes + 1) == 0);
     if (fails) return 1;
     std::printf("test_download_end: all passed\n");
     return 0;
