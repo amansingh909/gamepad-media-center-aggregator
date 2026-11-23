@@ -1,8 +1,11 @@
 /*
-    GMCA: the loading screen of a torrent source, over the player until mpv has data.
+    GMCA: the loading screen of a video, over the player until mpv has its first frame.
     The item's backdrop dimmed, its logo (or its title) pulsing slowly, a progress bar,
-    the stage (Finding peers, Getting torrent info, Buffering 45%) and the peers and
-    speed. B cancels. Built only with the torrent engine (USE_TORRENT).
+    the stage and a line of stats. For a torrent this device's engine fetches, the stage
+    (Finding peers, Getting torrent info, Buffering 45%) and the peers and speed come from
+    the engine (startLoading()); any other source, a link or a torrent on a streaming
+    server, reports its own (startOpening()). B cancels. Built only with the torrent engine
+    (USE_TORRENT).
 */
 
 #pragma once
@@ -27,6 +30,16 @@ public:
     /// Shows the screen for `item`, following `warmup`'s progress and the watched torrent's
     /// stats (TorrentService::watch()).
     void startLoading(const media::Item& item, std::shared_ptr<torrent::Warmup> warmup);
+    /// What a source other than this device's engine says while it opens: the stage line, the
+    /// bar's fill (0 to 1; below 0, a sweep for a wait it can't measure) and the line under it
+    /// ("" for none).
+    struct Report {
+        std::string stage;
+        float progress = -1;
+        std::string stats;
+    };
+    /// Shows the screen for `item`, with what `report` says, asked a few times a second.
+    void startOpening(const media::Item& item, std::function<Report()> report);
     void stopLoading();
     bool isLoading() const { return this->shown; }
     /// What B does (the player closes).
@@ -35,6 +48,7 @@ public:
     brls::View* getNextFocus(brls::FocusDirection direction, brls::View* currentView) override;
 
 private:
+    void show(const media::Item& item);
     void update();
 
     BRLS_BIND(brls::Image, backdrop, "torrent/backdrop");
@@ -46,6 +60,8 @@ private:
 
     brls::RepeatingTimer ticker;
     std::shared_ptr<torrent::Warmup> warmup;
+    std::function<Report()> report;  // startOpening()'s
+    Report lastReport;               // its last answer, between the text updates
     std::function<void()> cancelAction;
     std::chrono::steady_clock::time_point shownAt;
     int ticks = 0;

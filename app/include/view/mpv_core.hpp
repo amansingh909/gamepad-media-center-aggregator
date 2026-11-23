@@ -73,6 +73,7 @@ public:
     double getSpeed() const;
 
     std::string getCacheSpeed() const;
+    int64_t getCacheBytesPerSec() const { return this->cache_speed; }
 
     /// Human-readable string for the last file error (mpv_error_string), or ""
     /// when there was none. Shown in the playback-error dialog for bug reports.

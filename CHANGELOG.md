@@ -19,6 +19,10 @@ hand. For the history of the upstream project this fork is based on, see the
   the next episode) and it fails before the video starts, GMCA tries the
   next source by itself, up to three, instead of stopping on an error. A
   source you pick from the list still shows its own error.
+- Every video starts on the loading screen with the movie's backdrop and
+  logo, not only torrents the PS4 downloads itself: links, and torrents on a
+  streaming server too, which shows the server's peers and speed. Switching
+  the audio or quality keeps the small spinner.
 
 ### Fixed
 

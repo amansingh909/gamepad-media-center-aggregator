@@ -41,6 +41,12 @@
   },
   "player": {
     "next_source": "That source didn't play, trying the next one",
+    "opening": {
+      "loading": "Loading",
+      "server": "Opening on your streaming server",
+      "server_loading": "Loading from your streaming server",
+      "next": "Trying the next source"
+    },
     "subtitle": "Subtitle",
     "none": "None",
     "audio": "Audio track",

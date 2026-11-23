@@ -154,6 +154,8 @@ PlayerView::PlayerView(const plex::Item& item, const int64_t seekMs, int version
 #ifdef USE_TORRENT
             // mpv has data (before it had the URL, its events were the previous file's)
             if (this->warmupReady) this->endTorrentLoading();
+            if (this->opening) this->endOpening();
+            if (!this->stream.parts.empty()) this->openedUrl = this->stream.parts.front().key;
 #endif
             break;
         case MpvEventEnum::MPV_STOP:
@@ -182,6 +184,7 @@ PlayerView::PlayerView(const plex::Item& item, const int64_t seekMs, int version
 #ifdef USE_TORRENT
             // the clock moves: playback is under way even if LOADING_END was missed
             if (this->warmupReady && mpv.video_progress > 0) this->endTorrentLoading();
+            if (this->opening && mpv.video_progress > 0) this->endOpening();
 #endif
             // report cadence: every 10 s
             if (mpv.video_progress % 10 == 0) {
@@ -241,6 +244,7 @@ PlayerView::~PlayerView() {
 #ifdef USE_TORRENT
     // the reader goes; the engine deletes the data after its grace period
     if (this->warmup) this->warmup->cancel();
+    this->serverStatsTimer.stop();
     if (auto* service = torrent::TorrentService::current()) service->watch("");
 #endif
     brls::Application::getExitEvent()->unsubscribe(this->exitSubscribeID);
@@ -416,6 +420,12 @@ void PlayerView::playMedia(const int64_t seekMs) {
 void PlayerView::startPlayback(const int64_t seekMs, bool forceDirect, int64_t forceBitrate) {
 #ifdef USE_TORRENT
     if (this->warmUpTorrent(seekMs, forceDirect, forceBitrate)) return;
+    // any other source opens under the loading screen too, unless its video already played in
+    // this session (a quality or audio switch keeps the small spinner)
+    if (!this->stream.parts.empty() && this->stream.parts.front().key != this->openedUrl)
+        this->beginOpening(torrent::remote::route(this->stream.parts.front().key).empty()
+                               ? "main/player/opening/loading"
+                               : "main/player/opening/server_loading");
 #endif
     // We are about to (re)load: mpv will drop any sub-add'ed tracks. Clear the
     // loaded flag so a subtitle fetch landing mid-load waits for MPV_LOADED to
@@ -581,8 +591,13 @@ bool PlayerView::tryNextSource() {
     this->triedSources.push_back(next);
     this->currentSource = next;
     this->stream = this->item.media[next];
-    brls::Application::notify("main/player/next_source"_i18n);
     this->startPlayback(this->autoSeekMs);
+#ifdef USE_TORRENT
+    if (this->opening)
+        this->openingStage = "main/player/opening/next";  // on the loading screen, until the first frame
+    else
+#endif
+        brls::Application::notify("main/player/next_source"_i18n);
     return true;
 }
 
@@ -780,7 +795,7 @@ bool PlayerView::warmUpTorrent(const int64_t seekMs, bool forceDirect, int64_t f
         if (!torrent::remote::route(url).empty()) return false;  // open there: play it
 
         const int generation = ++this->warmupGeneration;
-        this->view->showLoading();
+        this->beginOpening("main/player/opening/server");
         ASYNC_RETAIN
         ThreadPool::instance().submit(
             [ASYNC_TOKEN, generation, server, url, req, seekMs, forceDirect, forceBitrate](HTTP&) {
@@ -864,6 +879,10 @@ bool PlayerView::warmUpTorrent(const int64_t seekMs, bool forceDirect, int64_t f
                 Dialog::show(brls::getStr(torrent::errorKey(status)), []() { VideoView::close(); });
             });
         });
+    // this device's engine takes the screen over (from an opening, after a streaming server that
+    // didn't answer): its own stages from now on
+    this->opening = false;
+    this->serverStatsTimer.stop();
     this->torrentLoading->startLoading(this->item, this->warmup);
     // not from a dialog or an activity over the player: onChildFocusGained() takes the
     // focus over once it comes back to the player
@@ -874,6 +893,63 @@ bool PlayerView::warmUpTorrent(const int64_t seekMs, bool forceDirect, int64_t f
     return true;
 }
 
+void PlayerView::beginOpening(const char* stageKey) {
+    this->openingStage = stageKey;
+    if (this->opening) return;  // shown already: only the stage changes
+    if (!this->torrentLoading || this->torrentLoading->isLoading()) return;  // this device's engine's screen
+    this->opening = true;
+    auto stats = std::make_shared<ServerStats>();
+    this->serverStats = stats;
+    // a torrent on a streaming server: its peers and speed, as the server says
+    torrent::StreamRequest req;
+    const std::string server = torrent::remote::configured();
+    const std::string key = this->stream.parts.empty() ? std::string() : this->stream.parts.front().key;
+    if (!server.empty() && key != this->localFallbackUrl && torrent::parseLocalStreamUrl(key, req)) {
+        const std::string hash = req.infoHash;
+        this->serverStatsTimer.setCallback([stats, server, hash]() {
+            if (stats->asking.exchange(true)) return;
+            ThreadPool::instance().submit([stats, server, hash](HTTP&) {
+                int peers = -1;
+                int64_t rate = 0;
+                if (torrent::remote::peersAndSpeed(server, hash, peers, rate)) {
+                    stats->peers = peers;
+                    stats->bytesPerSec = rate;
+                }
+                stats->asking = false;
+            });
+        });
+        this->serverStatsTimer.start(1500);
+    }
+    this->torrentLoading->startOpening(this->item, [this, stats]() {
+        TorrentLoadingView::Report r;
+        r.stage = brls::getStr(this->openingStage);
+        // what mpv receives once it reads, before that what the server downloads
+        const int64_t mpvRate = MPVCore::instance().getCacheBytesPerSec();
+        const int64_t rate = mpvRate > 0 ? mpvRate : stats->bytesPerSec.load();
+        const std::string speed = rate > 0 ? torrent::formatRate(int(rate)) : "";
+        const int peers = stats->peers;
+        if (peers >= 0)
+            r.stats = brls::getStr("main/torrent/loading/peers", peers) + (speed.empty() ? "" : "  \xC2\xB7  " + speed);
+        else
+            r.stats = speed;
+        return r;
+    });
+    // not from a dialog or an activity over the player: onChildFocusGained() takes the
+    // focus over once it comes back to the player
+    if (this->focusInPlayer()) brls::Application::giveFocus(this->torrentLoading);
+}
+
+void PlayerView::endOpening() {
+    this->serverStatsTimer.stop();
+    if (!this->opening) return;
+    this->opening = false;
+    if (this->torrentLoading && this->torrentLoading->isLoading()) {
+        const bool focused = brls::Application::getCurrentFocus() == this->torrentLoading;
+        this->torrentLoading->stopLoading();
+        if (focused) brls::Application::giveFocus(this->view);
+    }
+}
+
 void PlayerView::endTorrentLoading() {
     if (this->warmup) {
         ++this->warmupGeneration;  // its answer, if it hasn't come yet, no longer counts
@@ -882,7 +958,7 @@ void PlayerView::endTorrentLoading() {
         this->warmup.reset();
     }
     this->warmupReady = false;
-    if (this->torrentLoading && this->torrentLoading->isLoading()) {
+    if (this->torrentLoading && this->torrentLoading->isLoading() && !this->opening) {
         // only take the focus back from the loading screen itself, never from a dialog
         // or an activity over the player
         const bool focused = brls::Application::getCurrentFocus() == this->torrentLoading;

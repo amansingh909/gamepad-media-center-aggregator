@@ -2,6 +2,9 @@
 
 #ifdef USE_TORRENT
 
+#include <algorithm>
+#include <cmath>
+
 #include <torrent/torrent_service.hpp>
 #include <torrent/ui_model.hpp>
 #include "utils/image.hpp"
@@ -34,7 +37,18 @@ TorrentLoadingView::~TorrentLoadingView() {
 }
 
 void TorrentLoadingView::startLoading(const media::Item& item, std::shared_ptr<torrent::Warmup> warmup) {
+    this->report = nullptr;
     this->warmup = std::move(warmup);
+    this->show(item);
+}
+
+void TorrentLoadingView::startOpening(const media::Item& item, std::function<Report()> report) {
+    this->warmup.reset();
+    this->report = std::move(report);
+    this->show(item);
+}
+
+void TorrentLoadingView::show(const media::Item& item) {
     const std::string& art = item.art.empty() ? item.grandparentArt : item.art;
     Image::cancel(this->backdrop);
     if (!art.empty()) Image::load(this->backdrop, art, 1280, 720);
@@ -59,6 +73,7 @@ void TorrentLoadingView::startLoading(const media::Item& item, std::shared_ptr<t
 void TorrentLoadingView::stopLoading() {
     this->ticker.stop();
     this->warmup.reset();
+    this->report = nullptr;
     this->shown = false;
     this->setVisibility(brls::Visibility::GONE);
 }
@@ -73,7 +88,22 @@ void TorrentLoadingView::update() {
     const float alpha = torrent::pulseAlpha(secs);
     this->logo->setAlpha(alpha);
     this->title->setAlpha(alpha);
-    if (this->ticks++ % 5 != 0) return;
+    const bool text = this->ticks++ % 5 == 0;
+
+    if (this->report) {
+        // a source that reports its own state: the bar sweeps back and forth while it can't
+        // measure the wait
+        if (text) this->lastReport = this->report();
+        const Report& r = this->lastReport;
+        const float p = r.progress < 0 ? 0.5f + 0.4f * float(std::sin(secs * 2.2)) : std::min(1.0f, r.progress);
+        this->barFill->setWidth(barWidth * p);
+        if (text) {
+            this->stage->setText(r.stage);
+            this->stats->setText(r.stats);
+        }
+        return;
+    }
+    if (!text) return;
 
     auto* service = torrent::TorrentService::current();
     const torrent::Stats engineStats = service ? service->snapshot() : torrent::Stats{};

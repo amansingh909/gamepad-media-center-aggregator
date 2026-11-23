@@ -74,6 +74,18 @@ std::string open(const std::string& url, const StreamRequest& r, std::string& wh
     return streamUrl(url, r.infoHash, file);
 }
 
+bool peersAndSpeed(const std::string& url, const std::string& infoHash, int& peers, int64_t& bytesPerSec) {
+    try {
+        const auto stats = nlohmann::json::parse(HTTP::get(url + "/" + infoHash + "/stats.json", HTTP::Timeout{1000}));
+        if (!stats.is_object()) return false;
+        peers = stats.value("peers", 0);
+        bytesPerSec = int64_t(stats.value("downloadSpeed", 0.0));
+        return true;
+    } catch (const std::exception&) {
+        return false;
+    }
+}
+
 std::string route(const std::string& localUrl) {
     std::lock_guard<std::mutex> lock(mutex);
     auto it = routes.find(localUrl);

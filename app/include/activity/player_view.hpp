@@ -9,6 +9,7 @@
 #include <utils/event.hpp>
 #include <api/plex/types.hpp>
 #ifdef USE_TORRENT
+#include <atomic>
 #include <memory>
 #endif
 
@@ -213,5 +214,22 @@ private:
     /// didn't answer (torrent/remote_server.hpp): the rest of this player session doesn't ask
     /// the server again for it.
     std::string localFallbackUrl;
+    /// The loading screen also covers the opening of any other source (a link, a torrent on a
+    /// streaming server): beginOpening() shows it with `openingStage` (an i18n key) and, for a
+    /// torrent on a server, the peers and speed the server gives; endOpening() at the first
+    /// frame. `openedUrl`: the part key whose video started in this player session, so that
+    /// reloading it (a quality or audio switch) keeps the small spinner.
+    bool opening = false;
+    std::string openingStage;
+    std::string openedUrl;
+    struct ServerStats {
+        std::atomic<int> peers{-1};
+        std::atomic<int64_t> bytesPerSec{0};
+        std::atomic<bool> asking{false};
+    };
+    std::shared_ptr<ServerStats> serverStats;
+    brls::RepeatingTimer serverStatsTimer;
+    void beginOpening(const char* stageKey);
+    void endOpening();
 #endif
 };

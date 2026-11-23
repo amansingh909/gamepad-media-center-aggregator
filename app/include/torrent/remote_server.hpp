@@ -9,6 +9,7 @@
 #pragma once
 
 #include <cctype>
+#include <cstdint>
 #include <string>
 
 #include <nlohmann/json.hpp>
@@ -115,6 +116,10 @@ bool reachable(const std::string& server);
 /// 30 s for the file list when the stream names no file; "" with `why` set when it can't.
 /// Blocks: a pool thread.
 std::string open(const std::string& server, const StreamRequest& r, std::string& why);
+
+/// The torrent's peers and download speed (bytes per second) as the server says, for the
+/// loading screen; false when it doesn't answer within 1 s. Blocks: a pool thread.
+bool peersAndSpeed(const std::string& server, const std::string& infoHash, int& peers, int64_t& bytesPerSec);
 
 /// The server URL a local stream URL plays from once open() gave one, "" otherwise. Any thread.
 std::string route(const std::string& localUrl);
