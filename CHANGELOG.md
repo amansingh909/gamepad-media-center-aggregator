@@ -9,6 +9,21 @@ prepared with [git-cliff](https://git-cliff.org/) from conventional commits
 hand. For the history of the upstream project this fork is based on, see the
 [Switchfin changelog](https://github.com/dragonflylee/switchfin/blob/dev/CHANGELOG.md).
 
+## [1.4.8] - 2026-11-22
+
+### Fixed
+
+- PS4 in-app updates no longer stall. On some consoles the PS4 kept
+  reporting GMCA as open after it had closed, so the update helper waited a
+  minute and then stopped with "didn't update" without installing. GMCA now
+  closes right away once the update is handed over, the helper installs
+  within about 10 seconds, and a notification says the update is under way.
+  This version has to be installed by hand once: the fix applies to updates
+  from it on.
+- The release notes in the update prompt scroll with the D-pad. The prompt
+  opens on the notes, Down scrolls them, then moves on to the buttons at
+  their end. Before, Down went straight to Cancel.
+
 ## [1.4.7] - 2026-11-22
 
 ### Fixed
