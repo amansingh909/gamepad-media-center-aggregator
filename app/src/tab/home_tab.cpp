@@ -1,12 +1,15 @@
 #include "tab/home_tab.hpp"
 #include "view/recyling_video.hpp"
 #include "view/loading_spinner.hpp"
+#include "view/resume_source.hpp"
+#include "view/video_card.hpp"
 #include "api/plex.hpp"
 #include "api/backend.hpp"
 #include "utils/keybind.hpp"
 #include "utils/network_state.hpp"
 #include "utils/offline_library.hpp"
 #include "utils/offline_ui.hpp"
+#include "utils/session_cache.hpp"
 
 using namespace brls::literals;  // for _i18n
 
@@ -92,8 +95,13 @@ void HomeTab::doResume(RecylingVideo* row) {
                 if (hub.items.empty()) continue;
                 std::string title = hub.title.empty() ? "main/home/resume"_i18n : hub.title;
                 row->setTitle(title);
-                // truncated hub (more=1): "+" card to the full page
-                if (hub.more && !hub.key.empty()) {
+                if (AppConfig::instance().backend().type() == media::BackendType::Stremio) {
+                    // Stremio: cards with the episode, the time left and when last watched
+                    auto* source = new ResumeDataSource(hub.items);
+                    row->setSource(source);
+                    this->fillEpisodes(row, source);
+                } else if (hub.more && !hub.key.empty()) {
+                    // truncated hub (more=1): "+" card to the full page
                     row->setItems(hub.items, title, hub.key);
                 } else {
                     row->setItems(hub.items);
@@ -160,6 +168,33 @@ void HomeTab::doHubs() {
             dialog->addButton("hints/retry"_i18n, [this]() { brls::sync([this]() { this->doRequest(); }); });
             dialog->addButton("hints/cancel"_i18n, []() {});
             dialog->open();
+        });
+}
+
+void HomeTab::fillEpisodes(RecylingVideo* row, ResumeDataSource* source) {
+    // Every player close rebuilds this row (Presenter), Home shown or not. The backend keeps each
+    // show's episodes for the session: kept shows apply at once, and the others are asked one at
+    // a time, so a replay or a page opened meanwhile waits for one request at most on the async
+    // worker, not for one per show.
+    using Episodes = std::vector<media::Item>;
+    std::weak_ptr<bool> alive = source->alive();
+    cache::walkOneAtATime<Episodes>(
+        source->showKeys(),
+        [](const std::string& show) { return AppConfig::instance().backend().keptEpisodes(show); },
+        [](const std::string& show, cache::SessionCache<Episodes>::Answer answer) {
+            AppConfig::instance().backend().getAllEpisodes(
+                show, false, [answer](const media::Container<media::Item>& r) { answer(&r.Items, ""); },
+                [answer](const std::string& ex) { answer(nullptr, ex); });
+        },
+        // the row was rebuilt meanwhile, its data source with it: stop there
+        [alive]() { return !alive.expired(); },
+        [source, row](const std::string& show, const Episodes* eps, const std::string& ex) {
+            if (!eps) {
+                brls::Logger::warning("continue watching {}: {}", show, ex);
+                return;
+            }
+            for (size_t i : source->applyEpisodes(show, *eps))
+                if (auto* cell = dynamic_cast<VideoCardCell*>(row->visibleCard(i))) source->decorate(cell, i);
         });
 }
 

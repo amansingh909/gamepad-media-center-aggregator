@@ -9,6 +9,177 @@ prepared with [git-cliff](https://git-cliff.org/) from conventional commits
 hand. For the history of the upstream project this fork is based on, see the
 [Switchfin changelog](https://github.com/dragonflylee/switchfin/blob/dev/CHANGELOG.md).
 
+## [1.4.10] - 2026-11-23
+
+### Added
+
+- Continue Watching and the Play button start a Stremio movie or episode
+  from the source it last played from, when the addons still offer it.
+- When GMCA picks the source for you (Continue Watching, the Play button,
+  the next episode) and it fails before the video starts, GMCA tries the
+  next source by itself, up to three, instead of stopping on an error. A
+  source you pick from the list still shows its own error.
+- Every video starts on the loading screen with the movie's backdrop and
+  logo, not only torrents the PS4 downloads itself: links, and torrents on a
+  streaming server too, which shows the server's peers and speed. Switching
+  the audio or quality keeps the small spinner.
+
+### Fixed
+
+- A download that stops, because the PS4 went into rest mode or the network
+  dropped, continues where it left off once the console is back, instead of
+  starting over. So does one cut short by closing GMCA.
+
+## [1.4.9] - 2026-11-23
+
+### Added
+
+- Torrents can go through your own Stremio streaming server. In Settings,
+  under Torrents, enter its address in Streaming server (for example
+  http://192.168.1.10:11470): torrent streams and downloads then go through
+  that server, and this PS4 doesn't connect to peers itself. GMCA checks the
+  address when you enter it. If the server doesn't answer when a torrent
+  starts, GMCA says "Streaming server not reachable, playing on this PS4" and
+  plays it on the PS4 as before. Leave the field empty to keep using the PS4
+  only.
+
+## [1.4.8] - 2026-11-22
+
+### Fixed
+
+- PS4 in-app updates no longer stall. On some consoles the PS4 kept
+  reporting GMCA as open after it had closed, so the update helper waited a
+  minute and then stopped with "didn't update" without installing. GMCA now
+  closes right away once the update is handed over, the helper installs
+  within about 10 seconds, and a notification says the update is under way.
+  This version has to be installed by hand once: the fix applies to updates
+  from it on.
+- The release notes in the update prompt scroll with the D-pad. The prompt
+  opens on the notes, Down scrolls them, then moves on to the buttons at
+  their end. Before, Down went straight to Cancel.
+
+## [1.4.7] - 2026-11-22
+
+### Fixed
+
+- Brazilian Portuguese subtitles now show up for Stremio movies and series,
+  as "Português (Brasil)" next to "Português". GMCA kept a single Portuguese
+  subtitle, so on some titles the Brazilian one was missing. Latin American
+  and European Spanish, Traditional and bilingual Chinese, Canadian French and
+  Norwegian Nynorsk are listed apart the same way, and each can be picked as
+  the preferred subtitle or audio language.
+- With a preferred subtitle language set, the player turns on one subtitle in
+  that language, the exact variant first.
+- On the PS4, subtitle files next to a video on a USB drive are read, and a
+  USB video started while another video was still opening no longer fails.
+- PS4 in-app updates clean up the update helper as soon as GMCA starts, and an
+  update whose helper stopped partway now shows up as failed on the next
+  launch.
+
+## [1.4.6] - 2026-11-10
+
+Merged upstream GMCA 1.3.1 and 1.4.0, so everything in them is in the fork
+too.
+
+### Added
+
+- Audio files picked in Files play in the music player, with Now Playing and
+  the mini-bar. The folder's audio files become the queue.
+- Search and Files can be moved and hidden in the sidebar like libraries. The
+  settings screen for it is now called Sidebar.
+
+### Fixed
+
+- After an in-app update on the PS4, GMCA now empties the update helper's
+  files in the system folder, since the console won't let them be deleted.
+  It tries once per update, instead of retrying every time GMCA opens.
+- Movies and episodes downloaded from Jellyfin or Emby keep their summary,
+  poster, cast and versions offline, and the offline sidebar follows the
+  order you saved.
+- On a movie with several versions, Play and Download use the version picked
+  in the selector, and Jellyfin and Emby versions are labeled with
+  resolution, codec and bitrate.
+- A Plex transcode resumed partway shows the right time, and seeking works
+  anywhere in it.
+- Folders on FTP servers without MLSD (vsftpd, busybox, most routers) open
+  again, and Edit and Delete in a server's menu open their screen again.
+- The video info screen no longer shows tokens or passwords.
+- A server address that doesn't resolve now names the host instead of
+  failing with a generic error.
+
+## [1.4.5] - 2026-10-25
+
+### Fixed
+
+- An in-app update on the PS4 no longer leaves the small update helper behind
+  in the system folder. GMCA removes it a few seconds after it next opens, and
+  the update logs stay small.
+
+## [1.4.4] - 2026-10-25
+
+### Added
+
+- Updates install from inside the app on the PS4. When a new version is out,
+  GMCA downloads it, asks before installing, then closes while the PS4 installs
+  it over the old one. Your settings and library are kept. The PS4 shows a
+  notification when it is done, and you open GMCA again. If an install fails,
+  the version you have keeps working and GMCA tells you why the next time it
+  opens.
+
+  This version still has to be installed by hand, because older versions only
+  open the release page. Updates after this one install from the app.
+
+## [1.4.3] - 2026-10-25
+
+### Added
+
+- USB drives are now readable in Files on the PS4. A plugged-in drive shows up
+  when it holds something, opens, and plays.
+- Netflix-style player controls on the PS4. Left and right on the D-pad seek ten
+  seconds, Triangle opens Audio and Subtitles, Square locks the controls, and
+  Circle hides them and then leaves the player. The lock button moved into the
+  bottom row so it is never more than a press or two away.
+- A "Loading" hint while a folder listing is still running, so a slow USB read
+  no longer looks like the app has frozen.
+
+### Fixed
+
+- Opening the player settings on a video played from a USB drive no longer
+  crashes the app.
+
+## [1.4.2] - 2026-10-14
+
+### Fixed
+
+- Subtitles now show on the PS4. The PS4 build installs a default subtitle font
+  on first start (replace `/data/GMCA/subfont.ttf` to use your own). Picture
+  subtitles (PGS, VobSub) still can't draw on the PS4.
+
+## [1.4.1] - 2026-10-14
+
+Merged the latest upstream GMCA.
+
+### Fixed
+
+- A Plex HTTP 403 now shows a clear message instead of retrying into a transcode.
+
+## [1.4.0] - 2026-10-13
+
+First release of the fork. The in-app updater and the release links now look at the fork's repository. The PS4 package version is 00.29, so the console installs it as an update over 1.3.0.
+
+### Added
+
+- On-device torrent streaming for Stremio on the PS4.
+- Faster peer discovery for torrents.
+- HDR and light HEVC decoding on the PS4.
+- Continue Watching improvements.
+- A choice of source for each episode.
+
+### Fixed
+
+- Download fallback and download fixes.
+- The Files tab on the PS4 now lists folders and the USB drives.
+
 ## [1.3.0] - 2026-09-24
 
 ### Added

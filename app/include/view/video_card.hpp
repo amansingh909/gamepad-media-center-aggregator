@@ -117,4 +117,18 @@ public:
     BRLS_BIND(SVGImage, badgeTopRight, "video/card/badge/top");
     BRLS_BIND(brls::Rectangle, rectProgress, "video/card/progress");
     BRLS_BIND(brls::Box, badgeDownload, "video/card/badge/download");
+    BRLS_BIND(brls::Box, captionBox, "video/card/caption/box");
+    BRLS_BIND(brls::Label, labelCaption, "video/card/caption");
+    BRLS_BIND(brls::Label, labelCaptionAgo, "video/card/caption/ago");
+
+    /// Continue Watching's caption over the poster's foot, two short lines ("32 min left" over
+    /// "2 days ago"); an empty line is left out, and with both empty the caption goes.
+    void setCaption(const std::string& status, const std::string& ago) {
+        this->labelCaption->setText(status);
+        this->labelCaption->setVisibility(status.empty() ? brls::Visibility::GONE : brls::Visibility::VISIBLE);
+        this->labelCaptionAgo->setText(ago);
+        this->labelCaptionAgo->setVisibility(ago.empty() ? brls::Visibility::GONE : brls::Visibility::VISIBLE);
+        this->captionBox->setVisibility(status.empty() && ago.empty() ? brls::Visibility::GONE
+                                                                      : brls::Visibility::VISIBLE);
+    }
 };

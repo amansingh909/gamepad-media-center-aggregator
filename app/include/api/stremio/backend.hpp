@@ -18,6 +18,12 @@
 
 #include "api/backend.hpp"
 #include "api/stremio/addons.hpp"
+#include "utils/session_cache.hpp"
+#include <chrono>
+#include <map>
+#include <memory>
+#include <string>
+#include <vector>
 
 namespace stremio {
 
@@ -45,8 +51,12 @@ public:
     void getItemDetail(const std::string& id, bool full, media::Then<media::Item> then, media::OnError error) override;
     void getChildren(
         const std::string& id, media::Then<media::Container<media::Item>> then, media::OnError error) override;
+    /// A show's episodes, asked once per app session (a show's list doesn't change within one):
+    /// kept ones answer on a later frame with no request, and everyone asking while the show's
+    /// request runs is answered by it. UI thread.
     void getAllEpisodes(const std::string& showId, bool includeStreams,
         media::Then<media::Container<media::Item>> then, media::OnError error) override;
+    const std::vector<media::Item>* keptEpisodes(const std::string& showId) const override;
     void getNextUp(
         const std::string& showId, std::function<void(media::Item, bool)> then, media::OnError error) override;
     void getExtras(const std::string& id, media::Then<media::Container<media::Item>> then, media::OnError error) override;
@@ -70,6 +80,7 @@ public:
     // ---- item actions --------------------------------------------------------
     void markWatched(const std::string& id) override;
     void markUnwatched(const std::string& id) override;
+    void clearProgress(const std::string& id) override;
 
     // ---- playback (étape 2) --------------------------------------------------
     media::PlaybackSource resolvePlayback(
@@ -95,8 +106,17 @@ public:
     void setWatchlisted(const media::Item& item, bool add, std::function<void()> then, media::OnError error) override;
 
 private:
+    /// The series meta request behind getAllEpisodes, on the async worker; answers `episodes`
+    /// (done or failed) on the UI thread.
+    void fetchEpisodes(const std::string& seriesId);
+
     media::Capabilities caps_;
     AddonEngine engine;
+    // each show's episodes for the app session, by series id ("tt0903747"); UI thread only. Shared
+    // so that an answer arriving after this backend went finds it gone.
+    std::shared_ptr<cache::SessionCache<std::vector<media::Item>>> episodes;
+    // reportProgress(), on the UI thread: when each item's playing position was last saved
+    std::map<std::string, std::chrono::steady_clock::time_point> lastPlayingSave;
 };
 
 }  // namespace stremio

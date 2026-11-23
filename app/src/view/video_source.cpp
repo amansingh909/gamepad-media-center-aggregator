@@ -40,6 +40,7 @@ RecyclingGridItem* VideoDataSource::cellForRow(RecyclingView* recycler, size_t i
     VideoCardCell* cell = dynamic_cast<VideoCardCell*>(recycler->dequeueReusableCell("Cell"));
     auto& item = this->list.at(index);
     cell->setId(item.ratingKey);
+    cell->setCaption("", "");  // only Continue Watching's cards have one (resume_source.cpp)
     // recycled cell: purge the previous media's poster (otherwise an item
     // without a thumb inherits another's texture — the placeholder reappears)
     cell->picture->clear();

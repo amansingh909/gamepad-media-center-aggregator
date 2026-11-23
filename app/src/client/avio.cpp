@@ -27,11 +27,14 @@ std::vector<DirEntry> AVIO::list(const std::string& path) {
         DirEntry item;
         item.name = next->name;
         item.path = path + "/" + item.name;
-        if (next->type == AVIO_ENTRY_DIRECTORY) {
+        // FTP without MLSD (vsftpd, most routers) falls back to NLST, names
+        // only: a name without a known media extension is taken for a folder
+        bool unknownFolder = next->type == AVIO_ENTRY_UNKNOWN && typeFromName(item.name) == EntryType::FILE;
+        if (next->type == AVIO_ENTRY_DIRECTORY || unknownFolder) {
             item.type = EntryType::DIR;
         } else {
             item.type = EntryType::FILE;
-            item.fileSize = next->size;
+            if (next->size > 0) item.fileSize = next->size;
         }
         s.push_back(item);
         avio_free_directory_entry(&next);

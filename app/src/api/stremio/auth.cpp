@@ -108,8 +108,9 @@ std::string nowIso() {
     return std::string(buf);
 }
 
-nlohmann::json datastoreGet(const std::string& authKey) {
-    nlohmann::json body = {{"authKey", authKey}, {"collection", "libraryItem"}, {"all", true}};
+nlohmann::json datastoreGet(const std::string& authKey, const std::vector<std::string>& ids) {
+    nlohmann::json body = {{"authKey", authKey}, {"collection", "libraryItem"}, {"all", ids.empty()}};
+    if (!ids.empty()) body["ids"] = ids;
     nlohmann::json result = postEnvelope("https://api.strem.io/api/datastoreGet", body);
     return result.is_array() ? result : nlohmann::json::array();
 }

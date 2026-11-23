@@ -20,7 +20,11 @@
 #include <string>
 #include <vector>
 #include <cstring>
+#include <cstdio>
+#include <cctype>
+#include <algorithm>
 #include <nlohmann/json.hpp>
+#include "api/media/resolution.hpp"
 
 namespace media {
 
@@ -181,7 +185,7 @@ inline void from_json(const nlohmann::json& j, Part& r) {
 enum class SourceKind {
     Direct,    // plain HTTP(S) file — playable
     Debrid,    // HTTP(S) link served by a debrid (RealDebrid/AllDebrid…) — playable
-    Torrent,   // raw infoHash (no url) — NOT playable here (no local torrent client)
+    Torrent,   // raw infoHash: playable only through the local torrent server (USE_TORRENT builds)
     External,  // externalUrl (browser link) — NOT playable here
     Youtube,   // ytId — NOT playable here on console
 };
@@ -199,10 +203,15 @@ struct Media {
     int64_t duration = 0;  // ms
     std::vector<Part> parts;
     // ---- source presentation (Stremio picker; empty/default on Plex/Jellyfin) ----
-    std::string label;   // primary line: source/addon name (+ release group)
+    std::string label;   // primary line: source/addon name (+ release group); Jellyfin/Emby: version name
     std::string detail;  // secondary line: codec · size · seeders (our own re-render)
     SourceKind kind = SourceKind::Direct;
     bool cached = true;  // debrid cache hint (best-effort; ⚡ vs pending). false = uncached
+    bool tenBit = false;     // Stremio rows: the stream's text names 10-bit video (source_order.hpp)
+    int64_t sizeBytes = -1;  // Stremio rows: the size the addon printed, -1 when it printed none
+#ifdef USE_TORRENT
+    int seeders = -1;  // torrent rows: the seeders the addon printed, -1 when it didn't
+#endif
     // A source is directly playable iff it carries a real URL (parts[0].key).
     bool playable() const { return !parts.empty() && !parts.front().key.empty(); }
 };
@@ -218,6 +227,45 @@ inline void from_json(const nlohmann::json& j, Media& r) {
     r.height = (int)jint(j, "height");
     r.duration = jint(j, "duration");
     if (j.contains("Part") && j["Part"].is_array()) r.parts = j["Part"].get<std::vector<Part>>();
+}
+
+/// "1080p · HEVC · 7.6 Mbps", or the server's version name when nothing was probed.
+inline std::string versionLabel(const Media& m, bool withBitrate = true) {
+    std::string res = resolutionLabel(m.width, m.height);
+    if (res.empty()) {
+        // Plex: "1080", "4k", "sd"
+        res = m.videoResolution;
+        if (!res.empty() && std::isdigit((unsigned char)res.back()))
+            res += "p";
+        else
+            for (auto& c : res) c = (char)std::toupper((unsigned char)c);
+    }
+    std::string codec = m.videoCodec;
+    for (auto& c : codec) c = (char)std::toupper((unsigned char)c);
+    std::string out;
+    auto add = [&out](const std::string& part) {
+        if (part.empty()) return;
+        if (!out.empty()) out += " · ";
+        out += part;
+    };
+    add(res);
+    add(codec);
+    if (withBitrate && m.bitrate >= 50) {
+        char buf[32];
+        std::snprintf(buf, sizeof(buf), "%.1f Mbps", m.bitrate / 1000.0);
+        add(buf);
+    }
+    return out.empty() ? m.label : out;
+}
+
+/// Closed selector labels: without the bitrate, unless two versions would then read the same.
+inline std::vector<std::string> versionShortLabels(const std::vector<Media>& media) {
+    std::vector<std::string> labels;
+    for (auto& m : media) labels.push_back(versionLabel(m, false));
+    std::vector<std::string> out = labels;
+    for (size_t i = 0; i < media.size(); i++)
+        if (std::count(labels.begin(), labels.end(), labels[i]) > 1) out[i] = versionLabel(media[i]);
+    return out;
 }
 
 struct Chapter {

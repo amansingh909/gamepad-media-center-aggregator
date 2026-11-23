@@ -87,6 +87,13 @@ void RecylingVideo::setItems(
     }
 }
 
+void RecylingVideo::setSource(VideoDataSource* source) {
+    this->setVisibility(source->getItemCount() ? brls::Visibility::VISIBLE : brls::Visibility::GONE);
+    this->recycler->setDataSource(source);
+}
+
+brls::View* RecylingVideo::visibleCard(size_t index) { return this->recycler->getGridItemByIndex(index); }
+
 void RecylingVideo::doRequest(bool refresh) {
     // row fed by setItems (hubs): the nextPage XML attribute can trigger
     // doRequest without a queryCallback

@@ -8,6 +8,7 @@
 #include <api/plex/types.hpp>
 
 class HRecyclerFrame;
+class VideoDataSource;
 
 class RecylingVideo : public brls::Box {
 public:
@@ -34,6 +35,10 @@ public:
     /// to the full hub page (HubView).
     void setItems(const std::vector<plex::Item>& items);
     void setItems(const std::vector<plex::Item>& items, const std::string& moreTitle, const std::string& moreKey);
+    /// Feeds the row a data source of its own (Continue Watching); GONE if it is empty.
+    void setSource(VideoDataSource* source);
+    /// The card bound to `index`, or nullptr when it is off screen.
+    brls::View* visibleCard(size_t index);
 
 private:
     BRLS_BIND(brls::Header, title, "recycler/title");

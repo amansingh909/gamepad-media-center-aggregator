@@ -16,7 +16,7 @@ public:
 
     void onItemSelected(brls::Box* recycler, size_t index) override;
 
-    void onContextMenu(brls::Box* recycler, size_t index);
+    virtual void onContextMenu(brls::Box* recycler, size_t index);
 
     int setPlayed(const std::string& itemId, bool played) override;
 

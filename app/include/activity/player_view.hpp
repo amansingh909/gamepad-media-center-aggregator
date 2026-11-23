@@ -8,20 +8,45 @@
 #include <borealis.hpp>
 #include <utils/event.hpp>
 #include <api/plex/types.hpp>
+#ifdef USE_TORRENT
+#include <atomic>
+#include <memory>
+#endif
 
 class VideoView;
+#ifdef USE_TORRENT
+class TorrentLoadingView;
+namespace torrent {
+class Warmup;
+}
+#endif
 
 class PlayerView : public brls::Box {
 public:
     /// versionIndex selects which item.media[] source to play (default -1 = the
     /// first accessible version, i.e. unchanged Plex/Jellyfin behavior). The
     /// Stremio source picker passes an explicit index to honor the user's choice.
-    PlayerView(const plex::Item& item, const int64_t seekMs = 0, int versionIndex = -1);
+    /// `autoPicked`: the caller picked that index for the user (the Play button), so a source
+    /// that fails before its video starts gives way to the next one (tryNextSource()); the
+    /// player's own picks (no versionIndex: Continue Watching, the next episode) are such picks.
+    PlayerView(const plex::Item& item, const int64_t seekMs = 0, int versionIndex = -1, bool autoPicked = false);
     ~PlayerView();
+
+    /// As `seekMs`: play from the start, whatever position the item or the server has.
+    static constexpr int64_t START_OVER = -1;
 
     /// Loads the show's episode list (previous/next navigation)
     void setSeries(const std::string& showRatingKey);
     void setTitie(const std::string& title);
+
+#ifdef USE_TORRENT
+    /// The torrent loading screen has the focus while it shows (B cancels).
+    brls::View* getDefaultFocus() override;
+    /// And gets it back, on the next frame, whenever the focus lands on the player under it
+    /// (a dialog or an activity over the player closing hands the focus back to what had it
+    /// before).
+    void onChildFocusGained(brls::View* directChild, brls::View* focusedView) override;
+#endif
 
 #ifdef ANDROID
     void willDisappear(bool resetState) override {
@@ -77,6 +102,9 @@ private:
     /// POST /:/timeline report (time/duration in ms)
     void reportTimeline(const std::string& state, int64_t timeMs);
     void reportStop();
+    /// A file that ended (mpv's end of file, which reports no stop): its final position, once
+    /// per load, before the next item or the close moves on.
+    void reportEnd(int64_t timeMs);
     /// Marks as watched via /:/scrobble beyond the threshold (90%)
     void maybeScrobble(int64_t timeMs);
     bool toggleQuality();
@@ -96,6 +124,22 @@ private:
     /// caller-chosen source index (Stremio picker); -1 = first accessible.
     /// Reset to -1 on episode switch so binge auto-picks the best source.
     int preferredVersion = -1;
+    /// Stremio: the source was picked for the user (`autoPicked`, or by the player itself),
+    /// so one that fails before its video starts gives way to the next playable one, in the
+    /// sources' order, at most autoSourceTries in all (tryNextSource()). `currentSource` is its
+    /// index in item.media, `triedSources` those tried for this title, `sourceStarted` that its
+    /// video started (a failure from then on is the stream's own), `autoSeekMs` where it plays from.
+    bool autoSource = false;
+    int currentSource = -1;
+    std::vector<int> triedSources;
+    bool sourceStarted = false;
+    int64_t autoSeekMs = 0;
+    static constexpr size_t autoSourceTries = 3;
+    /// Plays the next source after one that failed, with a notification; false when it's not
+    /// for this player to do (a source the user picked, one that had started, the tries spent).
+    bool tryNextSource();
+    /// The source that just started playing, remembered for the title (utils/source_memory.hpp).
+    void rememberSource();
     bool scrobbled = false;
     /// guards tryDirectPlayFallback so a failing stream falls back at most once
     /// per (re)load; reset by playMedia on every deliberate (re)start. Each
@@ -106,10 +150,13 @@ private:
     /// seekMs of the last startPlayback call: a load that fails to open leaves
     /// mpv playback_time at 0, so the fallbacks resume from this instead.
     int64_t lastSeekMs = 0;
-    /// PlaybackSource::timelineOffsetMs of the current load; every position
-    /// read from mpv goes through mediaTimeMs().
-    int64_t timelineOffsetMs = 0;
-    int64_t mediaTimeMs(double mpvTimeSec) const { return this->timelineOffsetMs + int64_t(mpvTimeSec) * 1000; }
+    /// The first load of a Stremio title opened with no position: it starts where the account
+    /// library says it stopped, which the detail brings (playMedia()).
+    bool resumeSaved = false;
+    /// reportEnd() ran for the current load (playMedia() starts a new one).
+    bool endReported = false;
+    /// The item's length, or mpv's when the item has none (Stremio episodes), in ms.
+    int64_t durationMs() const;
     /// bitrate cap armed by tryTranscodeFallback (0 = none): once the transcoder
     /// rescued playback, later reloads stay on it. Cleared when the user picks a
     /// quality (toggleQuality).
@@ -133,4 +180,56 @@ private:
     brls::VoidEvent::Subscription settingSubscribeID;
     MPVCustomEvent::Subscription customEventSubscribeID;
     VideoView* view = nullptr;
+
+#ifdef USE_TORRENT
+    /// A torrent source (a local stream URL): shows the loading screen and buffers the
+    /// start of the file, then calls startPlayback() again to play it. False for any other
+    /// source, once the start is buffered, and for a torrent already warmed up in this
+    /// player session (warmedUrl).
+    bool warmUpTorrent(const int64_t seekMs, bool forceDirect, int64_t forceBitrate);
+    /// mpv has data, the load failed or another source plays: the loading screen goes and
+    /// the buffered start's reader with it (a warm-up still buffering is cancelled). Safe
+    /// to call any time.
+    void endTorrentLoading();
+    /// mpv failed on a torrent source: says why in the engine's words, and closes.
+    bool explainTorrentError();
+    /// mpv reached the end of a torrent source's file: if well short of its duration, the
+    /// engine broke the stream off, so it stops, says why and closes (true). False for any
+    /// other source and for a file that played to its end.
+    bool explainTorrentEnd();
+    /// The focus is on this player, not on a dialog or an activity over it.
+    bool focusInPlayer();
+
+    TorrentLoadingView* torrentLoading = nullptr;
+    std::shared_ptr<torrent::Warmup> warmup;  // the start being buffered, or held until mpv has data
+    std::string warmupUrl;                    // the source it's for
+    bool warmupReady = false;                 // its start is in: startPlayback() plays it
+    int warmupGeneration = 0;                 // a warm-up's answer counts only if no newer load began
+    bool focusRedirectPending = false;        // onChildFocusGained() has queued its redirect
+    /// The local URL whose warm-up reported Ok in this player session: reloading it (a
+    /// quality, audio or subtitle switch, a replay) goes straight to mpv. Cleared when
+    /// another source plays or another torrent starts warming up.
+    std::string warmedUrl;
+    /// The local URL this device's engine plays because the streaming server set in Settings
+    /// didn't answer (torrent/remote_server.hpp): the rest of this player session doesn't ask
+    /// the server again for it.
+    std::string localFallbackUrl;
+    /// The loading screen also covers the opening of any other source (a link, a torrent on a
+    /// streaming server): beginOpening() shows it with `openingStage` (an i18n key) and, for a
+    /// torrent on a server, the peers and speed the server gives; endOpening() at the first
+    /// frame. `openedUrl`: the part key whose video started in this player session, so that
+    /// reloading it (a quality or audio switch) keeps the small spinner.
+    bool opening = false;
+    std::string openingStage;
+    std::string openedUrl;
+    struct ServerStats {
+        std::atomic<int> peers{-1};
+        std::atomic<int64_t> bytesPerSec{0};
+        std::atomic<bool> asking{false};
+    };
+    std::shared_ptr<ServerStats> serverStats;
+    brls::RepeatingTimer serverStatsTimer;
+    void beginOpening(const char* stageKey);
+    void endOpening();
+#endif
 };

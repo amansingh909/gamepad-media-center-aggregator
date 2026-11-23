@@ -24,6 +24,7 @@
 
             <Tab label=""
                 fontSize="18"
+                id="tab/search"
                 icon="@res/icon/ico-search.svg"
                 iconActivate="@res/icon/ico-search-activate.svg">
                 <SearchTab />

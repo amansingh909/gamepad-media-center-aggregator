@@ -1,0 +1,10 @@
+{
+  "id": "org.gmca.fake-torrents",
+  "version": "1.0.0",
+  "name": "Fake torrents",
+  "description": "Test addon for GMCA's torrent streaming: Sintel (Blender Foundation, CC BY) as torrent streams and a direct link.",
+  "resources": ["stream"],
+  "types": ["movie"],
+  "idPrefixes": ["tt"],
+  "catalogs": []
+}

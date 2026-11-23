@@ -8,6 +8,8 @@
 #include <borealis/core/singleton.hpp>
 #include <mpv/client.h>
 #include <utils/event.hpp>
+#include <functional>
+#include <map>
 #ifdef MPV_SW_RENDER
 #include <mpv/render.h>
 #elif defined(BOREALIS_USE_D3D11)
@@ -25,6 +27,19 @@
 #else
 #include <glad/glad.h>
 #endif
+#endif
+
+// The automatic HDR handling (view/hdr_options.hpp): on the PS4, whose GLES 2.0 driver cannot link
+// mpv's HDR to SDR shader, and in diag builds so a desktop run can show it triggers.
+#if defined(__PS4__) || defined(MPV_DIAG_LOG)
+#define MPV_HDR_HANDLING
+#endif
+
+// Light HEVC decoding (Settings, Playback): the loop filter is skipped for HEVC files, set per file
+// from mpv's on_preloaded hook so it holds for every backend. A PS4 feature; the define lets a
+// desktop build compile it for a test.
+#if defined(__PS4__) || defined(MPV_LIGHT_HEVC_TEST)
+#define MPV_LIGHT_HEVC
 #endif
 
 typedef std::unordered_map<std::string, std::string> MPVMap;
@@ -47,6 +62,10 @@ public:
         if (mpv) mpv_command_async(mpv, 0, cmd);
     }
 
+    /// sub-add of a subtitle file next to the video. On the PS4 a file under /mnt/usb is read
+    /// outside the sandbox, which is held until mpv has added it.
+    void addSubtitle(const std::string &path, const char *flag, const std::string &title);
+
     bool isStopped() const;
 
     bool isPaused();
@@ -54,6 +73,7 @@ public:
     double getSpeed() const;
 
     std::string getCacheSpeed() const;
+    int64_t getCacheBytesPerSec() const { return this->cache_speed; }
 
     /// Human-readable string for the last file error (mpv_error_string), or ""
     /// when there was none. Shown in the playback-error dialog for bug reports.
@@ -71,6 +91,9 @@ public:
     void setInt(const std::string &key, int64_t value);
 
     std::unordered_map<std::string, mpv_node> getNodeMap(const std::string &key);
+
+    /// The mirror setting (0 off, 1 horizontal, 2 vertical), keeping the HDR re-tag filter (PS4).
+    void setMirror(int mirror);
 
     void togglePlay();
 
@@ -138,6 +161,30 @@ public:
     // 低画质解码，剔除解码过程中的部分步骤，可以用来节省cpu
     inline static bool LOW_QUALITY = false;
     inline static bool SUBS_FALLBACK = true;
+    // Settings, Playback, Light HEVC decoding (PS4): skip the loop filter for HEVC video, on by default
+    inline static bool LIGHT_HEVC = true;
+#ifdef MPV_LIGHT_HEVC
+    // on_preloaded hook: sets vd-lavc-skiploopfilter for the file about to open, then continues
+    void handlePreloadedHook(uint64_t hookId);
+#endif
+    // Settings, Playback, Audio language: "auto" (the app language), "file" (none) or a 2-letter code
+    inline static std::string AUDIO_LANG = "auto";
+#ifdef MPV_DIAG_LOG
+    // diag builds: the HEVC test switch (hdr::Test in view/hdr_options.hpp; 0 is the automatic
+    // HDR handling), and what the decoder and the video output do, in mpv.log
+    inline static int DIAG_VIDEO_TEST = 0;
+    void diagVideoStats();
+#endif
+#ifdef MPV_HDR_HANDLING
+    // The video is re-tagged as SDR by a filter that is in the chain from the start; while an HDR
+    // file is played (video-params/gamma is pq or hlg) saturation and contrast are raised, and the
+    // viewer's own values are kept to put back at the end of the file. See view/hdr_options.hpp.
+    void applyHdrHandling();
+    bool hdr_active = false;
+    int hdr_base_saturation = 0;
+    int hdr_base_contrast = 0;
+    std::string hdr_applied = "none";  // the options of the file being played, for the diag log
+#endif
 
     // 视频缓存（是否使用内存缓存视频，值为缓存的大小，单位MB）
     inline static int INMEMORY_CACHE = 0;
@@ -181,6 +228,17 @@ private:
     mpv_render_context *mpv_context = nullptr;
     brls::Rect rect = {0, 0, 1920, 1080};
     bool video_stopped = true;
+#ifdef __PS4__
+    // mpv commands that read a file under /mnt/usb, each holding a ps4::beginEscape, by the
+    // reply_userdata of the command: for a loadfile, its playlist entry (0 until the command's
+    // reply gives it); -1 for a sub-add, which its reply releases.
+    std::map<uint64_t, int64_t> usb_holds;
+    uint64_t usb_next_tag = uint64_t(1) << 62;  // reply_userdata for them, above the callers' own
+    int64_t current_entry = 0;  // playlist entry of the last START_FILE
+    int64_t loaded_entry = 0;   // and of the last FILE_LOADED
+    uint64_t holdUsbEscape(uint64_t userdata, int64_t entry);
+    void releaseUsbEscapes(const std::function<bool(uint64_t tag, int64_t entry)> &which);
+#endif
     bool video_paused = false;
     bool voEnabled = true;  // false in audio-only mode (music): keep playing when backgrounded
     int64_t cache_speed = 0;  // Bps

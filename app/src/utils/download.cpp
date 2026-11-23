@@ -9,13 +9,69 @@
 #include "api/plex.hpp"
 #include "api/backend.hpp"
 #include <algorithm>
+#include <atomic>
 #include <cctype>
+#include <chrono>
+#include <fstream>
+#include <thread>
 
+#include <cstdio>
 #include <optional>
+
+#include "utils/download_path.hpp"
+#include "utils/download_end.hpp"
+
+#ifdef __PS4__
+#include <torrent/posix_tree.hpp>
+#endif
+#ifdef USE_TORRENT
+#include <torrent/remote_server.hpp>
+#include <torrent/stremio_source.hpp>
+#endif
 
 using namespace brls::literals;  // for _i18n
 
 std::string DownloadManager::downloadDir() const { return AppConfig::instance().configDir() + "/downloads"; }
+
+// The size of a partial file, 0 when there's none. Opened, not stat()ed: std::filesystem and stat
+// don't give sizes on the PS4.
+static int64_t bytesOnDisk(const std::string& path) {
+    std::ifstream f(path, std::ios::binary | std::ios::ate);
+    if (!f) return 0;
+    const std::streamoff size = f.tellg();
+    return size > 0 ? int64_t(size) : 0;
+}
+
+// Waits `seconds`, or less when the download is cancelled meanwhile: false then.
+static bool waitUnlessCancelled(const std::atomic_bool& cancel, int seconds) {
+    for (int i = 0; i < seconds * 4; ++i) {
+        if (cancel.load()) return false;
+        std::this_thread::sleep_for(std::chrono::milliseconds(250));
+    }
+    return !cancel.load();
+}
+
+// Deletes a download's folder. On the PS4, std::filesystem::remove_all fails with ENOSYS
+// (OpenOrbis musl's lstat is a stub), so it goes through the POSIX remover the torrent
+// engine uses there.
+static void removeDownloadDir(const std::string& root, const std::string& itemId) {
+    // never delete anything but one folder directly under the downloads folder
+    if (!isSafeDownloadId(itemId)) {
+        brls::Logger::error("Refusing to remove download dir for unsafe item id '{}'", itemId);
+        return;
+    }
+    const std::string dir = root + "/" + itemId;
+#ifdef __PS4__
+    std::string error;
+    if (!torrent::removeTree(dir, error)) brls::Logger::error("Failed to remove download dir: {}", error);
+#else
+    try {
+        if (fs::exists(dir)) fs::remove_all(dir);
+    } catch (const std::exception& e) {
+        brls::Logger::error("Failed to remove download dir: {}", e.what());
+    }
+#endif
+}
 
 void DownloadManager::init() {
     auto dir = this->downloadDir();
@@ -24,13 +80,26 @@ void DownloadManager::init() {
     }
     this->loadIndex();
 
-    std::lock_guard<std::mutex> lock(this->mutex);
-    for (auto& item : this->items) {
-        if (item.status == DownloadStatus::Downloading) {
-            item.status = DownloadStatus::Queued;
+    // A remove that was still waiting for its transfer to end when the app closed left its
+    // "removed" marker in the saved index: the download is gone, not to be queued again.
+    std::vector<std::string> gone;
+    {
+        std::lock_guard<std::mutex> lock(this->mutex);
+        for (auto it = this->items.begin(); it != this->items.end();) {
+            if (it->errorMessage == "removed") {
+                gone.push_back(it->itemId);
+                it = this->items.erase(it);
+                continue;
+            }
+            if (it->status == DownloadStatus::Downloading) {
+                it->status = DownloadStatus::Queued;
+            }
+            ++it;
         }
+        this->saveIndex();
     }
-    this->saveIndex();
+    // their catalog nodes go when OfflineLibrary::init() prunes, which runs after this
+    for (const auto& id : gone) removeDownloadDir(dir, id);
 }
 
 void DownloadManager::loadIndex() {
@@ -71,10 +140,18 @@ void DownloadManager::addDownload(const std::string& itemId) {
 
     // metadata for the download
     AppConfig::instance().backend().getItemDetail(
-        itemId, false,
-        [this](const media::Item& item) {
+        itemId, true,  // full: Stremio resolves its streams (the sources) only for a full detail
+        [this, itemId](const media::Item& item) {
 
             std::lock_guard<std::mutex> lock(this->mutex);
+
+            // a second request made while this detail was in flight lands here too: one per item
+            for (auto& existing : this->items) {
+                if (existing.itemId == item.ratingKey || existing.itemId == itemId) {
+                    brls::Logger::info("Already exists: {}", item.ratingKey);
+                    return;
+                }
+            }
 
             DownloadItem dl;
             dl.itemId = item.ratingKey;
@@ -89,16 +166,21 @@ void DownloadManager::addDownload(const std::string& itemId) {
             dl.thumb = item.type == plex::mediaTypeEpisode
                            ? (!item.parentThumb.empty() ? item.parentThumb : item.grandparentThumb)
                            : item.thumb;
-            // first accessible Part: original quality (PLEX_MIGRATION.md D2)
+            // first Part with a key: original quality (PLEX_MIGRATION.md D2). The medias after
+            // the chosen one, in the detail's order, are the fallbacks (3 sources in all).
+            std::vector<std::string> mediaKeys;  // each media's first non-empty part key, or ""
             for (auto& media : item.media) {
-                for (auto& part : media.parts) {
+                std::string key;
+                for (auto& part : media.parts)
                     if (!part.key.empty()) {
-                        dl.partKey = part.key;
+                        key = part.key;
                         break;
                     }
-                }
-                if (!dl.partKey.empty()) break;
+                mediaKeys.push_back(key);
             }
+            const SourcePick pick = pickSources(mediaKeys);
+            dl.partKey = pick.first;
+            dl.fallbackKeys = pick.fallbacks;
             if (dl.partKey.empty()) {
                 brls::Application::notify("main/download/failed"_i18n);
                 return;
@@ -113,7 +195,8 @@ void DownloadManager::addDownload(const std::string& itemId) {
         [](const std::string& ex) { brls::Application::notify(ex); });
 }
 
-void DownloadManager::addDownload(const media::Item& item, const std::string& partKey) {
+void DownloadManager::addDownload(
+    const media::Item& item, const std::string& partKey, const std::vector<std::string>& fallbackKeys) {
     // Explicit-source variant (Stremio release picker): the caller already
     // resolved which source to fetch, so we skip the getItemDetail round-trip
     // (Stremio only resolves sources with full=true anyway) and download exactly
@@ -142,6 +225,7 @@ void DownloadManager::addDownload(const media::Item& item, const std::string& pa
                    ? (!item.parentThumb.empty() ? item.parentThumb : item.grandparentThumb)
                    : item.thumb;
     dl.partKey = partKey;
+    dl.fallbackKeys = fallbackKeys;
     dl.status = DownloadStatus::Queued;
     this->items.push_back(dl);
     this->saveIndex();
@@ -211,14 +295,8 @@ void DownloadManager::removeDownload(const std::string& itemId) {
     }
 
     if (!wasActive) {
-        std::string dir = this->downloadDir() + "/" + itemId;
-        brls::async([dir]() {
-            try {
-                if (fs::exists(dir)) fs::remove_all(dir);
-            } catch (const std::exception& e) {
-                brls::Logger::error("Failed to remove download dir: {}", e.what());
-            }
-        });
+        std::string root = this->downloadDir();
+        brls::async([root, itemId]() { removeDownloadDir(root, itemId); });
     }
 
     if (erased) {
@@ -229,6 +307,12 @@ void DownloadManager::removeDownload(const std::string& itemId) {
 
     // reconcile the offline catalog with the new download set (cascade prune of
     // movies/shows/seasons no longer backed by a file). Called without our lock.
+    OfflineLibrary::instance().prune();
+}
+
+void DownloadManager::finishRemove(const std::string& itemId) {
+    std::string root = this->downloadDir();
+    brls::async([root, itemId]() { removeDownloadDir(root, itemId); });
     OfflineLibrary::instance().prune();
 }
 
@@ -294,57 +378,30 @@ std::string DownloadManager::buildDownloadUrl(const DownloadItem& item) const {
 // choice (not a concurrency requirement: the shared curl DNS cache is lock-
 // guarded, http.cpp).
 void DownloadManager::captureOfflineSync(const std::string& itemId) {
-    auto& conf = AppConfig::instance();
-    const std::string base = conf.getUrl();
-    const std::string token = conf.getToken();
     auto& lib = OfflineLibrary::instance();
 
-    auto fetchOne = [&](const std::string& id) -> std::optional<plex::Item> {
-        std::string url = base + fmt::format(fmt::runtime(plex::apiMetadata), id, "");
-        auto c = plex::getSync(url, token).get<plex::Container<plex::Item>>();
-        if (c.Items.empty()) return std::nullopt;
-        return c.Items.front();
-    };
-    auto fetchChildren = [&](const std::string& id) -> std::vector<plex::Item> {
-        std::string url = base + fmt::format(fmt::runtime(plex::apiChildren), id, "");
-        return plex::getSync(url, token).get<plex::Container<plex::Item>>().Items;
-    };
-    auto cacheAssets = [](const plex::Item& it) {
-        for (const auto& p : offline::assetPaths(it)) ImageCache::store(p);
-    };
-
-    // leaf fiche + its artwork (poster/backdrop/logo/cast)
-    auto leaf = fetchOne(itemId);
-    if (!leaf) return;
-    lib.putItem(*leaf);
-    cacheAssets(*leaf);
-
-    if (leaf->type != plex::mediaTypeEpisode) return;
-
-    // show fiche only — once per show. We deliberately do NOT persist every
-    // season: only seasons that actually get a downloaded episode are stored
-    // (below), so the offline seasons row lists just those (SPEC AC10).
-    if (!leaf->grandparentRatingKey.empty() && !lib.hasItem(leaf->grandparentRatingKey)) {
-        if (auto show = fetchOne(leaf->grandparentRatingKey)) {
-            lib.putItem(*show);
-            cacheAssets(*show);
-        }
+    // also kept on the download: the legacy back-fill (OfflineLibrary::migrateLegacy)
+    // files the item under it when the fiche below cannot be fetched
+    auto section = AppConfig::instance().backend().sectionOfSync(itemId);
+    if (!section.key.empty()) {
+        std::lock_guard<std::mutex> lock(this->mutex);
+        for (auto& item : this->items)
+            if (item.itemId == itemId) {
+                item.sectionKey = section.key;
+                item.sectionTitle = section.title;
+                break;
+            }
     }
-    // this season's fiche + its FULL episode list — non-downloaded siblings
-    // appear greyed (SPEC AC9). Once per season (guarded on the season node).
-    if (!leaf->parentRatingKey.empty() && !lib.hasItem(leaf->parentRatingKey)) {
-        if (auto season = fetchOne(leaf->parentRatingKey)) {
-            if (season->parentRatingKey.empty()) season->parentRatingKey = leaf->grandparentRatingKey;
-            lib.putItem(*season);
-            cacheAssets(*season);
-        }
-        for (auto& ep : fetchChildren(leaf->parentRatingKey)) {
-            if (ep.ratingKey == itemId) continue;  // keep the richer leaf fiche
-            if (ep.parentRatingKey.empty()) ep.parentRatingKey = leaf->parentRatingKey;
-            if (ep.grandparentRatingKey.empty()) ep.grandparentRatingKey = leaf->grandparentRatingKey;
-            lib.putItem(ep);
-        }
-    }
+
+    offline::capture(
+        itemId, section, [](const std::string& id) { return AppConfig::instance().backend().getItemDetailSync(id); },
+        [](const std::string& id) { return AppConfig::instance().backend().getChildrenSync(id); },
+        [&](const std::string& id) { return lib.hasItem(id); },
+        [&](plex::Item it, bool art) {
+            lib.putItem(it);
+            if (art)
+                for (const auto& p : offline::assetPaths(it)) ImageCache::store(p);
+        });
 }
 
 // Must be called with mutex held
@@ -370,6 +427,10 @@ void DownloadManager::doDownload(DownloadItem& item) {
     std::string partKey = item.partKey;
     std::string url = this->buildDownloadUrl(item);
     std::string itemDir = this->downloadDir() + "/" + itemId;
+    // whose bytes the partial file holds, if any: this source's continue (download_end.hpp);
+    // from now on they're this source's
+    std::string resumeKey = item.resumeKey;
+    item.resumeKey = partKey;
 
     this->saveIndex();
 
@@ -382,22 +443,31 @@ void DownloadManager::doDownload(DownloadItem& item) {
     // per-worker HTTP session and open a fresh one below: this transfer installs
     // a progress callback + cancel token that would otherwise linger on the
     // shared session and leak into the next image/version task on that worker.
-    ThreadPool::instance().submit([this, itemId, thumb, partKey, url, itemDir, cancel](HTTP&) {
+    ThreadPool::instance().submit([this, itemId, thumb, partKey, url, itemDir, cancel, resumeKey](HTTP&) {
+        // before the transfer: a cancel at startup, or no folder. A remove that came meanwhile
+        // left the "removed" marker, which must win here too.
         auto resetQueue = [this, itemId](const std::string& error) {
             brls::sync([this, itemId, error]() {
+                bool removed = false;
                 {
                     std::lock_guard<std::mutex> lock(this->mutex);
-                    for (auto& item : this->items) {
-                        if (item.itemId == itemId) {
-                            item.status = DownloadStatus::Failed;
-                            item.errorMessage = error;
-                            break;
+                    for (auto it = this->items.begin(); it != this->items.end(); ++it) {
+                        if (it->itemId != itemId) continue;
+                        if (nextAfterTransfer(it->errorMessage == "removed", DownloadEnd{false, false}) ==
+                            DownloadNext::Remove) {
+                            this->items.erase(it);
+                            removed = true;
+                        } else {
+                            it->status = DownloadStatus::Failed;
+                            it->errorMessage = error;
                         }
+                        break;
                     }
                     this->downloading = false;
                     this->currentCancel.reset();
                     this->saveIndex();
                 }
+                if (removed) this->finishRemove(itemId);
                 this->statusEvent.fire(itemId, DownloadStatus::Failed);
                 {
                     std::lock_guard<std::mutex> lock(this->mutex);
@@ -437,6 +507,12 @@ void DownloadManager::doDownload(DownloadItem& item) {
                 std::all_of(cand.begin(), cand.end(), [](unsigned char c) { return std::isalnum(c) != 0; }))
                 ext = cand;
         }
+#ifdef USE_TORRENT
+        // a torrent's local URL has no extension in its path; its file name hint (f=) does.
+        // No hint (name over 200 bytes, or none) keeps the default above.
+        std::string hinted = torrent::localStreamExtension(partKey);
+        if (!hinted.empty()) ext = hinted;
+#endif
 
         std::string fileName = "video." + ext;
         std::string filePath = itemDir + "/" + fileName;
@@ -479,8 +555,12 @@ void DownloadManager::doDownload(DownloadItem& item) {
         auto lastBytes = std::make_shared<curl_off_t>(0);
         auto started = std::make_shared<bool>(false);
         auto speedEma = std::make_shared<double>(0.0);
+        auto base = std::make_shared<curl_off_t>(0);  // the bytes on disk when the attempt began
         HTTP::Progress::Callback progressCb =
-            [this, itemId, lastProgress, lastBytes, started, speedEma](curl_off_t total, curl_off_t now) {
+            [this, itemId, lastProgress, lastBytes, started, speedEma, base](curl_off_t total, curl_off_t now) {
+                // curl counts the rest only, after a resume
+                now += *base;
+                if (total > 0) total += *base;
                 auto tp = std::chrono::steady_clock::now();
                 if (tp - *lastProgress < std::chrono::milliseconds(500)) return;
 
@@ -513,25 +593,66 @@ void DownloadManager::doDownload(DownloadItem& item) {
                 });
             };
 
-        bool cancelled = false;
-        bool success = false;
+        bool threw = false;
         std::string error;
 
-        try {
-            std::ofstream of(filePath, std::ios::binary);
-            if (!of) throw std::runtime_error("Failed to open file for writing");
-
-            HTTP s;
-            HTTP::set_option(s, header, cancel, progressCb);
-            s._get(url, &of);
-            of.close();
-
-            cancelled = cancel->load();
-            if (!cancelled) success = true;
-        } catch (const std::exception& ex) {
-            error = ex.what();
+        // Bytes already on disk from this very source (a retry, the app closed mid-way) continue
+        // from where they are, and a transfer that drops later (rest mode, the network gone a
+        // while) waits and continues them, maxResumes times (download_end.hpp). A server that
+        // can't send the rest makes that attempt start over.
+        bool fresh = !canResume(partKey, resumeKey, bytesOnDisk(filePath));
+        std::string source;
+        for (int resumes = 0;;) {
+            const int64_t offset = fresh ? 0 : bytesOnDisk(filePath);
+            fresh = false;
+            *base = offset;
+            threw = false;
+            error.clear();
+            try {
+                std::ofstream of(filePath, std::ios::binary | (offset > 0 ? std::ios::app : std::ios::trunc));
+                if (!of) throw std::runtime_error("Failed to open file for writing");
+#ifdef USE_TORRENT
+                // a torrent with a streaming server set comes from that server (torrent/remote_server.hpp)
+                if (source.empty()) source = torrent::remote::downloadSource(url);
+#else
+                source = url;
+#endif
+                if (offset > 0) brls::Logger::info("Download {}: continuing from {} bytes", itemId, offset);
+                HTTP s;
+                HTTP::set_option(s, header, cancel, progressCb, HTTP::ResumeFrom{offset});
+                // a write that fails (a full disk) stops curl, and _get throws
+                s._get(source, &of);
+                // the last buffered bytes reach the disk only here, and can fail the same way
+                of.close();
+                if (!of) throw std::runtime_error("Failed to write " + fileName);
+                break;
+            } catch (const HTTP::Error& ex) {
+                if (ex.kind == HTTP::ErrorKind::RangeRefused && offset > 0 && !cancel->load()) {
+                    brls::Logger::warning("Download {}: the source can't continue it, from the start", itemId);
+                    fresh = true;
+                    continue;
+                }
+                threw = true;
+                error = ex.what();
+            } catch (const std::exception& ex) {
+                threw = true;
+                error = ex.what();
+            }
             brls::Logger::error("Download failed: {} - {}", itemId, error);
+            // dropped with bytes on disk: wait for the network, then continue them
+            const int wait = resumeWaitSecs(++resumes);
+            if (cancel->load() || bytesOnDisk(filePath) <= 0 || wait == 0) break;
+            brls::Logger::warning("Download {}: continuing in {} s ({} of {})", itemId, wait, resumes, maxResumes);
+            if (!waitUnlessCancelled(*cancel, wait)) break;
         }
+
+        // a cancel aborts curl through the progress callback, so the transfer throws:
+        // the flag is read on both paths (removing an active download sets it too)
+        const DownloadEnd end = classifyDownloadEnd(threw, cancel->load());
+        const bool success = end.success;
+        // a failed source's partial file goes now: the next source may write another file name,
+        // and a retry starts from zero anyway (a cancel keeps its partial file for a retry)
+        if (!success && !end.cancelled) std::remove(filePath.c_str());
 
         // Offline capture (fiche + ancestors + artwork) on this worker thread,
         // before signalling completion — best-effort, never fails the download.
@@ -543,70 +664,60 @@ void DownloadManager::doDownload(DownloadItem& item) {
             }
         }
 
-        brls::sync([this, itemId, fileName, cancelled, success, error]() {
+        brls::sync([this, itemId, fileName, end, error]() {
             DownloadStatus finalStatus = DownloadStatus::Failed;
-
+            bool removed = false;
             {
                 std::lock_guard<std::mutex> lock(this->mutex);
-
-                if (cancelled) {
-                    bool removed = false;
-                    for (auto it = this->items.begin(); it != this->items.end(); ++it) {
-                        if (it->itemId == itemId) {
-                            if (it->errorMessage == "removed") {
-                                this->items.erase(it);
-                                removed = true;
-                            } else {
-                                it->status = DownloadStatus::Failed;
-                                it->errorMessage = "Cancelled";
-                            }
-                            break;
+                for (auto it = this->items.begin(); it != this->items.end(); ++it) {
+                    if (it->itemId != itemId) continue;
+                    // a remove that came at any point, the offline capture included, wins
+                    switch (nextAfterTransfer(it->errorMessage == "removed", end, it->fallbackKeys.size())) {
+                    case DownloadNext::Remove:
+                        this->items.erase(it);
+                        removed = true;
+                        break;
+                    case DownloadNext::Cancelled:
+                        it->status = DownloadStatus::Failed;
+                        it->errorMessage = "Cancelled";
+                        break;
+                    case DownloadNext::Completed: {
+                        finalStatus = DownloadStatus::Completed;
+                        it->status = DownloadStatus::Completed;
+                        it->filePath = fileName;
+                        std::string metaPath = this->downloadDir() + "/" + itemId + "/metadata.json";
+                        try {
+                            nlohmann::json j = *it;
+                            std::ofstream f(metaPath);
+                            f << j.dump(2);
+                        } catch (...) {
                         }
+                        brls::Logger::info("Download completed: {}", itemId);
+                        break;
                     }
-                    this->saveIndex();
-                    if (removed) {
-                        std::string dir = this->downloadDir() + "/" + itemId;
-                        brls::async([dir]() {
-                            try {
-                                if (fs::exists(dir)) fs::remove_all(dir);
-                            } catch (const std::exception& e) {
-                                brls::Logger::error("Failed to remove download dir: {}", e.what());
-                            }
-                        });
+                    case DownloadNext::Fallback:
+                        // the next best source, from the start
+                        brls::Logger::warning("Download {} failed ({}), trying its next source", itemId, error);
+                        it->partKey = it->fallbackKeys.front();
+                        it->fallbackKeys.erase(it->fallbackKeys.begin());
+                        it->status = DownloadStatus::Queued;
+                        it->errorMessage.clear();
+                        it->downloadedBytes = 0;
+                        it->totalBytes = 0;
+                        finalStatus = DownloadStatus::Queued;
+                        break;
+                    case DownloadNext::Failed:
+                        it->status = DownloadStatus::Failed;
+                        it->errorMessage = error;
+                        break;
                     }
-                } else if (success) {
-                    finalStatus = DownloadStatus::Completed;
-                    for (auto& item : this->items) {
-                        if (item.itemId == itemId) {
-                            item.status = DownloadStatus::Completed;
-                            item.filePath = fileName;
-
-                            std::string metaPath = this->downloadDir() + "/" + itemId + "/metadata.json";
-                            try {
-                                nlohmann::json j = item;
-                                std::ofstream f(metaPath);
-                                f << j.dump(2);
-                            } catch (...) {
-                            }
-                            break;
-                        }
-                    }
-                    this->saveIndex();
-                    brls::Logger::info("Download completed: {}", itemId);
-                } else {
-                    for (auto& item : this->items) {
-                        if (item.itemId == itemId) {
-                            item.status = DownloadStatus::Failed;
-                            item.errorMessage = error;
-                            break;
-                        }
-                    }
-                    this->saveIndex();
+                    break;
                 }
-
+                this->saveIndex();
                 this->downloading = false;
                 this->currentCancel.reset();
             }
+            if (removed) this->finishRemove(itemId);
 
             this->statusEvent.fire(itemId, finalStatus);
             {

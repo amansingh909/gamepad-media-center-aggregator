@@ -46,10 +46,29 @@
             title="@i18n/main/media/go_season"
             visibility="gone"
             id="menu/go/season" />
+        <!-- Stremio episodes only (context_menu.cpp): the episode's source list -->
         <MenuItem
-            icon="@res/icon/ico-checkmark.svg"
+            icon="@res/icon/ico-list.svg"
+            title="@i18n/main/media/choose_source"
+            visibility="gone"
+            id="menu/choose_source" />
+        <!-- Continue Watching (Stremio) only: shown by context_menu.cpp. Its icon, like Mark
+             played's, is a grey copy (#61666D, as the others here): a white icon disappears on
+             the light theme's white panel -->
+        <MenuItem
+            icon="@res/icon/ico-play-grey.svg"
+            title="@i18n/main/resume/start_over"
+            visibility="gone"
+            id="menu/start_over" />
+        <MenuItem
+            icon="@res/icon/ico-checkmark-grey.svg"
             title="@i18n/main/media/mark_played"
             id="menu/mark/play" />
+        <MenuItem
+            icon="@res/icon/ico-trash.svg"
+            title="@i18n/main/resume/remove"
+            visibility="gone"
+            id="menu/remove_resume" />
         <!-- movies/shows with a plex:// guid only; revealed once the
              watchlist state is known (async provider request, context_menu.cpp) -->
         <MenuItem

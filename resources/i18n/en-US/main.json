@@ -40,6 +40,13 @@
     "empty": "Changelog unavailable"
   },
   "player": {
+    "next_source": "That source didn't play, trying the next one",
+    "opening": {
+      "loading": "Loading",
+      "server": "Opening on your streaming server",
+      "server_loading": "Loading from your streaming server",
+      "next": "Trying the next source"
+    },
     "subtitle": "Subtitle",
     "none": "None",
     "audio": "Audio track",
@@ -95,6 +102,7 @@
     "seasons_title": "Seasons",
     "go_series": "Go to show",
     "go_season": "Go to season",
+    "choose_source": "Choose source",
     "director": "Director"
   },
   "search": {
@@ -258,6 +266,7 @@
     "playback": {
       "header": "Playback",
       "low_quality": "Low quality decoding (with less CPU usage)",
+      "light_hevc": "Light HEVC decoding (less CPU on PS4)",
       "in_memory_cache": "Inmemory cache",
       "subs_fallback": "Autoload subtitles",
       "subtitle_lang": {
@@ -344,8 +353,9 @@
       "font_a3": "Put any ttf file at {}/subfont.ttf"
     },
     "libraries": {
-      "header": "Libraries",
-      "description": "Reorder and hide the sidebar tabs (libraries, playlists, Watchlist). This setting is saved per server.",
+      "header": "Sidebar",
+      "description": "Reorder and hide the sidebar tabs. Home and the profile stay in place. This setting is saved per server.",
+      "offline": "Offline, only downloaded libraries are listed; the others keep their place.",
       "grab": "Move",
       "drop": "Drop",
       "toggle": "Show / Hide",
@@ -386,6 +396,9 @@
       "downloading": "Downloading {}… {}%",
       "installing": "Installing the update…",
       "updated": "Update installed. The application will now close: launch it again to use the new version",
+      "ps4_install": "{} is downloaded. GMCA will close so the PS4 can install it over this version (your settings and library are kept). Open GMCA again once the PS4 says the update is installed.",
+      "ps4_update_failed": "The update didn't install: {}\nThis version still works.",
+      "ps4_update_kept": "The downloaded package is kept at {} if you want to install it by hand.",
       "release": "Check for updates",
       "changelog": "Changelog"
     }
@@ -426,6 +439,7 @@
     "choose_type": "Choose your connection type",
     "switch_title": "Connections",
     "add": "Add",
+    "dns_unresolved": "Can't resolve \"{}\". On Switch/Vita, use your server’s IPv4 address (e.g. http://192.168.1.50:8096) — .local (mDNS) and IPv6-only names aren’t supported.",
     "jellyfin": {
       "title_jellyfin": "Sign in to Jellyfin",
       "title_emby": "Sign in to Emby",
@@ -490,5 +504,66 @@
       "torrents_help": "These sources are raw torrents. This platform has no torrent client: install a debrid-enabled addon (Torrentio + Real-Debrid, Comet, MediaFusion…) in your Stremio account to get playable links.",
       "links_help": "These sources are external links (browser or third-party service) that cannot be played directly in the app on this platform."
     }
+  },
+  "torrent": {
+    "setting": {
+      "header": "Torrents",
+      "streaming": "Torrent streaming",
+      "upload_limit": "Upload limit",
+      "incoming": "Allow incoming connections (UPnP)",
+      "server": "Streaming server",
+      "server_hint": "A Stremio streaming server, such as http://192.168.1.10:11470",
+      "server_none": "Off (this PS4)"
+    },
+    "server": {
+      "fallback": "Streaming server not reachable, playing on this PS4",
+      "fallback_download": "Streaming server not reachable, downloading on this PS4",
+      "answered": "The streaming server answered",
+      "silent": "The streaming server didn't answer. Torrents play on this PS4 until it does.",
+      "invalid": "That isn't a server address. Example: http://192.168.1.10:11470",
+      "open_failed": "The streaming server couldn't start this torrent ({})",
+      "ended": "The streaming server stopped sending this video"
+    },
+    "loading": {
+      "finding_peers": "Finding peers",
+      "getting_info": "Getting torrent info",
+      "buffering": "Buffering {}%",
+      "peers": "{} peers"
+    },
+    "source": {
+      "seeders": "{} seeders",
+      "unavailable": "{} torrent source(s) can't be played right now"
+    },
+    "error": {
+      "no_peers": "No peers found for this source, try another one",
+      "no_space": "Not enough storage space",
+      "unplayable": "This source can't be played",
+      "off": "Torrent streaming is off. Turn it on in Settings.",
+      "start": "Torrent streaming couldn't start: port 11470 is in use."
+    }
+  },
+  "sources": {
+    "finding": "Finding streams...",
+    "none_found": "No streams found",
+    "ps4_note": "May not play on PS4",
+    "show_all": "Show all",
+    "may_buffer": "May buffer"
+  },
+  "audio_lang": {
+    "header": "Audio language",
+    "auto": "Automatic (app language)",
+    "file": "File default"
+  },
+  "resume": {
+    "min_left": "{} min left",
+    "hours_left": "{} h {} min left",
+    "just_now": "Just now",
+    "min_ago": "{} min ago",
+    "hours_ago": "{} h ago",
+    "yesterday": "Yesterday",
+    "days_ago": "{} days ago",
+    "up_next": "Up next",
+    "start_over": "Start over",
+    "remove": "Remove from list"
   }
 }

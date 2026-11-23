@@ -35,11 +35,16 @@
 #include <nlohmann/json.hpp>
 #include <algorithm>
 #include <cctype>
+#include <cstdint>
 #include <set>
 #include <string>
 #include <vector>
 #include "api/http.hpp"
 #include "api/media/types.hpp"
+#include "api/stremio/source_order.hpp"
+#ifdef USE_TORRENT
+#include <torrent/stremio_source.hpp>
+#endif
 
 namespace stremio {
 
@@ -479,6 +484,10 @@ struct StreamOption {
     std::string externalUrl;  // open in browser / external app
     std::string infoHash;     // torrent
     int fileIdx = -1;         // torrent file index
+#ifdef USE_TORRENT
+    std::vector<std::string> sources;  // torrent peer hints: "tracker:<url>", "dht:<info hash>"
+    std::string filename;              // behaviorHints.filename: the torrent file's name
+#endif
     bool notWebReady = false;
     std::string bingeGroup;
 };
@@ -495,11 +504,21 @@ inline std::vector<StreamOption> parseStreams(const nlohmann::json& j) {
         so.ytId = jstr(s, "ytId");
         so.externalUrl = jstr(s, "externalUrl");
         so.infoHash = jstr(s, "infoHash");
-        so.fileIdx = (int)jint(s, "fileIdx", -1);
+        {
+            // out of range saturates (the torrent row then stays grey), never wraps into a valid index
+            int64_t idx = jint(s, "fileIdx", -1);
+            so.fileIdx = idx > INT32_MAX ? INT32_MAX : idx < -1 ? -1 : (int)idx;
+        }
+#ifdef USE_TORRENT
+        so.sources = stringArray(s, "sources");
+#endif
         auto bh = s.find("behaviorHints");
         if (bh != s.end() && bh->is_object()) {
             so.notWebReady = jbool(*bh, "notWebReady");
             so.bingeGroup = jstr(*bh, "bingeGroup");
+#ifdef USE_TORRENT
+            so.filename = jstr(*bh, "filename");
+#endif
         }
         out.push_back(std::move(so));
     }
@@ -608,22 +627,6 @@ inline std::string parseSizeLabel(const std::string& text) {
     return num + " " + unit;
 }
 
-/// Normalized video codec ("HEVC"/"AV1"/"H.264"/"XviD") from name+title; empty
-/// if none. H.264 is tested before XviD: "MPEG-4 AVC" names hit "avc" first.
-inline std::string parseCodecLabel(const std::string& text) {
-    std::string t = text;
-    for (auto& c : t) c = (char)std::tolower((unsigned char)c);
-    if (t.find("x265") != std::string::npos || t.find("h265") != std::string::npos ||
-        t.find("h.265") != std::string::npos || t.find("hevc") != std::string::npos)
-        return "HEVC";
-    if (t.find("av1") != std::string::npos) return "AV1";
-    if (t.find("x264") != std::string::npos || t.find("h264") != std::string::npos ||
-        t.find("h.264") != std::string::npos || t.find("avc") != std::string::npos)
-        return "H.264";
-    if (t.find("xvid") != std::string::npos || t.find("divx") != std::string::npos) return "XviD";
-    return "";
-}
-
 /// Normalized audio codec from name+title; empty if none. Ordered so the
 /// Dolby Digital Plus spellings match before plain AC3 ("eac3" contains "ac3").
 inline std::string parseAudioLabel(const std::string& text) {
@@ -673,11 +676,21 @@ inline bool detectDebrid(const std::string& name, bool& cached) {
 
 /// Map one Stremio stream to a neutral source row. `addonName` (manifest name)
 /// is the reliable provenance label (the addon brand inside `name` is not always
-/// present). Only `url` streams are playable here; infoHash/ytId/externalUrl are
-/// classified as non-playable (no torrent engine / no browser on console).
-inline media::Media streamToMedia(const StreamOption& s, const std::string& addonName) {
+/// present). `url` streams are playable. An infoHash stream is playable when the build
+/// has the torrent engine and it can serve right now (`torrentsPlayable`): its part key is
+/// then the local server's URL for it. ytId/externalUrl are never playable here.
+inline media::Media streamToMedia(const StreamOption& s, const std::string& addonName, bool torrentsPlayable = false) {
+#ifndef USE_TORRENT
+    (void)torrentsPlayable;
+#endif
     media::Media m;
     std::string blob = s.name + " " + s.title;
+    // codec and 10-bit also read the torrent file's name: addons often print "x265 10bit" only there
+#ifdef USE_TORRENT
+    const std::string codecText = blob + " " + s.filename;
+#else
+    const std::string& codecText = blob;
+#endif
     m.videoResolution = qualityLabel(blob);
     m.label = addonName;
 
@@ -693,15 +706,37 @@ inline media::Media streamToMedia(const StreamOption& s, const std::string& addo
         m.parts.push_back(std::move(p));
         // structured fields, not just display: the PSV stream filter/sort in
         // resolveAllStreams reads them (codecRankVita / audioRankVita)
-        m.videoCodec = parseCodecLabel(blob);
+        m.videoCodec = parseCodecLabel(codecText);
         m.audioCodec = parseAudioLabel(blob);
+        m.tenBit = parseTenBit(codecText);
         std::string size = parseSizeLabel(s.title.empty() ? s.name : s.title);
+        m.sizeBytes = parseSizeBytes(size);
         std::string detail;
         if (!m.videoCodec.empty()) detail = m.videoCodec;
         if (!size.empty()) detail += (detail.empty() ? "" : "  ·  ") + size;
         m.detail = detail;
     } else if (!s.infoHash.empty()) {
         m.kind = media::SourceKind::Torrent;
+#ifdef USE_TORRENT
+        // the same codec, size and seeders a link's row shows
+        m.videoCodec = parseCodecLabel(codecText);
+        m.audioCodec = parseAudioLabel(blob);
+        m.tenBit = parseTenBit(codecText);
+        std::string size = parseSizeLabel(s.title.empty() ? s.name : s.title);
+        m.sizeBytes = parseSizeBytes(size);
+        std::string detail = m.videoCodec;
+        if (!size.empty()) detail += (detail.empty() ? "" : "  ·  ") + size;
+        m.detail = detail;
+        m.seeders = torrent::parseSeeders(blob);
+        std::string url = torrentsPlayable ? torrent::localStreamUrl(s.infoHash, s.fileIdx, s.sources, s.filename) : "";
+        if (!url.empty()) {
+            media::Part p;
+            p.key = url;
+            p.accessible = true;
+            p.exists = true;
+            m.parts.push_back(std::move(p));
+        }
+#endif
     } else if (!s.ytId.empty()) {
         m.kind = media::SourceKind::Youtube;
     } else {

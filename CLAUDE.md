@@ -35,11 +35,13 @@ Console builds (Switch, Vita, PS4) run in CI, see `.github/workflows/build.yaml`
 ## Visual check
 
 - Harness: `scripts/ui-audit/ctl.py` with its `scenarios/`.
+- Switch and Vita CI artifacts: `scripts/emu/ctl.py` runs them in Eden and Vita3K, in the
+  background; its `README.md` lists what an emulator does not catch.
 - Test servers: `plenx-media-servers/docker-compose.yml` (untracked), Jellyfin on
   `localhost:8096`, Emby on `localhost:8097`, media read-only from `~/Downloads`. Start with
   `docker compose -f plenx-media-servers/docker-compose.yml up -d` and stop it with `down` when done.
-- Plex, the consoles and Stremio accounts are not reachable from a session: that part of a
-  check is Thomas's, or the issue reporter's.
+- Plex, the real consoles and Stremio accounts are not reachable from a session: that part of
+  a check is Thomas's, or the issue reporter's.
 
 ## Where the tracking lives
 

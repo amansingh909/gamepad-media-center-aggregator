@@ -4,6 +4,7 @@
 
 #pragma once
 
+#include <cstdint>
 #include <string>
 #include <vector>
 #include <unordered_map>
@@ -11,6 +12,7 @@
 #include <atomic>
 #include <fstream>
 #include <sstream>
+#include <stdexcept>
 #include <curl/system.h>
 
 #include <borealis/core/event.hpp>
@@ -29,6 +31,13 @@ public:
     struct Range {
         int start = 0;
         int end = 0;
+    };
+
+    /// Continue a download from byte `offset` (curl's resume: "Range: bytes=<offset>-"); 0 for
+    /// the whole file. A server that answers with the whole file instead fails the transfer with
+    /// ErrorKind::RangeRefused rather than have it appended to the bytes already written.
+    struct ResumeFrom {
+        int64_t offset = 0;
     };
 
     struct Timeout {
@@ -50,6 +59,18 @@ public:
     };
 
     using Cookies = std::vector<Cookie>;
+
+    enum class ErrorKind {
+        Other,
+        ResolveFailed,  // the server host did not resolve, a proxy that did not is Other
+        RangeRefused,   // ResumeFrom: the server sent the whole file, not the rest
+    };
+
+    class Error : public std::runtime_error {
+    public:
+        Error(ErrorKind kind, const std::string& message) : std::runtime_error(message), kind(kind) {}
+        ErrorKind kind;
+    };
 
     HTTP();
     HTTP(const HTTP& other) = delete;
@@ -124,6 +145,7 @@ private:
     void add_header(const std::string& header);
     void set_option(const Header& hs);
     void set_option(const Range& r);
+    void set_option(const ResumeFrom& r);
     void set_option(const Timeout& t);
     void set_option(const Cancel& c);
     void set_option(const Cookies& cookies);

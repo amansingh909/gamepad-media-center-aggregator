@@ -29,14 +29,24 @@ struct LangRow {
 const std::vector<LangRow>& rows() {
     static const std::vector<LangRow> table = {
         {"en", "English", {"eng"}},
-        {"es", "Español", {"spa", "spl", "spn", "spanish", "es-419"}},
-        {"fr", "Français", {"fre", "fra", "fr-ca", "french"}},
+        // A regional variant the addons list apart is its own row, next to its language, so a
+        // subtitle list keeps one track of each (OpenSubtitles: "spn" Spanish (EU), "spl"
+        // Spanish (LA), "pob" Portuguese (BR), "zht" Chinese (traditional), "zhe" Chinese
+        // bilingual, by its export_languages.php).
+        {"es", "Español", {"spa", "spanish"}},
+        {"es-ES", "Español (España)", {"spn", "es-es"}},
+        {"es-419", "Español (Latinoamérica)", {"spl", "es-la", "es-mx"}},
+        {"fr", "Français", {"fre", "fra", "french"}},
+        {"fr-CA", "Français (Canada)", {"fr-ca"}},
         {"de", "Deutsch", {"ger", "deu", "german"}},
         {"it", "Italiano", {"ita", "italian"}},
-        {"pt", "Português", {"por", "pob", "pt-br", "pt-pt", "portuguese"}},
+        {"pt", "Português", {"por", "pt-pt", "portuguese"}},
+        {"pt-BR", "Português (Brasil)", {"pob", "pt-br", "ptbr"}},
         {"ru", "Русский", {"rus", "russian"}},
         {"ar", "العربية", {"ara", "arabic"}},
-        {"zh", "中文", {"chi", "zho", "zht", "zhe", "cn", "chinese"}},
+        {"zh", "中文", {"chi", "zho", "cn", "chinese", "zh-cn", "zh-hans"}},
+        {"zh-Hant", "中文 (繁體)", {"zht", "zh-tw", "zh-hk", "zh-hant"}},
+        {"zh-x-bilingual", "中文 (双语)", {"zhe"}},
         {"ja", "日本語", {"jpn", "japanese"}},
         {"ko", "한국어", {"kor", "korean"}},
         {"nl", "Nederlands", {"dut", "nld", "dutch"}},
@@ -44,7 +54,8 @@ const std::vector<LangRow>& rows() {
         {"tr", "Türkçe", {"tur", "turkish"}},
         {"sv", "Svenska", {"swe", "swedish"}},
         {"da", "Dansk", {"dan", "danish"}},
-        {"no", "Norsk", {"nor", "nob", "nno", "norwegian"}},
+        {"no", "Norsk", {"nor", "nob", "nb", "norwegian"}},
+        {"nn", "Norsk (nynorsk)", {"nno"}},
         {"fi", "Suomi", {"fin", "finnish"}},
         {"cs", "Čeština", {"cze", "ces", "czech"}},
         {"el", "Ελληνικά", {"gre", "ell", "greek"}},
@@ -129,6 +140,55 @@ const std::vector<LangOption>& subtitleLangCatalog() {
         return c;
     }();
     return cat;
+}
+
+std::string audioLangList(const std::string& setting, const std::string& appLocale) {
+    if (setting == "file") return "";
+    // "auto": the app language's variant when the catalog has it ("zh-Hant"), else its language
+    const size_t i = lookup(setting == "auto" ? appLocale : setting);
+    if (i == std::string::npos) return "";
+    std::string out;
+    auto add = [&out](const std::string& c) {
+        if (("," + out + ",").find("," + c + ",") == std::string::npos) out += (out.empty() ? "" : ",") + c;
+    };
+    auto addThreeLetter = [&add](const LangRow& r) {
+        for (const char* a : r.aliases) {
+            const std::string alias = a;
+            if (alias.size() == 3 &&
+                std::all_of(alias.begin(), alias.end(), [](unsigned char c) { return std::isalpha(c) != 0; }))
+                add(alias);
+        }
+    };
+    const LangRow& r = rows()[i];
+    const std::string base = std::string(r.code).substr(0, std::string(r.code).find('-'));
+    // a regional variant ("pt-BR") first, then any track in its language
+    if (base != r.code) {
+        add(r.code);
+        addThreeLetter(r);
+    }
+    const size_t b = lookup(base);
+    if (b == std::string::npos) return out;
+    add(rows()[b].code);
+    addThreeLetter(rows()[b]);
+    // and the language's variants' own codes, which files use for it too
+    for (const auto& v : rows())
+        if (std::string(v.code).rfind(base + "-", 0) == 0) addThreeLetter(v);
+    return out;
+}
+
+size_t preferredSubtitle(const std::vector<std::string>& tags, const std::string& pref) {
+    if (pref.empty()) return std::string::npos;
+    auto lower = [](std::string s) {
+        for (auto& c : s) c = (char)std::tolower((unsigned char)c);
+        return s;
+    };
+    auto language = [](const std::string& s) { return s.substr(0, s.find('-')); };
+    const std::string p = lower(pref);
+    for (size_t i = 0; i < tags.size(); ++i)
+        if (!tags[i].empty() && lower(tags[i]) == p) return i;
+    for (size_t i = 0; i < tags.size(); ++i)
+        if (!tags[i].empty() && language(lower(tags[i])) == language(p)) return i;
+    return std::string::npos;
 }
 
 }  // namespace media

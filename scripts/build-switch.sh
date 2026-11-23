@@ -15,7 +15,7 @@ cd "$(dirname "$0")/.."
 
 DRIVER="${DRIVER:-deko3d}"
 IMAGE="devkitpro/devkita64:20260219"
-BASE_URL="https://github.com/dragonflylee/switchfin/releases/download/switch-portlibs"
+BASE_URL="https://github.com/thcolin/gamepad-media-center-aggregator/releases/download/ci-deps"
 BUILD_DIR="build_switch_${DRIVER}"
 
 CMAKE_EXTRA=""
@@ -45,8 +45,8 @@ docker run --rm --platform linux/amd64 \
         dkp-pacman --noconfirm -U $BASE_URL/libuam-master-1-any.pkg.tar.zst
     fi
     dkp-pacman --noconfirm -U $BASE_URL/hacBrewPack-3.05-1-x86_64.pkg.tar.zst
-    for pkg in switch-mbedtls-3.6.5-1-any switch-libssh2-1.11.1-1-any switch-dav1d-1.5.3-1-any \
-               switch-curl-8.16.0-2-any switch-ffmpeg-7.1.5-5-any switch-nspmini-main-1-any; do
+    for pkg in switch-mbedtls-3.6.7-1-any switch-libssh2-1.11.1-1-any switch-dav1d-1.5.4-1-any \
+               switch-curl-8.16.0-3-any switch-ffmpeg-7.1.5-5-any switch-nspmini-main-1-any; do
         dkp-pacman --noconfirm -U $BASE_URL/\${pkg}.pkg.tar.zst
     done
     dkp-pacman --noconfirm -U $BASE_URL/$LIBMPV_PKG
