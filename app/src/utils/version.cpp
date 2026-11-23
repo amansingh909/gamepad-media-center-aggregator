@@ -471,6 +471,15 @@ static brls::Dialog* makeUpdateDialog(const std::string& title, const std::strin
     return new brls::Dialog(box);
 }
 
+// Opens it with the focus on the notes when there are some: a dialog starts on its first button
+// (Cancel here), and the notes only scroll while they have the focus. Down scrolls them, then
+// moves on to the buttons at their end; Up from the buttons comes back to them.
+static void openUpdateDialog(brls::Dialog* dialog) {
+    brls::View* notes = dialog->getView("update/scroll");
+    if (notes && notes->getVisibility() == brls::Visibility::VISIBLE) dialog->setLastFocusedView(notes);
+    dialog->open();
+}
+
 void AppVersion::checkUpdate(int delay, bool showUpToDateDialog) {
     if (!AppVersion::updating->load()) {
         Dialog::cancelable("main/setting/others/updating"_i18n, [] { AppVersion::updating->store(true); });
@@ -530,7 +539,7 @@ void AppVersion::checkUpdate(int delay, bool showUpToDateDialog) {
                 });
                 dialog->addButton("hints/ok"_i18n,
                     [latest_ver, asset_url, asset_size]() { startUpdate(latest_ver, asset_url, asset_size); });
-                dialog->open();
+                openUpdateDialog(dialog);
             });
 #else
             brls::sync([latest_ver, release_body]() {
@@ -542,7 +551,7 @@ void AppVersion::checkUpdate(int delay, bool showUpToDateDialog) {
                 });
                 std::string url = fmt::format("https://github.com/{}/releases/tag/{}", git_repo, latest_ver);
                 dialog->addButton("hints/ok"_i18n, [url] { brls::Application::getPlatform()->openBrowser(url); });
-                dialog->open();
+                openUpdateDialog(dialog);
             });
 #endif
         } catch (const std::exception& ex) {
