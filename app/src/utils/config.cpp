@@ -126,6 +126,7 @@ std::unordered_map<AppConfig::Item, AppConfig::Option> AppConfig::settingMap = {
     {TORRENT_SERVER, {"torrent_server"}},
 
     {LIBRARY_SORT, {"library_sort"}},
+    {STREMIO_LAST_SOURCES, {"stremio_last_sources"}},
     {SIDEBAR_LAYOUT, {"sidebar_layout"}},
 
     {HINT_FORWARDER, {"hint_forwarder"}},

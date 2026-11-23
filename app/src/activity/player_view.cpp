@@ -16,6 +16,7 @@
 #include "utils/dialog.hpp"
 #include "utils/misc.hpp"
 #include "utils/playback_end.hpp"
+#include "utils/source_memory.hpp"
 #include "view/mpv_core.hpp"
 #include "view/player_setting.hpp"
 #include "view/video_view.hpp"
@@ -36,8 +37,18 @@ using namespace brls::literals;
 /// LibraryVideoPlayedThreshold
 static const double SCROBBLE_THRESHOLD = 0.90;
 
-PlayerView::PlayerView(const plex::Item& item, const int64_t seekMs, int versionIndex)
-    : itemId(item.ratingKey), item(item), preferredVersion(versionIndex) {
+// What identifies a source from one fetch of the addons to the next (utils/source_memory.hpp).
+static std::string sourceKeyOf(const plex::Media& m) {
+    if (m.parts.empty()) return "";
+#ifdef USE_TORRENT
+    return source_memory::sourceKey(m.parts.front().key, torrent::localStreamBase);
+#else
+    return source_memory::sourceKey(m.parts.front().key, "");
+#endif
+}
+
+PlayerView::PlayerView(const plex::Item& item, const int64_t seekMs, int versionIndex, bool autoPicked)
+    : itemId(item.ratingKey), item(item), preferredVersion(versionIndex), autoSource(autoPicked) {
     // take sole ownership of MPVCore: if music was playing, the audio controller
     // must stop owning the shared event bus (else it reports this video's
     // progress against the audio track and auto-advances over it). SPEC.md §11.
@@ -72,6 +83,7 @@ PlayerView::PlayerView(const plex::Item& item, const int64_t seekMs, int version
     // dialog (Vita hardware decode can reject a transcoded stream, a server
     // can refuse the raw part)
     view->registerError([this](...) {
+        if (this->tryNextSource()) return true;
 #ifdef USE_TORRENT
         if (this->explainTorrentError()) return true;
 #endif
@@ -135,6 +147,10 @@ PlayerView::PlayerView(const plex::Item& item, const int64_t seekMs, int version
             break;
         case MpvEventEnum::LOADING_END:
             this->reportTimeline("playing", int64_t(mpv.playback_time) * 1000);
+            if (!this->sourceStarted) {
+                this->sourceStarted = true;
+                this->rememberSource();
+            }
 #ifdef USE_TORRENT
             // mpv has data (before it had the URL, its events were the previous file's)
             if (this->warmupReady) this->endTorrentLoading();
@@ -322,6 +338,10 @@ void PlayerView::playMedia(const int64_t seekMs) {
         if (this->preferredVersion >= 0 && this->preferredVersion < (int)this->item.media.size() &&
             accessible(this->item.media[this->preferredVersion])) {
             this->stream = this->item.media[this->preferredVersion];
+            this->currentSource = this->preferredVersion;
+            this->triedSources = {this->currentSource};
+            this->sourceStarted = false;
+            this->autoSeekMs = seekMs;
             this->setChapters(this->item.chapters, this->item.duration);
             this->resumeSaved = false;  // the caller chose the source, and the position with it
             this->startPlayback(seekMs);
@@ -349,6 +369,23 @@ void PlayerView::playMedia(const int64_t seekMs) {
                 accessible(this->item.media[this->preferredVersion])) {
                 chosen = &this->item.media[this->preferredVersion];
             }
+            // the player picks: a Stremio title's last source first, when it's still offered
+            // (utils/source_memory.hpp), and a source that fails gives way to the next one
+            const bool stremio = AppConfig::instance().backend().type() == media::BackendType::Stremio;
+            if (this->preferredVersion < 0 && stremio) {
+                this->autoSource = true;
+                const std::string last = source_memory::recall(
+                    AppConfig::instance().getItem(AppConfig::STREMIO_LAST_SOURCES, nlohmann::json::array()),
+                    this->itemId);
+                std::vector<std::string> keys;
+                for (auto& m : this->item.media)
+                    keys.push_back(accessible(m) ? sourceKeyOf(m) : std::string());
+                const int i = source_memory::indexOf(keys, last);
+                if (i >= 0) {
+                    chosen = &this->item.media[i];
+                    brls::Logger::info("PlayerView: {} plays its last source again", this->itemId);
+                }
+            }
             for (auto& m : this->item.media) {
                 if (chosen) break;
                 if (accessible(m)) chosen = &m;
@@ -358,12 +395,16 @@ void PlayerView::playMedia(const int64_t seekMs) {
                 return;
             }
             this->stream = *chosen;
+            this->currentSource = int(chosen - this->item.media.data());
+            this->triedSources = {this->currentSource};
+            this->sourceStarted = false;
             this->setChapters(this->item.chapters, this->item.duration);
             // the first load of a Stremio title opened with no position: where the library says
             // it stopped (the detail's viewOffset: 0 when finished, another episode's, or none)
             int64_t start = seekMs;
             if (this->resumeSaved && seekMs <= 0) start = this->item.viewOffset;
             this->resumeSaved = false;
+            this->autoSeekMs = start;
             this->startPlayback(start);
         },
         [ASYNC_TOKEN](const std::string& ex) {
@@ -429,6 +470,7 @@ void PlayerView::startPlayback(const int64_t seekMs, bool forceDirect, int64_t f
                 // (e.g. Stremio with no direct/debrid stream) instead of throwing
                 // across the async/TU boundary; surface it as a player error.
                 if (src.url.empty()) {
+                    if (this->tryNextSource()) return;
                     Dialog::show("main/player/error"_i18n, []() { VideoView::close(); });
                     return;
                 }
@@ -444,6 +486,7 @@ void PlayerView::startPlayback(const int64_t seekMs, bool forceDirect, int64_t f
             std::string msg = ex.what();
             brls::sync([ASYNC_TOKEN, msg]() {
                 ASYNC_RELEASE
+                if (this->tryNextSource()) return;
                 Dialog::show(msg, []() { VideoView::close(); });
             });
         }
@@ -516,6 +559,41 @@ void PlayerView::addExternalSubtitles() {
         const char* flag = i == chosen ? "select" : "auto";
         mpv.command("sub-add", url.c_str(), flag, s.displayTitle.c_str(), s.languageTag.c_str());
     }
+}
+
+bool PlayerView::tryNextSource() {
+    if (!this->autoSource || this->sourceStarted || this->currentSource < 0) return false;
+    if (AppConfig::instance().backend().type() != media::BackendType::Stremio) return false;
+    if (this->triedSources.size() >= autoSourceTries) return false;
+    int next = -1;
+    for (int i = 0; i < (int)this->item.media.size() && next < 0; ++i) {
+        if (std::find(this->triedSources.begin(), this->triedSources.end(), i) != this->triedSources.end()) continue;
+        for (auto& p : this->item.media[i].parts)
+            if (p.accessible && p.exists && !p.key.empty()) next = i;
+    }
+    if (next < 0) return false;
+    brls::Logger::warning("PlayerView: source {} of {} didn't play, trying source {}", this->currentSource,
+        this->itemId, next);
+#ifdef USE_TORRENT
+    this->endTorrentLoading();
+#endif
+    MPVCore::instance().reset();  // what the failed source held goes, as in the fallbacks below
+    this->triedSources.push_back(next);
+    this->currentSource = next;
+    this->stream = this->item.media[next];
+    brls::Application::notify("main/player/next_source"_i18n);
+    this->startPlayback(this->autoSeekMs);
+    return true;
+}
+
+void PlayerView::rememberSource() {
+    if (AppConfig::instance().backend().type() != media::BackendType::Stremio) return;
+    const std::string key = sourceKeyOf(this->stream);
+    if (key.empty()) return;
+    auto& conf = AppConfig::instance();
+    conf.setItem(AppConfig::STREMIO_LAST_SOURCES,
+        source_memory::remember(
+            conf.getItem(AppConfig::STREMIO_LAST_SOURCES, nlohmann::json::array()), this->itemId, key));
 }
 
 bool PlayerView::tryDirectPlayFallback() {
@@ -718,6 +796,7 @@ bool PlayerView::warmUpTorrent(const int64_t seekMs, bool forceDirect, int64_t f
                         // it answers but can't start this torrent: no quiet fallback to this
                         // device, which would bypass the server the user chose
                         brls::Logger::error("PlayerView: streaming server: {}", why);
+                        if (this->tryNextSource()) return;
                         Dialog::show(brls::getStr("main/torrent/server/open_failed", why), []() { VideoView::close(); });
                         return;
                     } else {
@@ -737,6 +816,7 @@ bool PlayerView::warmUpTorrent(const int64_t seekMs, bool forceDirect, int64_t f
     this->warmupUrl = url;
     if (!service || service->availability() != torrent::Availability::Ready) {
         auto a = service ? service->availability() : torrent::Availability::Stopped;
+        if (this->tryNextSource()) return true;  // torrents off or not started: a link may play
         Dialog::show(brls::getStr(torrent::availabilityKey(a)), []() { VideoView::close(); });
         return true;
     }
@@ -776,9 +856,11 @@ bool PlayerView::warmUpTorrent(const int64_t seekMs, bool forceDirect, int64_t f
                     auto* s = torrent::TorrentService::current();
                     auto a = s ? s->availability() : torrent::Availability::Stopped;
                     if (a == torrent::Availability::Stopped) return;
+                    if (this->tryNextSource()) return;
                     Dialog::show(brls::getStr(torrent::availabilityKey(a)), []() { VideoView::close(); });
                     return;
                 }
+                if (this->tryNextSource()) return;  // no peers, no space...: the next source
                 Dialog::show(brls::getStr(torrent::errorKey(status)), []() { VideoView::close(); });
             });
         });

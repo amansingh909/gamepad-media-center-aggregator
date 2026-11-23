@@ -143,6 +143,10 @@ public:
         /// exist in Plex, cf. PLEX_MIGRATION.md §2.5)
         LIBRARY_SORT,
 
+        /// The source each Stremio title last played from, persisted locally
+        /// (utils/source_memory.hpp)
+        STREMIO_LAST_SOURCES,
+
         /// Per-server sidebar layout: order + hidden state of the reorderable
         /// tabs (libraries + Playlists + Watchlist), keyed by the active server
         /// id (getUser().server_id). Section keys collide across servers, so

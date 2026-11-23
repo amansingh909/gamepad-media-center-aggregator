@@ -40,6 +40,7 @@
     "empty": "Changelog unavailable"
   },
   "player": {
+    "next_source": "That source didn't play, trying the next one",
     "subtitle": "Subtitle",
     "none": "None",
     "audio": "Audio track",

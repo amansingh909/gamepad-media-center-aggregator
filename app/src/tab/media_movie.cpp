@@ -181,7 +181,7 @@ MediaMovie::MediaMovie(const plex::Item& item, bool localContext)
         // Enabled: play the selected version. Muted (Stremio, no playable source):
         // explain why instead of launching a player that would just fail.
         if (this->hasPlayableSource) {
-            this->playSource(this->selectedVersion);
+            this->playSource(this->selectedVersion, true);
         } else {
             Dialog::show("main/stremio/source/none"_i18n);
         }
@@ -376,7 +376,7 @@ void MediaMovie::doMovie() {
         });
 }
 
-void MediaMovie::playSource(int mediaIndex) {
+void MediaMovie::playSource(int mediaIndex, bool autoPicked) {
 #ifdef USE_TORRENT
     // back on this row after the player closes, it prefetches again, which keeps the torrent
     // in the engine for a replay instead of dropping it 30 s after the player went
@@ -385,7 +385,7 @@ void MediaMovie::playSource(int mediaIndex) {
         this->prefetchGate.forget(this->movieItem.media[mediaIndex].parts.front().key);
 #endif
     // mediaIndex -1 = best (first accessible); otherwise the chosen source row.
-    PlayerView* view = new PlayerView(this->movieItem, this->viewOffsetMs, mediaIndex);
+    PlayerView* view = new PlayerView(this->movieItem, this->viewOffsetMs, mediaIndex, autoPicked);
     if (this->movieItem.type == media::mediaTypeEpisode) {
         // an episode chosen from its source list: titled and wired to its show like a season's
         const media::Item& e = this->movieItem;

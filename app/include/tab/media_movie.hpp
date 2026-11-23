@@ -67,7 +67,9 @@ private:
     /// buildSources() replaces it.
     void showFindingStreams();
     /// Opens the player on a specific source row (item.media[mediaIndex]).
-    void playSource(int mediaIndex);
+    /// `autoPicked`: the Play button picked it, not the user from the list: a source that fails
+    /// before its video starts then gives way to the next one (PlayerView's `autoPicked`).
+    void playSource(int mediaIndex, bool autoPicked = false);
     /// Queues a download of a specific source row (Stremio: X on a release line).
     void downloadSource(int mediaIndex);
     /// reveals the personal-list button (watchlist/favorite) once its state is known

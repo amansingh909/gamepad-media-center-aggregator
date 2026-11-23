@@ -25,7 +25,10 @@ public:
     /// versionIndex selects which item.media[] source to play (default -1 = the
     /// first accessible version, i.e. unchanged Plex/Jellyfin behavior). The
     /// Stremio source picker passes an explicit index to honor the user's choice.
-    PlayerView(const plex::Item& item, const int64_t seekMs = 0, int versionIndex = -1);
+    /// `autoPicked`: the caller picked that index for the user (the Play button), so a source
+    /// that fails before its video starts gives way to the next one (tryNextSource()); the
+    /// player's own picks (no versionIndex: Continue Watching, the next episode) are such picks.
+    PlayerView(const plex::Item& item, const int64_t seekMs = 0, int versionIndex = -1, bool autoPicked = false);
     ~PlayerView();
 
     /// As `seekMs`: play from the start, whatever position the item or the server has.
@@ -120,6 +123,22 @@ private:
     /// caller-chosen source index (Stremio picker); -1 = first accessible.
     /// Reset to -1 on episode switch so binge auto-picks the best source.
     int preferredVersion = -1;
+    /// Stremio: the source was picked for the user (`autoPicked`, or by the player itself),
+    /// so one that fails before its video starts gives way to the next playable one, in the
+    /// sources' order, at most autoSourceTries in all (tryNextSource()). `currentSource` is its
+    /// index in item.media, `triedSources` those tried for this title, `sourceStarted` that its
+    /// video started (a failure from then on is the stream's own), `autoSeekMs` where it plays from.
+    bool autoSource = false;
+    int currentSource = -1;
+    std::vector<int> triedSources;
+    bool sourceStarted = false;
+    int64_t autoSeekMs = 0;
+    static constexpr size_t autoSourceTries = 3;
+    /// Plays the next source after one that failed, with a notification; false when it's not
+    /// for this player to do (a source the user picked, one that had started, the tries spent).
+    bool tryNextSource();
+    /// The source that just started playing, remembered for the title (utils/source_memory.hpp).
+    void rememberSource();
     bool scrobbled = false;
     /// guards tryDirectPlayFallback so a failing stream falls back at most once
     /// per (re)load; reset by playMedia on every deliberate (re)start. Each
