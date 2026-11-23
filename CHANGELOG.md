@@ -9,6 +9,17 @@ prepared with [git-cliff](https://git-cliff.org/) from conventional commits
 hand. For the history of the upstream project this fork is based on, see the
 [Switchfin changelog](https://github.com/dragonflylee/switchfin/blob/dev/CHANGELOG.md).
 
+## [1.4.10] - 2026-11-23
+
+### Added
+
+- Continue Watching and the Play button start a Stremio movie or episode
+  from the source it last played from, when the addons still offer it.
+- When GMCA picks the source for you (Continue Watching, the Play button,
+  the next episode) and it fails before the video starts, GMCA tries the
+  next source by itself, up to three, instead of stopping on an error. A
+  source you pick from the list still shows its own error.
+
 ## [1.4.9] - 2026-11-23
 
 ### Added
