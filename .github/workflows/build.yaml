@@ -41,7 +41,10 @@ env:
 
 jobs:
   upload-release:
-    needs: [ build-mingw, build-nx, build-macos, build-flatpak, build-aur, build-ps4, build-vita, build-android ]
+    # this fork's release is the PS4 package alone: it waits for that build, and the other
+    # platforms' builds stay a check that doesn't hold it back (a flaky runner on one of them
+    # kept 1.4.8 from publishing)
+    needs: [ build-ps4 ]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -73,6 +76,8 @@ jobs:
       uses: actions/download-artifact@v6
       with:
         path: assets
+        # the PS4 package only: the other builds may still be running
+        pattern: GMCA-PS4-*
     - name: Package Assets
       run: |
         cd assets
@@ -86,7 +91,7 @@ jobs:
         # this fork writes each release's title and notes by hand (gh release create), so the
         # job only attaches the package and leaves them alone
         tag_name: ${{ github.ref_name }}
-        # direct publication: the job only runs after ALL builds succeed,
+        # direct publication: the job only runs after the PS4 build succeeds,
         # and the tag/changelog are validated upstream — as soon as the
         # release exists, the in-app updater sees it (releases/latest ignores drafts)
         draft: false
