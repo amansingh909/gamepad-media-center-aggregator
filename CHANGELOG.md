@@ -9,6 +9,24 @@ prepared with [git-cliff](https://git-cliff.org/) from conventional commits
 hand. For the history of the upstream project this fork is based on, see the
 [Switchfin changelog](https://github.com/dragonflylee/switchfin/blob/dev/CHANGELOG.md).
 
+## [1.4.7] - 2026-11-22
+
+### Fixed
+
+- Brazilian Portuguese subtitles now show up for Stremio movies and series,
+  as "Português (Brasil)" next to "Português". GMCA kept a single Portuguese
+  subtitle, so on some titles the Brazilian one was missing. Latin American
+  and European Spanish, Traditional and bilingual Chinese, Canadian French and
+  Norwegian Nynorsk are listed apart the same way, and each can be picked as
+  the preferred subtitle or audio language.
+- With a preferred subtitle language set, the player turns on one subtitle in
+  that language, the exact variant first.
+- On the PS4, subtitle files next to a video on a USB drive are read, and a
+  USB video started while another video was still opening no longer fails.
+- PS4 in-app updates clean up the update helper as soon as GMCA starts, and an
+  update whose helper stopped partway now shows up as failed on the next
+  launch.
+
 ## [1.4.6] - 2026-11-10
 
 Merged upstream GMCA 1.3.1 and 1.4.0, so everything in them is in the fork
